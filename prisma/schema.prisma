@@ -1,0 +1,327 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SALES
+  SERVICE
+  PARTS
+}
+
+enum Department {
+  SALES
+  SERVICE
+  PARTS
+  FINANCE
+  GENERAL
+}
+
+enum ConversationStatus {
+  OPEN
+  WAITING_ON_CUSTOMER
+  WAITING_ON_STAFF
+  FOLLOW_UP_NEEDED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum MessageKind {
+  SMS
+  MMS
+  NOTE
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+  INTERNAL
+}
+
+enum PreferredContactMethod {
+  SMS
+  PHONE
+  EMAIL
+}
+
+enum VehicleRelationship {
+  OWNED
+  INTERESTED
+  TRADE_IN
+  SERVICE_UNIT
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum OptInEventType {
+  OPT_IN
+  OPT_OUT
+}
+
+enum NotificationType {
+  NEW_INBOUND_MESSAGE
+  CONVERSATION_ASSIGNED
+  CONVERSATION_REASSIGNED
+  FOLLOW_UP_DUE
+  FOLLOW_UP_OVERDUE
+  MESSAGE_FAILED
+  SLA_MISSED
+  UNASSIGNED_CONVERSATION
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  RESOLVED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  role          Role
+  department    Department?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignedConversations Conversation[] @relation("AssignedConversations")
+  sentMessages          Message[]      @relation("SentMessages")
+  assignedTasks         Task[]         @relation("AssignedTasks")
+  notifications         Notification[] @relation("NotificationRecipient")
+  actorNotifications    Notification[] @relation("NotificationActor")
+  auditLogs             AuditLog[]
+}
+
+model Customer {
+  id                     String                 @id @default(cuid())
+  name                   String
+  phone                  String                 @unique
+  email                  String?
+  preferredContactMethod PreferredContactMethod @default(SMS)
+  smsOptedIn             Boolean                @default(true)
+  smsOptedOut            Boolean                @default(false)
+  optedInAt              DateTime?
+  optedOutAt             DateTime?
+  notes                  String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  vehicles      CustomerVehicle[]
+  conversations Conversation[]
+  tasks         Task[]
+  optInEvents   OptInEvent[]
+}
+
+model CustomerVehicle {
+  id           String              @id @default(cuid())
+  customerId   String
+  year         Int
+  make         String
+  model        String
+  vin          String?
+  stockNumber  String?
+  mileage      Int?
+  relationship VehicleRelationship
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Conversation {
+  id             String             @id @default(cuid())
+  customerId     String
+  assignedUserId String?
+  department     Department
+  status         ConversationStatus @default(OPEN)
+  priority       Priority           @default(NORMAL)
+  subject        String?
+  unread         Boolean            @default(false)
+  lastMessageAt  DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedUser User?             @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  messages     Message[]
+  tasks        Task[]
+  tags         ConversationTag[]
+  notifications Notification[]
+
+  @@index([customerId])
+  @@index([assignedUserId])
+  @@index([department, status])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id             String            @id @default(cuid())
+  conversationId String
+  senderUserId   String?
+  direction      MessageDirection
+  kind           MessageKind       @default(SMS)
+  body           String
+  mediaUrl       String?
+  deliveryStatus DeliveryStatus    @default(QUEUED)
+  errorMessage   String?
+  twilioSid      String?           @unique
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User?        @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+  notifications Notification[]
+
+  @@index([conversationId, createdAt])
+}
+
+model Template {
+  id         String     @id @default(cuid())
+  name       String
+  department Department
+  body       String
+  variables  Json
+  active     Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([department, active])
+}
+
+model Task {
+  id             String     @id @default(cuid())
+  title          String
+  description    String?
+  customerId     String
+  conversationId String?
+  assignedUserId String?
+  department     Department
+  dueDate        DateTime
+  priority       Priority   @default(NORMAL)
+  status         TaskStatus @default(OPEN)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  assignedUser User?         @relation("AssignedTasks", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  notifications Notification[]
+
+  @@index([assignedUserId])
+  @@index([customerId])
+  @@index([conversationId])
+  @@index([dueDate, status])
+}
+
+model Tag {
+  id        String            @id @default(cuid())
+  name      String            @unique
+  color     String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  conversations ConversationTag[]
+}
+
+model ConversationTag {
+  conversationId String
+  tagId          String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tag          Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, tagId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+}
+
+model OptInEvent {
+  id         String         @id @default(cuid())
+  customerId String
+  type       OptInEventType
+  source     String
+  messageId  String?
+  createdAt  DateTime       @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+}
+
+model Notification {
+  id             String             @id @default(cuid())
+  type           NotificationType
+  status         NotificationStatus @default(UNREAD)
+  title          String
+  body           String?
+  recipientUserId String?
+  actorUserId    String?
+  conversationId String?
+  taskId         String?
+  messageId      String?
+  department     Department?
+  priority       Priority           @default(NORMAL)
+  dueAt          DateTime?
+  resolvedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  recipientUser User?         @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  actorUser     User?         @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  task          Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  message       Message?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId, status, createdAt])
+  @@index([type, status, createdAt])
+  @@index([department, status, createdAt])
+  @@index([conversationId])
+  @@index([taskId])
+}
