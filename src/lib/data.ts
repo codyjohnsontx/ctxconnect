@@ -1,8 +1,9 @@
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, subDays } from "date-fns";
 import {
   ConversationStatus,
   DeliveryStatus,
   Department,
+  MessageDirection,
   NotificationStatus,
   NotificationType,
   type Prisma,
@@ -10,7 +11,9 @@ import {
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
+import { getIntegrationHealth } from "@/lib/env";
 import { notificationHref, syncOperationalNotifications } from "@/lib/notifications";
+import { scopedTaskWhere } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
 export type AppUser = {
@@ -49,6 +52,15 @@ const activeTaskWhere = {
   status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] },
 } satisfies Prisma.TaskWhereInput;
 
+const dealershipSettingsSelect = {
+  id: true,
+  dealershipName: true,
+  salesPhone: true,
+  servicePhone: true,
+  partsPhone: true,
+  websiteUrl: true,
+} satisfies Prisma.DealershipSettingsSelect;
+
 export function canSeeAll(user: AppUser) {
   return user.role === Role.ADMIN || user.role === Role.MANAGER;
 }
@@ -58,12 +70,27 @@ export function scopedConversationWhere(user: AppUser): Prisma.ConversationWhere
     return {};
   }
 
+  const orFilters: Prisma.ConversationWhereInput[] = [{ assignedUserId: user.id }];
+
+  if (user.department) {
+    orFilters.push({ department: user.department as Department });
+  }
+
   return {
-    OR: [
-      { assignedUserId: user.id },
-      user.department ? { department: user.department as Department } : {},
-    ],
+    OR: orFilters,
   };
+}
+
+async function getOrCreateDealershipSettings() {
+  return prisma.dealershipSettings.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      dealershipName: "CTX MotoWorks",
+    },
+    select: dealershipSettingsSelect,
+  });
 }
 
 function filterWhere(filters: InboxFilters): Prisma.ConversationWhereInput {
@@ -117,7 +144,7 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     AND: [scopedConversationWhere(user), filterWhere(filters)],
   } satisfies Prisma.ConversationWhereInput;
 
-  const [conversations, selectedConversation, users, tags, templates] = await Promise.all([
+  const [conversations, selectedConversation, users, tags, templates, dealershipSettings] = await Promise.all([
     prisma.conversation.findMany({
       where,
       orderBy: [{ unread: "desc" }, { lastMessageAt: "desc" }],
@@ -170,9 +197,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
       where: { active: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
+    getOrCreateDealershipSettings(),
   ]);
 
-  return { conversations, selectedConversation, users, tags, templates };
+  return { conversations, selectedConversation, users, tags, templates, dealershipSettings };
 }
 
 function isCommandCenterFocus(value?: string): value is CommandCenterFocus {
@@ -251,21 +279,15 @@ async function getCommandCenterFocusItems(
     }
     case "dueToday":
     case "overdue": {
+      const taskScope = scopedTaskWhere(user);
       const tasks = await prisma.task.findMany({
         where: {
           AND: [
             activeTaskWhere,
+            taskScope,
             focus === "dueToday"
               ? { dueDate: { gte: todayStart, lte: todayEnd } }
               : { dueDate: { lt: todayStart } },
-            canSeeAll(user)
-              ? {}
-              : {
-                  OR: [
-                    { assignedUserId: user.id },
-                    user.department ? { department: user.department as Department } : {},
-                  ],
-                },
           ],
         },
         orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
@@ -369,14 +391,16 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   const scope = scopedConversationWhere(user);
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
+  const responseWindowStart = subDays(todayStart, 14);
   const selectedFocus = isCommandCenterFocus(focusParam) ? focusParam : undefined;
   const userCanSeeAll = canSeeAll(user);
+  const taskScope = scopedTaskWhere(user);
   const notificationScope: Prisma.NotificationWhereInput = userCanSeeAll
     ? {}
     : {
         OR: [
           { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
+          ...(user.department ? [{ department: user.department as Department }] : []),
         ],
       };
 
@@ -397,6 +421,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     needsAction,
     users,
     volume,
+    responseMessages,
   ] = await Promise.all([
     prisma.conversation.count({ where: { AND: [scope, { unread: true }] } }),
     prisma.conversation.count({
@@ -442,14 +467,12 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     }),
     prisma.task.count({
       where: {
-        status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] },
-        dueDate: { gte: todayStart, lte: todayEnd },
+        AND: [activeTaskWhere, taskScope, { dueDate: { gte: todayStart, lte: todayEnd } }],
       },
     }),
     prisma.task.count({
       where: {
-        status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] },
-        dueDate: { lt: todayStart },
+        AND: [activeTaskWhere, taskScope, { dueDate: { lt: todayStart } }],
       },
     }),
     prisma.conversation.findMany({
@@ -503,7 +526,12 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     prisma.user.findMany({
-      where: { active: true },
+      where: userCanSeeAll
+        ? { active: true }
+        : {
+            id: user.id,
+            active: true,
+          },
       orderBy: { name: "asc" },
       include: {
         assignedConversations: {
@@ -523,9 +551,71 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     prisma.message.count({
       where: {
         createdAt: { gte: todayStart, lte: todayEnd },
+        conversation: scope,
+      },
+    }),
+    prisma.conversation.findMany({
+      where: {
+        AND: [
+          scope,
+          {
+            lastMessageAt: { gte: responseWindowStart },
+            messages: {
+              some: {
+                direction: { in: [MessageDirection.INBOUND, MessageDirection.OUTBOUND] },
+                createdAt: { gte: responseWindowStart },
+              },
+            },
+          },
+        ],
+      },
+      orderBy: { lastMessageAt: "desc" },
+      take: 200,
+      select: {
+        messages: {
+          where: {
+            direction: { in: [MessageDirection.INBOUND, MessageDirection.OUTBOUND] },
+            createdAt: { gte: responseWindowStart },
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            direction: true,
+            createdAt: true,
+          },
+        },
       },
     }),
   ]);
+
+  const responseTimesMs: number[] = [];
+
+  for (const conversation of responseMessages) {
+    let pendingInboundAt: Date | null = null;
+
+    for (const message of conversation.messages) {
+      if (message.direction === MessageDirection.INBOUND) {
+        pendingInboundAt = message.createdAt;
+        continue;
+      }
+
+      if (message.direction === MessageDirection.OUTBOUND && pendingInboundAt) {
+        responseTimesMs.push(message.createdAt.getTime() - pendingInboundAt.getTime());
+        pendingInboundAt = null;
+      }
+    }
+  }
+
+  const averageResponseMs =
+    responseTimesMs.length > 0
+      ? Math.round(responseTimesMs.reduce((sum, value) => sum + value, 0) / responseTimesMs.length)
+      : null;
+
+  const averageResponseTime =
+    averageResponseMs === null
+      ? "No replies yet"
+      : averageResponseMs < 60_000
+        ? "<1m"
+        : `${Math.round(averageResponseMs / 60_000)}m`;
 
   return {
     metrics: {
@@ -539,8 +629,13 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       hotSalesLeads,
       serviceWaiting,
       bikesReady,
-      averageResponseTime: "18m",
+      averageResponseTime,
       messageVolume: volume,
+    },
+    responseHealth: {
+      averageResponseTime,
+      repliedInboundCount: responseTimesMs.length,
+      definition: "Average time from a visible inbound customer SMS to the next outbound staff reply over the last 14 days.",
     },
     visibleConversations,
     latestNotifications: latestNotifications.map((notification) => ({
@@ -574,7 +669,7 @@ export async function getShellData(user: AppUser) {
     : {
         OR: [
           { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
+          ...(user.department ? [{ department: user.department as Department }] : []),
         ],
       };
 
@@ -594,19 +689,19 @@ export async function getShellData(user: AppUser) {
       },
     }),
     prisma.task.count({
-      where: userCanSeeAll
-        ? activeTaskWhere
-        : {
-            AND: [
-              activeTaskWhere,
-              {
-                OR: [
-                  { assignedUserId: user.id },
-                  user.department ? { department: user.department as Department } : {},
-                ],
-              },
-            ],
-          },
+	      where: userCanSeeAll
+	        ? activeTaskWhere
+	        : {
+	            AND: [
+	              activeTaskWhere,
+	              {
+	                OR: [
+	                  { assignedUserId: user.id },
+	                  ...(user.department ? [{ department: user.department as Department }] : []),
+	                ],
+	              },
+	            ],
+	          },
     }),
     prisma.notification.count({
       where: {
@@ -662,14 +757,7 @@ export async function getCustomers(user: AppUser) {
 
 export async function getTasks(user: AppUser) {
   return prisma.task.findMany({
-    where: canSeeAll(user)
-      ? {}
-      : {
-          OR: [
-            { assignedUserId: user.id },
-            user.department ? { department: user.department as Department } : {},
-          ],
-        },
+    where: scopedTaskWhere(user),
     orderBy: [{ status: "asc" }, { dueDate: "asc" }],
     include: {
       customer: true,
@@ -686,7 +774,17 @@ export async function getTemplates() {
 }
 
 export async function getSettingsData() {
-  return prisma.user.findMany({
-    orderBy: [{ role: "asc" }, { name: "asc" }],
-  });
+  const [users, dealershipSettings, health] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: [{ role: "asc" }, { name: "asc" }],
+    }),
+    getOrCreateDealershipSettings(),
+    getIntegrationHealth(),
+  ]);
+
+  return {
+    users,
+    dealershipSettings,
+    health,
+  };
 }

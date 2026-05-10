@@ -5,6 +5,7 @@ import { AlertTriangle, Bell, Bike, Clock3, Inbox, MessageSquare, Send, UserX, U
 import { Badge } from "@/components/ui/badge";
 import { authOptions } from "@/lib/auth";
 import { getCommandCenterData } from "@/lib/data";
+import { isManagerOrAdmin } from "@/lib/permissions";
 import { cn, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -29,15 +30,29 @@ type PageProps = {
 export default async function CommandCenterPage({ searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
   const { focus } = await searchParams;
-  const { metrics, visibleConversations, latestNotifications, selectedFocus, focusItems, needsAction, employeeStats } =
+  const {
+    metrics,
+    responseHealth,
+    visibleConversations,
+    latestNotifications,
+    selectedFocus,
+    focusItems,
+    needsAction,
+    employeeStats,
+  } =
     await getCommandCenterData(session!.user, focus);
   const selectedMetric = metricConfig.find((metric) => metric.key === selectedFocus);
+  const canSeeDealershipRollup = isManagerOrAdmin(session!.user);
 
   return (
     <div className="p-5 lg:p-8">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Command Center</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Daily manager view of what needs attention now.</p>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          {canSeeDealershipRollup
+            ? "Dealership operations view of what needs attention now."
+            : "Your scoped operations view of what needs attention now."}
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -170,48 +185,50 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-zinc-500" />
-              <h2 className="font-semibold">Employee accountability</h2>
+        {canSeeDealershipRollup ? (
+          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-zinc-500" />
+                <h2 className="font-semibold">Employee accountability</h2>
+              </div>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                <tr>
-                  <th className="px-4 py-3">Employee</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Assigned conversations</th>
-                  <th className="px-4 py-3">Open follow-ups</th>
-                  <th className="px-4 py-3">Overdue</th>
-                  <th className="px-4 py-3">Failed SMS</th>
-                  <th className="px-4 py-3">Active alerts</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {employeeStats.map((employee) => (
-                  <tr key={employee.id}>
-                    <td className="px-4 py-3 font-medium">{employee.name}</td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{labelize(employee.role)}</td>
-                    <td className="px-4 py-3">{employee.assignedConversations}</td>
-                    <td className="px-4 py-3">{employee.openFollowUps}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={employee.overdueFollowUps > 0 ? "red" : "green"}>{employee.overdueFollowUps}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={employee.failedMessages > 0 ? "red" : "green"}>{employee.failedMessages}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={employee.activeNotifications > 0 ? "amber" : "green"}>{employee.activeNotifications}</Badge>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-3">Employee</th>
+                    <th className="px-4 py-3">Role</th>
+                    <th className="px-4 py-3">Assigned conversations</th>
+                    <th className="px-4 py-3">Open follow-ups</th>
+                    <th className="px-4 py-3">Overdue</th>
+                    <th className="px-4 py-3">Failed SMS</th>
+                    <th className="px-4 py-3">Active alerts</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {employeeStats.map((employee) => (
+                    <tr key={employee.id}>
+                      <td className="px-4 py-3 font-medium">{employee.name}</td>
+                      <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{labelize(employee.role)}</td>
+                      <td className="px-4 py-3">{employee.assignedConversations}</td>
+                      <td className="px-4 py-3">{employee.openFollowUps}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={employee.overdueFollowUps > 0 ? "red" : "green"}>{employee.overdueFollowUps}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={employee.failedMessages > 0 ? "red" : "green"}>{employee.failedMessages}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={employee.activeNotifications > 0 ? "amber" : "green"}>{employee.activeNotifications}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
@@ -242,8 +259,12 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           <h2 className="font-semibold">Response health</h2>
           <div className="mt-4 space-y-4">
             <div>
-              <div className="text-3xl font-semibold">{metrics.averageResponseTime}</div>
+              <div className="text-3xl font-semibold">{responseHealth.averageResponseTime}</div>
               <div className="text-sm text-zinc-500 dark:text-zinc-400">Average response time</div>
+              <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                {responseHealth.definition} Based on {responseHealth.repliedInboundCount} replied inbound message
+                {responseHealth.repliedInboundCount === 1 ? "" : "s"}.
+              </div>
             </div>
             <div>
               <div className="text-3xl font-semibold">{metrics.messageVolume}</div>
