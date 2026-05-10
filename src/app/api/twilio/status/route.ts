@@ -1,33 +1,38 @@
 import { NextResponse } from "next/server";
-import { DeliveryStatus, NotificationType, Priority } from "@/generated/prisma/client";
+import { DeliveryStatus, MessageDirection, NotificationType, Priority } from "@/generated/prisma/client";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
-
-const statusMap: Record<string, DeliveryStatus> = {
-  queued: DeliveryStatus.QUEUED,
-  sent: DeliveryStatus.SENT,
-  delivered: DeliveryStatus.DELIVERED,
-  failed: DeliveryStatus.FAILED,
-  undelivered: DeliveryStatus.FAILED,
-};
+import { logAuthenticatedTwilioPayloadIssue, twilioStatusMap, verifyTwilioWebhook } from "@/lib/twilio";
 
 export async function POST(request: Request) {
-  const formData = await request.formData();
-  const sid = String(formData.get("MessageSid") ?? "");
-  const status = String(formData.get("MessageStatus") ?? "").toLowerCase();
-  const errorMessage = String(formData.get("ErrorMessage") ?? "");
+  const webhook = await verifyTwilioWebhook(request, "status");
+
+  if (!webhook.ok) {
+    return webhook.response;
+  }
+
+  const sid = webhook.get("MessageSid");
+  const status = webhook.get("MessageStatus").toLowerCase();
+  const errorMessage = webhook.get("ErrorMessage");
 
   if (!sid) {
+    logAuthenticatedTwilioPayloadIssue("status", "missing-message-sid", {
+      url: request.url,
+      status,
+    });
     return new NextResponse("ignored", { status: 200 });
   }
 
-  await prisma.message.updateMany({
-    where: { twilioSid: sid },
-    data: {
-      deliveryStatus: statusMap[status] ?? DeliveryStatus.SENT,
-      errorMessage: errorMessage || null,
-    },
-  });
+  const mappedStatus = twilioStatusMap[status] ?? DeliveryStatus.SENT;
+
+  if (!status || !(status in twilioStatusMap)) {
+    logAuthenticatedTwilioPayloadIssue("status", "unrecognized-message-status", {
+      url: request.url,
+      twilioSid: sid,
+      status,
+      mappedStatus,
+    });
+  }
 
   const message = await prisma.message.findUnique({
     where: { twilioSid: sid },
@@ -36,20 +41,47 @@ export async function POST(request: Request) {
     },
   });
 
-  if (message?.conversation) {
-    if (statusMap[status] === DeliveryStatus.FAILED) {
-      await notifyManagers({
-        type: NotificationType.MESSAGE_FAILED,
-        title: "Message delivery failed",
-        body: `${message.conversation.customer.name}: ${errorMessage || "Twilio reported delivery failure."}`,
-        conversationId: message.conversationId,
-        messageId: message.id,
-        department: message.conversation.department,
-        priority: Priority.HIGH,
-      });
-    } else if (statusMap[status] === DeliveryStatus.DELIVERED) {
-      await resolveConversationNotifications(message.conversationId, [NotificationType.MESSAGE_FAILED]);
-    }
+  if (!message || message.direction !== MessageDirection.OUTBOUND || !message.conversation) {
+    logAuthenticatedTwilioPayloadIssue("status", "unknown-message-sid", {
+      url: request.url,
+      twilioSid: sid,
+      status,
+    });
+    return new NextResponse("ignored", { status: 200 });
+  }
+
+  const normalizedErrorMessage = errorMessage || null;
+  const isUnchanged =
+    message.deliveryStatus === mappedStatus && (message.errorMessage ?? null) === normalizedErrorMessage;
+
+  if (isUnchanged) {
+    return new NextResponse("ok", { status: 200 });
+  }
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: {
+      deliveryStatus: mappedStatus,
+      errorMessage: normalizedErrorMessage,
+    },
+  });
+
+  const enteredFailed = message.deliveryStatus !== DeliveryStatus.FAILED && mappedStatus === DeliveryStatus.FAILED;
+  const enteredDelivered =
+    message.deliveryStatus !== DeliveryStatus.DELIVERED && mappedStatus === DeliveryStatus.DELIVERED;
+
+  if (enteredFailed) {
+    await notifyManagers({
+      type: NotificationType.MESSAGE_FAILED,
+      title: "Message delivery failed",
+      body: `${message.conversation.customer.name}: ${errorMessage || "Twilio reported delivery failure."}`,
+      conversationId: message.conversationId,
+      messageId: message.id,
+      department: message.conversation.department,
+      priority: Priority.HIGH,
+    });
+  } else if (enteredDelivered) {
+    await resolveConversationNotifications(message.conversationId, [NotificationType.MESSAGE_FAILED]);
   }
 
   return new NextResponse("ok", { status: 200 });

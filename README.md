@@ -124,6 +124,8 @@ Preview / production command:
 pnpm prisma:migrate:deploy
 ```
 
+Vercel deployment and Twilio webhook setup details live in [docs/vercel-twilio-deploy.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/vercel-twilio-deploy.md:1).
+
 ## Twilio
 
 Routes:
@@ -134,6 +136,23 @@ Routes:
 
 Production SMS in the US requires approved A2P 10DLC registration before sending dealership traffic.
 
+Webhook verification is strict in local, preview, and production:
+
+- `POST /api/twilio/inbound` and `POST /api/twilio/status` only accept Twilio-signed `application/x-www-form-urlencoded` requests with a valid `X-Twilio-Signature`.
+- Signature verification uses the existing `TWILIO_AUTH_TOKEN` and the exact incoming `request.url`. There is no separate signing URL env.
+- If `TWILIO_AUTH_TOKEN` is missing, webhook routes return `503` and do not mutate app data.
+- If the Twilio signature is missing or invalid, webhook routes return `403` and do not mutate app data.
+- Signed but unusable payloads, including incomplete inbound messages or unknown outbound status SIDs, return `200 ignored`.
+
+Local and preview webhook setup:
+
+- Use a real public tunnel or public callback URL. Twilio cannot sign requests against `localhost`.
+- Point Twilio’s inbound and status callback URLs at that public URL.
+- Ensure the URL seen by the app matches the signed request URL exactly, including protocol and host, or verification will fail.
+- For manual replay testing, reuse the original signed payload and `MessageSid` to confirm duplicate inbound/status requests return `200` without creating duplicate rows or notifications.
+- A step-by-step local validation runbook and replay utility live in [docs/twilio-local-verification.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/twilio-local-verification.md:1). Use `pnpm twilio:replay` to send valid, missing-signature, or invalid-signature Twilio form posts at the public webhook URL.
+- For deployed webhook testing on Vercel instead of a local tunnel, use [docs/vercel-twilio-deploy.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/vercel-twilio-deploy.md:1).
+
 ## Operations Notes
 
 - `/settings` is available to `ADMIN` and `MANAGER`.
@@ -143,6 +162,6 @@ Production SMS in the US requires approved A2P 10DLC registration before sending
 ## Out Of Scope In This Slice
 
 - `Stripe` payment flows
-- Twilio or Stripe signature verification hardening
+- Stripe signature verification hardening
 - CI-driven migration automation
 - Branch-per-preview Neon automation
