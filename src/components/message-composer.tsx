@@ -120,6 +120,11 @@ export function MessageComposer({
           <SendHorizonal className="h-4 w-4" />
         </Button>
       </div>
+      {disabled ? (
+        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+          This customer has opted out with STOP. They must text START before staff can send again.
+        </p>
+      ) : null}
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
     </div>
   );

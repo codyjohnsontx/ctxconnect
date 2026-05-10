@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hash } from "bcryptjs";
 import {
@@ -17,20 +16,23 @@ import {
   TaskStatus,
   VehicleRelationship,
 } from "../src/generated/prisma/client";
+import {
+  defaultDealershipSettings,
+  defaultTagData,
+  defaultTemplateData,
+} from "./baseline-data";
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 
 if (!connectionString) {
-  throw new Error("DATABASE_URL is required to seed CTX Chat.");
+  throw new Error("DIRECT_URL or DATABASE_URL is required to seed CTX Chat.");
 }
 
 const prisma = new PrismaClient({
-  adapter: connectionString.startsWith("file:")
-    ? new PrismaBetterSqlite3({ url: connectionString })
-    : new PrismaPg({ connectionString }),
+  adapter: new PrismaPg({ connectionString }),
 });
 
-const dealershipName = "CTX MotoWorks";
+const dealershipName = defaultDealershipSettings.dealershipName;
 const demoPassword = "ctxdemo123";
 
 const hoursFromNow = (hours: number) =>
@@ -41,6 +43,12 @@ const daysFromNow = (days: number) =>
 
 async function main() {
   const passwordHash = await hash(demoPassword, 12);
+
+  await prisma.dealershipSettings.upsert({
+    where: { id: defaultDealershipSettings.id },
+    update: {},
+    create: defaultDealershipSettings,
+  });
 
   const users = await Promise.all([
     prisma.user.upsert({
@@ -104,17 +112,8 @@ async function main() {
 
   await prisma.notification.deleteMany();
 
-  const tagData = [
-    ["Hot lead", "#dc2626"],
-    ["Pickup ready", "#16a34a"],
-    ["Needs approval", "#d97706"],
-    ["Financing", "#2563eb"],
-    ["Trade-in", "#7c3aed"],
-    ["Parts delay", "#0891b2"],
-  ] as const;
-
   const tags = new Map<string, string>();
-  for (const [name, color] of tagData) {
+  for (const [name, color] of defaultTagData) {
     const tag = await prisma.tag.upsert({
       where: { name },
       update: { color },
@@ -125,110 +124,7 @@ async function main() {
 
   await prisma.template.deleteMany();
   await prisma.template.createMany({
-    data: [
-      {
-        name: "New lead follow-up",
-        department: Department.SALES,
-        body: "Hi {{customerName}}, this is {{advisorName}} at {{dealershipName}}. I saw your interest in the {{unit}}. Are you free today to talk details or schedule a test ride?",
-        variables: ["customerName", "advisorName", "dealershipName", "unit"],
-      },
-      {
-        name: "Trade-in follow-up",
-        department: Department.SALES,
-        body: "Hi {{customerName}}, we can take a closer look at your trade-in today. Send a few photos and the VIN when you have a minute.",
-        variables: ["customerName"],
-      },
-      {
-        name: "Test ride scheduling",
-        department: Department.SALES,
-        body: "Hi {{customerName}}, we can schedule your test ride for {{appointmentDate}}. Please bring your motorcycle endorsement and insurance card.",
-        variables: ["customerName", "appointmentDate"],
-      },
-      {
-        name: "Still interested check-in",
-        department: Department.SALES,
-        body: "Hi {{customerName}}, checking in to see if you are still interested in the {{unit}}. I can send updated availability and pricing.",
-        variables: ["customerName", "unit"],
-      },
-      {
-        name: "Vehicle availability reply",
-        department: Department.SALES,
-        body: "Good news, {{customerName}}. The {{unit}} is currently available. Would you like me to hold time for you to see it?",
-        variables: ["customerName", "unit"],
-      },
-      {
-        name: "Appointment confirmation",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, your service appointment is confirmed for {{appointmentDate}} with {{advisorName}}.",
-        variables: ["customerName", "appointmentDate", "advisorName"],
-      },
-      {
-        name: "Bike checked in",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, your {{unit}} is checked in. We will update you after the inspection.",
-        variables: ["customerName", "unit"],
-      },
-      {
-        name: "Estimate ready",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, your estimate is ready. Reply here or call us and we can walk through the RO.",
-        variables: ["customerName"],
-      },
-      {
-        name: "Approval needed",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, we need your approval before continuing service on your {{unit}}. Reply APPROVE or call {{advisorName}}.",
-        variables: ["customerName", "unit", "advisorName"],
-      },
-      {
-        name: "Bike ready for pickup",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, your {{unit}} is ready for pickup today. We are here until {{pickupTime}}.",
-        variables: ["customerName", "unit", "pickupTime"],
-      },
-      {
-        name: "Delayed parts update",
-        department: Department.SERVICE,
-        body: "Hi {{customerName}}, parts for your {{unit}} are delayed. We will update you as soon as the shipment lands.",
-        variables: ["customerName", "unit"],
-      },
-      {
-        name: "Parts arrived",
-        department: Department.PARTS,
-        body: "Hi {{customerName}}, your parts have arrived at {{dealershipName}} and are ready for pickup.",
-        variables: ["customerName", "dealershipName"],
-      },
-      {
-        name: "Parts backordered",
-        department: Department.PARTS,
-        body: "Hi {{customerName}}, the part is currently backordered. We will keep the order open and text you when it ships.",
-        variables: ["customerName"],
-      },
-      {
-        name: "Special order follow-up",
-        department: Department.PARTS,
-        body: "Hi {{customerName}}, checking in on your special order. Reply if you want us to keep it active or make any changes.",
-        variables: ["customerName"],
-      },
-      {
-        name: "Missed call response",
-        department: Department.GENERAL,
-        body: "Hi {{customerName}}, sorry we missed your call. How can we help today?",
-        variables: ["customerName"],
-      },
-      {
-        name: "Review request",
-        department: Department.GENERAL,
-        body: "Hi {{customerName}}, thanks for choosing {{dealershipName}}. If we earned it, we would appreciate a quick review.",
-        variables: ["customerName", "dealershipName"],
-      },
-      {
-        name: "Holiday hours",
-        department: Department.GENERAL,
-        body: "Hi {{customerName}}, {{dealershipName}} holiday hours are updated. Reply here if you need sales, service, or parts help.",
-        variables: ["customerName", "dealershipName"],
-      },
-    ],
+    data: defaultTemplateData,
   });
 
   const customerData = [

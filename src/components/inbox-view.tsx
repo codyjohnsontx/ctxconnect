@@ -52,6 +52,7 @@ export function InboxView({
   users,
   tags,
   templates,
+  dealershipSettings,
   searchParams,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
@@ -250,7 +251,7 @@ export function InboxView({
               conversationId={selectedConversation.id}
               customerName={selectedConversation.customer.name}
               advisorName={advisorName}
-              dealershipName="CTX MotoWorks"
+              dealershipName={dealershipSettings.dealershipName}
               unit={unit}
               department={selectedConversation.department}
               templates={templates}
@@ -327,6 +328,10 @@ export function InboxView({
                   <div>
                     <div className="text-xs text-zinc-500 dark:text-zinc-400">Preferred contact</div>
                     <div>{labelize(selectedConversation.customer.preferredContactMethod)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">SMS consent</div>
+                    <div>{selectedConversation.customer.smsOptedOut ? "Opted out via STOP" : "Eligible to receive SMS"}</div>
                   </div>
                   <div>
                     <div className="text-xs text-zinc-500 dark:text-zinc-400">Notes</div>

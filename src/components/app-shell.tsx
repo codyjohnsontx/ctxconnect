@@ -43,6 +43,7 @@ type AppShellProps = {
 
 export async function AppShell({ children, user, shellData }: AppShellProps) {
   const pathname = (await headers()).get("x-current-path") ?? "";
+  const visibleNavItems = navItems.filter((item) => item.href !== "/settings" || user.role === "ADMIN" || user.role === "MANAGER");
 
   return (
     <div className="min-h-dvh bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
@@ -60,7 +61,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
             const count = item.countKey ? shellData.counts[item.countKey] : 0;
@@ -129,7 +130,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
       <main className="min-h-dvh pb-20 lg:pl-64 lg:pb-0">{children}</main>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = pathname.startsWith(item.href);
           const count = item.countKey ? shellData.counts[item.countKey] : 0;

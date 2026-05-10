@@ -1,5 +1,6 @@
 "use server";
 
+import { hash } from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
@@ -14,6 +15,7 @@ import {
   TaskStatus,
   NotificationType,
   NotificationStatus,
+  Role,
 } from "@/generated/prisma/client";
 import {
   notifyAssignee,
@@ -21,6 +23,7 @@ import {
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
+import { requireAdmin, requireConversationAccess } from "@/lib/permissions";
 
 async function requireSessionUser() {
   const session = await getServerSession(authOptions);
@@ -41,8 +44,8 @@ export async function updateConversation(formData: FormData) {
   const priority = String(formData.get("priority") ?? "");
   const nextAssignedUserId = assignedUserId === "unassigned" ? null : assignedUserId;
 
-  const previous = await prisma.conversation.findUnique({
-    where: { id: conversationId },
+  const previous = await prisma.conversation.findFirst({
+    where: { id: (await requireConversationAccess(user, conversationId)).id },
     include: {
       customer: true,
       assignedUser: true,
@@ -128,6 +131,8 @@ export async function addInternalNote(formData: FormData) {
     return;
   }
 
+  await requireConversationAccess(user, conversationId);
+
   await prisma.message.create({
     data: {
       conversationId,
@@ -151,6 +156,7 @@ export async function addInternalNote(formData: FormData) {
 }
 
 export async function createTask(formData: FormData) {
+  const user = await requireSessionUser();
   const customerId = String(formData.get("customerId") ?? "");
   const conversationId = String(formData.get("conversationId") ?? "");
   const title = String(formData.get("title") ?? "").trim();
@@ -162,6 +168,14 @@ export async function createTask(formData: FormData) {
 
   if (!title || !customerId || !department || !dueDate) {
     return;
+  }
+
+  if (conversationId) {
+    const conversation = await requireConversationAccess(user, conversationId);
+
+    if (conversation.customerId !== customerId) {
+      throw new Error("Conversation and customer do not match.");
+    }
   }
 
   const task = await prisma.task.create({
@@ -184,6 +198,16 @@ export async function createTask(formData: FormData) {
       data: { status: ConversationStatus.FOLLOW_UP_NEEDED },
     });
   }
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "task.create",
+      entity: "Task",
+      entityId: task.id,
+      metadata: { customerId, conversationId, assignedUserId, department, priority, dueDate },
+    },
+  });
 
   const notification = {
     type: NotificationType.FOLLOW_UP_DUE,
@@ -211,8 +235,26 @@ export async function createTask(formData: FormData) {
 }
 
 export async function updateTaskStatus(formData: FormData) {
+  const user = await requireSessionUser();
   const taskId = String(formData.get("taskId") ?? "");
   const status = String(formData.get("status") ?? "");
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+  });
+
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (
+    user.role !== Role.ADMIN &&
+    user.role !== Role.MANAGER &&
+    task.assignedUserId !== user.id &&
+    task.department !== user.department
+  ) {
+    throw new Error("Task not found or access denied.");
+  }
 
   await prisma.task.update({
     where: { id: taskId },
@@ -228,7 +270,168 @@ export async function updateTaskStatus(formData: FormData) {
     });
   }
 
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "task.updateStatus",
+      entity: "Task",
+      entityId: taskId,
+      metadata: { status },
+    },
+  });
+
   revalidatePath("/tasks");
   revalidatePath("/inbox");
   revalidatePath("/command-center");
+}
+
+export async function createStaffUser(formData: FormData) {
+  const user = await requireSessionUser();
+  requireAdmin(user);
+
+  const name = String(formData.get("name") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "").trim();
+  const role = String(formData.get("role") ?? "") as Role;
+  const departmentValue = String(formData.get("department") ?? "").trim();
+
+  if (!name || !email || !password || !role) {
+    throw new Error("Name, email, password, and role are required.");
+  }
+
+  const passwordHash = await hash(password, 12);
+  const department = departmentValue ? (departmentValue as Department) : null;
+
+  const created = await prisma.user.create({
+    data: {
+      name,
+      email,
+      passwordHash,
+      role,
+      department,
+      active: true,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "user.create",
+      entity: "User",
+      entityId: created.id,
+      metadata: { email, role, department },
+    },
+  });
+
+  revalidatePath("/settings");
+}
+
+export async function updateStaffUserStatus(formData: FormData) {
+  const user = await requireSessionUser();
+  requireAdmin(user);
+
+  const targetUserId = String(formData.get("userId") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+
+  if (!targetUserId) {
+    throw new Error("User is required.");
+  }
+
+  if (targetUserId === user.id && !active) {
+    throw new Error("You cannot deactivate your own account.");
+  }
+
+  await prisma.user.update({
+    where: { id: targetUserId },
+    data: { active },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "user.updateStatus",
+      entity: "User",
+      entityId: targetUserId,
+      metadata: { active },
+    },
+  });
+
+  revalidatePath("/settings");
+}
+
+export async function resetStaffPassword(formData: FormData) {
+  const user = await requireSessionUser();
+  requireAdmin(user);
+
+  const targetUserId = String(formData.get("userId") ?? "");
+  const password = String(formData.get("password") ?? "").trim();
+
+  if (!targetUserId || password.length < 8) {
+    throw new Error("A password of at least 8 characters is required.");
+  }
+
+  const passwordHash = await hash(password, 12);
+
+  await prisma.user.update({
+    where: { id: targetUserId },
+    data: { passwordHash },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "user.resetPassword",
+      entity: "User",
+      entityId: targetUserId,
+    },
+  });
+
+  revalidatePath("/settings");
+}
+
+export async function updateDealershipSettings(formData: FormData) {
+  const user = await requireSessionUser();
+  requireAdmin(user);
+
+  const dealershipName = String(formData.get("dealershipName") ?? "").trim();
+  const salesPhone = String(formData.get("salesPhone") ?? "").trim();
+  const servicePhone = String(formData.get("servicePhone") ?? "").trim();
+  const partsPhone = String(formData.get("partsPhone") ?? "").trim();
+  const websiteUrl = String(formData.get("websiteUrl") ?? "").trim();
+
+  if (!dealershipName) {
+    throw new Error("Dealership name is required.");
+  }
+
+  await prisma.dealershipSettings.upsert({
+    where: { id: "default" },
+    update: {
+      dealershipName,
+      salesPhone: salesPhone || null,
+      servicePhone: servicePhone || null,
+      partsPhone: partsPhone || null,
+      websiteUrl: websiteUrl || null,
+    },
+    create: {
+      id: "default",
+      dealershipName,
+      salesPhone: salesPhone || null,
+      servicePhone: servicePhone || null,
+      partsPhone: partsPhone || null,
+      websiteUrl: websiteUrl || null,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "dealershipSettings.update",
+      entity: "DealershipSettings",
+      entityId: "default",
+      metadata: { dealershipName, salesPhone, servicePhone, partsPhone, websiteUrl },
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
 }

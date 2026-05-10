@@ -3,8 +3,10 @@ import { getServerSession } from "next-auth";
 import twilio from "twilio";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
+import { getTwilioConfig } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, Priority } from "@/generated/prisma/client";
+import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 
 const sendSchema = z.object({
@@ -25,10 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid message payload." }, { status: 400 });
   }
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: parsed.data.conversationId },
-    include: { customer: true },
-  });
+  const conversation = await requireConversationAccess(session.user, parsed.data.conversationId).catch(() => null);
 
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
@@ -49,33 +48,33 @@ export async function POST(request: Request) {
     },
   });
 
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  const { accountSid, authToken, phoneNumber, messagingServiceSid, isConfigured } = getTwilioConfig();
 
   // Compliance: production SMS traffic in the US requires approved A2P 10DLC
   // registration for the dealership brand/campaign before this route is used.
-  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
+  if (!isConfigured || !accountSid || !authToken) {
     await prisma.message.update({
       where: { id: message.id },
       data: {
         deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: "Twilio credentials are not configured.",
+        errorMessage: "Twilio configuration is incomplete. Review Settings > Integration health.",
       },
     });
 
     await notifyManagers({
       type: NotificationType.MESSAGE_FAILED,
       title: "Message failed",
-      body: `${conversation.customer.name}: Twilio credentials are not configured.`,
+      body: `${conversation.customer.name}: Twilio configuration is incomplete.`,
       conversationId: conversation.id,
       messageId: message.id,
       department: conversation.department,
       priority: Priority.HIGH,
     });
 
-    return NextResponse.json({ error: "Twilio credentials are not configured." }, { status: 503 });
+    return NextResponse.json(
+      { error: "Twilio configuration is incomplete. Review Settings > Integration health." },
+      { status: 503 },
+    );
   }
 
   try {
@@ -83,7 +82,7 @@ export async function POST(request: Request) {
     const sent = await client.messages.create({
       body: parsed.data.body,
       to: conversation.customer.phone,
-      ...(messagingServiceSid ? { messagingServiceSid } : { from }),
+      ...(messagingServiceSid ? { messagingServiceSid } : { from: phoneNumber }),
     });
 
     await prisma.$transaction([
