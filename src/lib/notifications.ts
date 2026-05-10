@@ -14,6 +14,8 @@ import { prisma } from "@/lib/prisma";
 import type { AppUser } from "@/lib/data";
 import { labelize } from "@/lib/utils";
 
+type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
+
 const activeNotificationWhere = {
   status: { in: [NotificationStatus.UNREAD, NotificationStatus.READ] },
 } satisfies Prisma.NotificationWhereInput;
@@ -52,8 +54,11 @@ export function notificationHref(notification: {
   return "/command-center";
 }
 
-async function createIfMissing(data: Prisma.NotificationUncheckedCreateInput) {
-  const existing = await prisma.notification.findFirst({
+async function createIfMissingWithClient(
+  client: NotificationDbClient,
+  data: Prisma.NotificationUncheckedCreateInput,
+) {
+  const existing = await client.notification.findFirst({
     where: {
       type: data.type,
       recipientUserId: data.recipientUserId ?? null,
@@ -68,18 +73,21 @@ async function createIfMissing(data: Prisma.NotificationUncheckedCreateInput) {
     return existing;
   }
 
-  return prisma.notification.create({ data });
+  return client.notification.create({ data });
 }
 
-export async function notifyManagers(data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">) {
-  const managers = await prisma.user.findMany({
+async function notifyManagersWithClient(
+  client: NotificationDbClient,
+  data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">,
+) {
+  const managers = await client.user.findMany({
     where: managerWhere,
     select: { id: true },
   });
 
   await Promise.all(
     managers.map((manager) =>
-      createIfMissing({
+      createIfMissingWithClient(client, {
         ...data,
         recipientUserId: manager.id,
       }),
@@ -87,16 +95,20 @@ export async function notifyManagers(data: Omit<Prisma.NotificationUncheckedCrea
   );
 }
 
-export async function notifyAssignee(data: Prisma.NotificationUncheckedCreateInput) {
+async function notifyAssigneeWithClient(client: NotificationDbClient, data: Prisma.NotificationUncheckedCreateInput) {
   if (!data.recipientUserId) {
     return;
   }
 
-  await createIfMissing(data);
+  await createIfMissingWithClient(client, data);
 }
 
-export async function resolveConversationNotifications(conversationId: string, types?: NotificationType[]) {
-  await prisma.notification.updateMany({
+async function resolveConversationNotificationsWithClient(
+  client: NotificationDbClient,
+  conversationId: string,
+  types?: NotificationType[],
+) {
+  await client.notification.updateMany({
     where: {
       conversationId,
       status: { not: NotificationStatus.RESOLVED },
@@ -107,6 +119,37 @@ export async function resolveConversationNotifications(conversationId: string, t
       resolvedAt: new Date(),
     },
   });
+}
+
+export async function notifyManagers(data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">) {
+  await notifyManagersWithClient(prisma, data);
+}
+
+export async function notifyAssignee(data: Prisma.NotificationUncheckedCreateInput) {
+  await notifyAssigneeWithClient(prisma, data);
+}
+
+export async function resolveConversationNotifications(conversationId: string, types?: NotificationType[]) {
+  await resolveConversationNotificationsWithClient(prisma, conversationId, types);
+}
+
+export async function notifyManagersTx(
+  client: Prisma.TransactionClient,
+  data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">,
+) {
+  await notifyManagersWithClient(client, data);
+}
+
+export async function notifyAssigneeTx(client: Prisma.TransactionClient, data: Prisma.NotificationUncheckedCreateInput) {
+  await notifyAssigneeWithClient(client, data);
+}
+
+export async function resolveConversationNotificationsTx(
+  client: Prisma.TransactionClient,
+  conversationId: string,
+  types?: NotificationType[],
+) {
+  await resolveConversationNotificationsWithClient(client, conversationId, types);
 }
 
 export async function resolveTaskNotifications(taskId: string) {

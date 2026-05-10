@@ -135,6 +135,6 @@ This slice explicitly defers:
 
 - `Stripe` payment collection flows
 - Stripe data model expansion
-- Twilio and Stripe signature verification hardening
+- Stripe signature verification hardening
 - CI automation for running migrations
 - per-preview Neon branch automation
