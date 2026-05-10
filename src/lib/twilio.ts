@@ -57,6 +57,21 @@ export async function verifyTwilioWebhook(request: Request, route: "inbound" | "
     };
   }
 
+  const contentType = request.headers.get("content-type")?.trim() ?? "";
+
+  if (!contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+    logTwilioWebhook("warn", "invalid-content-type", {
+      route,
+      url: request.url,
+      method: request.method,
+      contentType,
+    });
+    return {
+      ok: false,
+      response: new Response("unsupported media type", { status: 415 }),
+    };
+  }
+
   const body = await request.text();
   const params = new URLSearchParams(body);
   const fields = Object.fromEntries(params.entries());

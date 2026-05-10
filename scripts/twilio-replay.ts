@@ -34,6 +34,14 @@ Examples:
 `);
 }
 
+function requireOptionValue(flag: string, value: string | undefined) {
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Expected a value after ${flag}.`);
+  }
+
+  return value;
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     url: "",
@@ -51,19 +59,19 @@ function parseArgs(argv: string[]): CliOptions {
     }
 
     if (arg === "--url") {
-      options.url = next ?? "";
+      options.url = requireOptionValue("--url", next);
       index += 1;
       continue;
     }
 
     if (arg === "--auth-token") {
-      options.authToken = next ?? "";
+      options.authToken = requireOptionValue("--auth-token", next);
       index += 1;
       continue;
     }
 
     if (arg === "--payload-file") {
-      options.payloadFile = next ?? "";
+      options.payloadFile = requireOptionValue("--payload-file", next);
       index += 1;
       continue;
     }

@@ -64,32 +64,32 @@ And similarly:
 ### Preview
 
 1. Set preview envs in Vercel.
-2. Run migrations against the preview `DIRECT_URL`:
+1. Run migrations against the preview `DIRECT_URL`:
 
 ```bash
 pnpm prisma:migrate:deploy
 ```
 
-3. Deploy or redeploy the Vercel project.
-4. Open `/settings` on the preview URL and confirm database, auth, app URL, and Twilio all show healthy.
+1. Deploy or redeploy the Vercel project.
+1. Open `/settings` on the preview URL and confirm database, auth, app URL, and Twilio all show healthy.
 
 ### Production
 
 1. Set production envs in Vercel.
-2. Run migrations against the production `DIRECT_URL`:
+1. Run migrations against the production `DIRECT_URL`:
 
 ```bash
 pnpm prisma:migrate:deploy
 ```
 
-3. If the production database is brand new, run:
+1. If the production database is brand new, run:
 
 ```bash
 pnpm bootstrap:prod
 ```
 
-4. Deploy or redeploy production.
-5. Sign in with the bootstrap admin account and confirm `/settings` is healthy.
+1. Deploy or redeploy production.
+1. Sign in with the bootstrap admin account and confirm `/settings` is healthy.
 
 ## Twilio Webhook Values
 
@@ -108,10 +108,10 @@ After deployment:
    - `Twilio` is healthy
    - `Public app URL` is healthy
    - no unexpected auth or database failures appear
-2. Send a real inbound SMS and confirm customer/conversation/message creation.
-3. Send an outbound SMS from the app and confirm a `twilioSid` is stored.
-4. Confirm Twilio requests the deployed `/api/twilio/status` URL.
-5. Run the replay checks from [twilio-local-verification.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/twilio-local-verification.md:1), but replace the tunnel URL with the Vercel deployment URL.
+1. Send a real inbound SMS and confirm customer/conversation/message creation.
+1. Send an outbound SMS from the app and confirm a `twilioSid` is stored.
+1. Confirm Twilio requests the deployed `/api/twilio/status` URL.
+1. Run the replay checks from [twilio-local-verification.md](./twilio-local-verification.md), but replace the tunnel URL with the Vercel deployment URL.
 
 ## Failure Cases To Watch
 

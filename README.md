@@ -124,7 +124,7 @@ Preview / production command:
 pnpm prisma:migrate:deploy
 ```
 
-Vercel deployment and Twilio webhook setup details live in [docs/vercel-twilio-deploy.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/vercel-twilio-deploy.md:1).
+Vercel deployment and Twilio webhook setup details live in [docs/vercel-twilio-deploy.md](docs/vercel-twilio-deploy.md).
 
 ## Twilio
 
@@ -150,8 +150,8 @@ Local and preview webhook setup:
 - Point Twilio’s inbound and status callback URLs at that public URL.
 - Ensure the URL seen by the app matches the signed request URL exactly, including protocol and host, or verification will fail.
 - For manual replay testing, reuse the original signed payload and `MessageSid` to confirm duplicate inbound/status requests return `200` without creating duplicate rows or notifications.
-- A step-by-step local validation runbook and replay utility live in [docs/twilio-local-verification.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/twilio-local-verification.md:1). Use `pnpm twilio:replay` to send valid, missing-signature, or invalid-signature Twilio form posts at the public webhook URL.
-- For deployed webhook testing on Vercel instead of a local tunnel, use [docs/vercel-twilio-deploy.md](/Users/codypjohnson/Desktop/Coding/ctxChat/docs/vercel-twilio-deploy.md:1).
+- A step-by-step local validation runbook and replay utility live in [docs/twilio-local-verification.md](docs/twilio-local-verification.md). Use `pnpm twilio:replay` to send valid, missing-signature, or invalid-signature Twilio form posts at the public webhook URL.
+- For deployed webhook testing on Vercel instead of a local tunnel, use [docs/vercel-twilio-deploy.md](docs/vercel-twilio-deploy.md).
 
 ## Operations Notes
 

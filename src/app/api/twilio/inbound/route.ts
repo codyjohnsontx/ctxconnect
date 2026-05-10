@@ -12,8 +12,8 @@ import {
   Priority,
 } from "@/generated/prisma/client";
 import { isStartMessage, isStopMessage, normalizePhone } from "@/lib/phone";
+import { notifyAssigneeTx, notifyManagersTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
-import { notifyAssignee, notifyManagers } from "@/lib/notifications";
 import { logAuthenticatedTwilioPayloadIssue, verifyTwilioWebhook } from "@/lib/twilio";
 
 export async function POST(request: Request) {
@@ -46,18 +46,19 @@ export async function POST(request: Request) {
     return new NextResponse("ok", { status: 200 });
   }
 
-  if (!from || !body) {
+  if (!from || (!body && numMedia === 0)) {
     logAuthenticatedTwilioPayloadIssue("inbound", "incomplete-payload", {
       url: request.url,
       twilioSid,
       hasFrom: Boolean(from),
       hasBody: Boolean(body),
+      numMedia,
     });
     return new NextResponse("ignored", { status: 200 });
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.upsert({
         where: { phone: from },
         update: {},
@@ -145,38 +146,29 @@ export async function POST(request: Request) {
         },
       });
 
-      return {
-        customerName: customer.name,
-        conversationId: conversation.id,
-        assignedUserId: conversation.assignedUserId,
-        department: conversation.department,
-        priority: conversation.priority,
-        messageId: message.id,
-      };
+      if (conversation.assignedUserId) {
+        await notifyAssigneeTx(tx, {
+          type: NotificationType.NEW_INBOUND_MESSAGE,
+          title: "New customer message",
+          body: `${customer.name}: ${body}`,
+          recipientUserId: conversation.assignedUserId,
+          conversationId: conversation.id,
+          messageId: message.id,
+          department: conversation.department,
+          priority: conversation.priority,
+        });
+      } else {
+        await notifyManagersTx(tx, {
+          type: NotificationType.UNASSIGNED_CONVERSATION,
+          title: "New unassigned customer message",
+          body: `${customer.name}: ${body}`,
+          conversationId: conversation.id,
+          messageId: message.id,
+          department: conversation.department,
+          priority: Priority.HIGH,
+        });
+      }
     });
-
-    if (result.assignedUserId) {
-      await notifyAssignee({
-        type: NotificationType.NEW_INBOUND_MESSAGE,
-        title: "New customer message",
-        body: `${result.customerName}: ${body}`,
-        recipientUserId: result.assignedUserId,
-        conversationId: result.conversationId,
-        messageId: result.messageId,
-        department: result.department,
-        priority: result.priority,
-      });
-    } else {
-      await notifyManagers({
-        type: NotificationType.UNASSIGNED_CONVERSATION,
-        title: "New unassigned customer message",
-        body: `${result.customerName}: ${body}`,
-        conversationId: result.conversationId,
-        messageId: result.messageId,
-        department: result.department,
-        priority: Priority.HIGH,
-      });
-    }
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
