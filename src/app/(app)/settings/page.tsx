@@ -67,7 +67,7 @@ export default async function SettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="password">Temporary password</Label>
-                  <Input id="password" name="password" minLength={8} required />
+                  <Input id="password" name="password" type="password" minLength={8} required />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="role">Role</Label>
@@ -124,7 +124,19 @@ export default async function SettingsPage() {
                         </form>
                         <form action={resetStaffPassword} className="flex gap-2">
                           <input type="hidden" name="userId" value={user.id} />
-                          <Input name="password" minLength={8} placeholder="New password" required />
+                          <div className="w-full space-y-1.5">
+                            <Label htmlFor={`reset-password-${user.id}`} className="sr-only">
+                              New password for {user.name}
+                            </Label>
+                            <Input
+                              id={`reset-password-${user.id}`}
+                              name="password"
+                              type="password"
+                              minLength={8}
+                              placeholder="New password"
+                              required
+                            />
+                          </div>
                           <Button type="submit" variant="secondary">
                             Reset
                           </Button>

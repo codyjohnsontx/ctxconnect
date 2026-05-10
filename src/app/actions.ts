@@ -23,7 +23,7 @@ import {
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
-import { requireAdmin, requireConversationAccess } from "@/lib/permissions";
+import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
 
 async function requireSessionUser() {
   const session = await getServerSession(authOptions);
@@ -176,6 +176,12 @@ export async function createTask(formData: FormData) {
     if (conversation.customerId !== customerId) {
       throw new Error("Conversation and customer do not match.");
     }
+  } else {
+    await requireCustomerAccess(user, customerId);
+
+    if (user.role !== Role.ADMIN && user.role !== Role.MANAGER && user.department !== department) {
+      throw new Error("Department access denied.");
+    }
   }
 
   const task = await prisma.task.create({
@@ -297,6 +303,10 @@ export async function createStaffUser(formData: FormData) {
 
   if (!name || !email || !password || !role) {
     throw new Error("Name, email, password, and role are required.");
+  }
+
+  if (password.length < 8) {
+    throw new Error("A password of at least 8 characters is required.");
   }
 
   const passwordHash = await hash(password, 12);

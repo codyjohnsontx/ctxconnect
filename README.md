@@ -50,19 +50,19 @@ Twilio env:
 pnpm prisma:generate
 ```
 
-5. Apply local development migrations:
+1. Apply local development migrations:
 
 ```bash
 pnpm prisma:migrate
 ```
 
-6. Seed local demo data:
+1. Seed local demo data:
 
 ```bash
 pnpm prisma:seed
 ```
 
-7. Start the app:
+1. Start the app:
 
 ```bash
 pnpm dev
@@ -93,7 +93,7 @@ On a brand-new production database:
 pnpm prisma:migrate:deploy
 ```
 
-5. Run the one-time bootstrap:
+1. Run the one-time bootstrap:
 
 ```bash
 pnpm bootstrap:prod

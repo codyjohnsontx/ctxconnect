@@ -87,23 +87,35 @@ export async function getIntegrationHealth(): Promise<IntegrationHealth> {
       : []),
   ];
 
-  const latestTwilioFailure = await prisma.message.findFirst({
-    where: {
-      direction: "OUTBOUND",
-      deliveryStatus: DeliveryStatus.FAILED,
-    },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      conversation: { include: { customer: true } },
-    },
-  });
+  let latestTwilioFailure: {
+    conversation: { customer: { name: string } };
+    errorMessage: string | null;
+  } | null = null;
+  let recentFailures = 0;
 
-  const recentFailures = await prisma.message.count({
-    where: {
-      direction: "OUTBOUND",
-      deliveryStatus: DeliveryStatus.FAILED,
-    },
-  });
+  if (database.status === "healthy") {
+    try {
+      latestTwilioFailure = await prisma.message.findFirst({
+        where: {
+          direction: "OUTBOUND",
+          deliveryStatus: DeliveryStatus.FAILED,
+        },
+        orderBy: { updatedAt: "desc" },
+        include: {
+          conversation: { include: { customer: true } },
+        },
+      });
+
+      recentFailures = await prisma.message.count({
+        where: {
+          direction: "OUTBOUND",
+          deliveryStatus: DeliveryStatus.FAILED,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to load Twilio delivery health metrics.", error);
+    }
+  }
 
   return {
     database,

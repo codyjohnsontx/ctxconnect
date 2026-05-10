@@ -1,4 +1,4 @@
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, subDays } from "date-fns";
 import {
   ConversationStatus,
   DeliveryStatus,
@@ -70,11 +70,14 @@ export function scopedConversationWhere(user: AppUser): Prisma.ConversationWhere
     return {};
   }
 
+  const orFilters: Prisma.ConversationWhereInput[] = [{ assignedUserId: user.id }];
+
+  if (user.department) {
+    orFilters.push({ department: user.department as Department });
+  }
+
   return {
-    OR: [
-      { assignedUserId: user.id },
-      user.department ? { department: user.department as Department } : {},
-    ],
+    OR: orFilters,
   };
 }
 
@@ -388,6 +391,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   const scope = scopedConversationWhere(user);
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
+  const responseWindowStart = subDays(todayStart, 14);
   const selectedFocus = isCommandCenterFocus(focusParam) ? focusParam : undefined;
   const userCanSeeAll = canSeeAll(user);
   const taskScope = scopedTaskWhere(user);
@@ -396,7 +400,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     : {
         OR: [
           { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
+          ...(user.department ? [{ department: user.department as Department }] : []),
         ],
       };
 
@@ -551,11 +555,27 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     prisma.conversation.findMany({
-      where: scope,
+      where: {
+        AND: [
+          scope,
+          {
+            lastMessageAt: { gte: responseWindowStart },
+            messages: {
+              some: {
+                direction: { in: [MessageDirection.INBOUND, MessageDirection.OUTBOUND] },
+                createdAt: { gte: responseWindowStart },
+              },
+            },
+          },
+        ],
+      },
+      orderBy: { lastMessageAt: "desc" },
+      take: 200,
       select: {
         messages: {
           where: {
             direction: { in: [MessageDirection.INBOUND, MessageDirection.OUTBOUND] },
+            createdAt: { gte: responseWindowStart },
           },
           orderBy: { createdAt: "asc" },
           select: {
@@ -615,7 +635,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     responseHealth: {
       averageResponseTime,
       repliedInboundCount: responseTimesMs.length,
-      definition: "Average time from a visible inbound customer SMS to the next outbound staff reply.",
+      definition: "Average time from a visible inbound customer SMS to the next outbound staff reply over the last 14 days.",
     },
     visibleConversations,
     latestNotifications: latestNotifications.map((notification) => ({
@@ -649,7 +669,7 @@ export async function getShellData(user: AppUser) {
     : {
         OR: [
           { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
+          ...(user.department ? [{ department: user.department as Department }] : []),
         ],
       };
 
@@ -669,19 +689,19 @@ export async function getShellData(user: AppUser) {
       },
     }),
     prisma.task.count({
-      where: userCanSeeAll
-        ? activeTaskWhere
-        : {
-            AND: [
-              activeTaskWhere,
-              {
-                OR: [
-                  { assignedUserId: user.id },
-                  user.department ? { department: user.department as Department } : {},
-                ],
-              },
-            ],
-          },
+	      where: userCanSeeAll
+	        ? activeTaskWhere
+	        : {
+	            AND: [
+	              activeTaskWhere,
+	              {
+	                OR: [
+	                  { assignedUserId: user.id },
+	                  ...(user.department ? [{ department: user.department as Department }] : []),
+	                ],
+	              },
+	            ],
+	          },
     }),
     prisma.notification.count({
       where: {

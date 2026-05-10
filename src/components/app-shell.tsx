@@ -44,6 +44,7 @@ type AppShellProps = {
 export async function AppShell({ children, user, shellData }: AppShellProps) {
   const pathname = (await headers()).get("x-current-path") ?? "";
   const visibleNavItems = navItems.filter((item) => item.href !== "/settings" || user.role === "ADMIN" || user.role === "MANAGER");
+  const mobileNavColumns = visibleNavItems.length + 1;
 
   return (
     <div className="min-h-dvh bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
@@ -129,7 +130,10 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
 
       <main className="min-h-dvh pb-20 lg:pl-64 lg:pb-0">{children}</main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 grid border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:hidden"
+        style={{ gridTemplateColumns: `repeat(${mobileNavColumns}, minmax(0, 1fr))` }}
+      >
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = pathname.startsWith(item.href);

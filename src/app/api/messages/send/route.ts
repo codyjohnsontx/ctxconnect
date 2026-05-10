@@ -27,10 +27,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid message payload." }, { status: 400 });
   }
 
-  const conversation = await requireConversationAccess(session.user, parsed.data.conversationId).catch(() => null);
+  let conversation;
 
-  if (!conversation) {
-    return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+  try {
+    conversation = await requireConversationAccess(session.user, parsed.data.conversationId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Conversation not found.") {
+      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    }
+
+    if (error instanceof Error && error.message === "Conversation access denied.") {
+      return NextResponse.json({ error: "Conversation access denied." }, { status: 403 });
+    }
+
+    console.error("Failed to authorize message send.", {
+      conversationId: parsed.data.conversationId,
+      userId: session.user.id,
+      error,
+    });
+    return NextResponse.json({ error: "Failed to load conversation." }, { status: 500 });
   }
 
   if (conversation.customer.smsOptedOut) {
