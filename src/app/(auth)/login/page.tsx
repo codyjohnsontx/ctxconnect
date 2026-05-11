@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
 import { authOptions } from "@/lib/auth";
 
@@ -63,6 +64,15 @@ export default async function LoginPage() {
             <Suspense>
               <LoginForm />
             </Suspense>
+          </div>
+          <div className="mt-4 flex items-center justify-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
+            <Link href="/privacy-policy" className="hover:text-zinc-900 hover:underline dark:hover:text-zinc-100">
+              Privacy Policy
+            </Link>
+            <span>•</span>
+            <Link href="/terms-and-conditions" className="hover:text-zinc-900 hover:underline dark:hover:text-zinc-100">
+              Terms &amp; Conditions
+            </Link>
           </div>
         </div>
       </section>
