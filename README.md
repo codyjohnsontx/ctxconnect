@@ -39,6 +39,11 @@ Twilio env:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_PHONE_NUMBER` or `TWILIO_MESSAGING_SERVICE_SID`
 
+AI env:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` defaults to `gpt-4.1-mini` when unset
+
 ## Local Setup
 
 1. Copy `.env.example` to `.env`.

@@ -1,15 +1,14 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
 import { Badge } from "@/components/ui/badge";
-import { authOptions } from "@/lib/auth";
 import { getCustomers } from "@/lib/data";
+import { requireUser } from "@/lib/session";
 import { formatPhone, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
-  const session = await getServerSession(authOptions);
-  const customers = await getCustomers(session!.user);
+  const user = await requireUser();
+  const customers = await getCustomers(user);
 
   return (
     <div className="p-5 lg:p-8">
