@@ -2,6 +2,18 @@
 
 CTX Chat is a single `Next.js` app for both the public website and the internal staff workspace for one motorcycle dealership.
 
+## Screenshots
+
+Screens below show the local demo UI.
+
+| Login | Inbox |
+| --- | --- |
+| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) |
+
+| Tasks |
+| --- |
+| ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
+
 ## Stack
 
 - `Next.js` App Router
