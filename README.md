@@ -83,7 +83,9 @@ pnpm dev
 - `service@ctxchat.local`
 - `parts@ctxchat.local`
 
-The local seed creates demo customers, conversations, tasks, notifications, tags, and templates. Do not use it for production initialization.
+The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
+
+The seed uses fictional customer data and prebuilt AI insights so local and demo environments render useful Command Center analytics without making OpenAI calls during setup.
 
 ## Production Bootstrap
 
