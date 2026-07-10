@@ -89,6 +89,26 @@ enum OptInEventType {
   OPT_OUT
 }
 
+enum AiInsightActionType {
+  GENERATED
+  ACCEPTED
+  DISMISSED
+  NOTE_CREATED
+  FOLLOW_UP_CREATED
+  REPLY_COPIED
+}
+
+enum ProductEventType {
+  AI_INSIGHT_REQUESTED
+  AI_INSIGHT_GENERATED
+  AI_INSIGHT_FAILED
+  AI_RECOMMENDATION_ACCEPTED
+  AI_RECOMMENDATION_DISMISSED
+  AI_NOTE_CREATED
+  AI_FOLLOW_UP_CREATED
+  AI_REPLY_COPIED
+}
+
 enum NotificationType {
   NEW_INBOUND_MESSAGE
   CONVERSATION_ASSIGNED
@@ -123,6 +143,8 @@ model User {
   notifications         Notification[] @relation("NotificationRecipient")
   actorNotifications    Notification[] @relation("NotificationActor")
   auditLogs             AuditLog[]
+  aiInsights            ConversationAiInsight[]
+  productEvents         ProductEvent[]
 }
 
 model DealershipSettings {
@@ -193,6 +215,8 @@ model Conversation {
   tasks        Task[]
   tags         ConversationTag[]
   notifications Notification[]
+  aiInsights    ConversationAiInsight[]
+  productEvents ProductEvent[]
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -335,4 +359,51 @@ model Notification {
   @@index([department, status, createdAt])
   @@index([conversationId])
   @@index([taskId])
+}
+
+model ConversationAiInsight {
+  id                    String     @id @default(cuid())
+  conversationId        String
+  requestedByUserId     String?
+  model                 String
+  summary               String
+  customerNeed          String
+  riskLevel             Priority
+  riskReasons           Json
+  escalationRecommended Boolean    @default(false)
+  escalationReason      String?
+  suggestedDepartment   Department?
+  suggestedNextAction   String
+  suggestedReply        String?
+  suggestedTaskTitle    String?
+  confidence            Int
+  createdAt             DateTime   @default(now())
+  acceptedAt            DateTime?
+  dismissedAt           DateTime?
+
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  requestedBy  User?          @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  events       ProductEvent[]
+
+  @@index([conversationId, createdAt])
+  @@index([riskLevel, createdAt])
+}
+
+model ProductEvent {
+  id             String           @id @default(cuid())
+  type           ProductEventType
+  userId         String?
+  conversationId String?
+  aiInsightId    String?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+
+  user         User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  conversation Conversation?          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiInsight    ConversationAiInsight? @relation(fields: [aiInsightId], references: [id], onDelete: Cascade)
+
+  @@index([type, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([aiInsightId])
+  @@unique([type, aiInsightId])
 }

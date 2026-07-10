@@ -12,6 +12,7 @@ import {
   MessageDirection,
   MessageKind,
   Priority,
+  ProductEventType,
   TaskStatus,
   NotificationType,
   NotificationStatus,
@@ -33,6 +34,50 @@ async function requireSessionUser() {
   }
 
   return session.user;
+}
+
+async function recordAiInsightFormEvent({
+  aiInsightId,
+  conversationId,
+  type,
+  userId,
+}: {
+  aiInsightId: string;
+  conversationId: string;
+  type: typeof ProductEventType.AI_NOTE_CREATED | typeof ProductEventType.AI_FOLLOW_UP_CREATED;
+  userId: string;
+}) {
+  if (!aiInsightId) {
+    return;
+  }
+
+  const insight = await prisma.conversationAiInsight.findFirst({
+    where: { id: aiInsightId, conversationId },
+    select: { id: true },
+  });
+
+  if (!insight) {
+    return;
+  }
+
+  await prisma.productEvent.upsert({
+    where: {
+      type_aiInsightId: {
+        type,
+        aiInsightId,
+      },
+    },
+    update: {},
+    create: {
+      type,
+      userId,
+      conversationId,
+      aiInsightId,
+      metadata: {
+        source: "form_submit",
+      },
+    },
+  });
 }
 
 export async function updateConversation(formData: FormData) {
@@ -125,6 +170,7 @@ export async function updateConversation(formData: FormData) {
 export async function addInternalNote(formData: FormData) {
   const user = await requireSessionUser();
   const conversationId = String(formData.get("conversationId") ?? "");
+  const aiInsightId = String(formData.get("aiInsightId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
 
   if (!body) {
@@ -150,6 +196,12 @@ export async function addInternalNote(formData: FormData) {
   });
 
   await resolveConversationNotifications(conversationId, [NotificationType.SLA_MISSED]);
+  await recordAiInsightFormEvent({
+    aiInsightId,
+    conversationId,
+    type: ProductEventType.AI_NOTE_CREATED,
+    userId: user.id,
+  });
 
   revalidatePath("/inbox");
   revalidatePath("/command-center");
@@ -165,6 +217,7 @@ export async function createTask(formData: FormData) {
   const department = String(formData.get("department") ?? "");
   const priority = String(formData.get("priority") ?? "");
   const dueDate = String(formData.get("dueDate") ?? "");
+  const aiInsightId = String(formData.get("aiInsightId") ?? "");
 
   if (!title || !customerId || !department || !dueDate) {
     return;
@@ -232,6 +285,15 @@ export async function createTask(formData: FormData) {
     await notifyAssignee({
       ...notification,
       recipientUserId: task.assignedUserId,
+    });
+  }
+
+  if (conversationId) {
+    await recordAiInsightFormEvent({
+      aiInsightId,
+      conversationId,
+      type: ProductEventType.AI_FOLLOW_UP_CREATED,
+      userId: user.id,
     });
   }
 

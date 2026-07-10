@@ -1,4 +1,3 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import {
   createStaffUser,
@@ -10,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
 import { Department, Role } from "@/generated/prisma/client";
-import { authOptions } from "@/lib/auth";
 import { getSettingsData } from "@/lib/data";
 import { getRequiredEnvironmentNames } from "@/lib/env";
 import { isAdmin, isManagerOrAdmin } from "@/lib/permissions";
+import { requireUser } from "@/lib/session";
 import { labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -22,14 +21,14 @@ const roles = Object.values(Role);
 const departments = Object.values(Department);
 
 export default async function SettingsPage() {
-  const session = await getServerSession(authOptions);
+  const user = await requireUser();
 
-  if (!session?.user || !isManagerOrAdmin(session.user)) {
+  if (!isManagerOrAdmin(user)) {
     redirect("/inbox");
   }
 
   const { users, dealershipSettings, health } = await getSettingsData();
-  const admin = isAdmin(session.user);
+  const admin = isAdmin(user);
 
   return (
     <div className="p-5 lg:p-8">
