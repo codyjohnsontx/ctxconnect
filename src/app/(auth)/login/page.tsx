@@ -36,7 +36,7 @@ export default async function LoginPage() {
         </div>
         <div className="grid grid-cols-3 gap-4 text-sm text-zinc-300">
           <div>
-            <div className="text-2xl font-semibold text-white">8</div>
+            <div className="text-2xl font-semibold text-white">9</div>
             Seeded conversations
           </div>
           <div>
