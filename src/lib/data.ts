@@ -421,6 +421,9 @@ export async function getAiOpsAnalytics(user: AppUser, windowDays = 14): Promise
     createdAt: { gte: windowStart },
     conversation: scope,
   } satisfies Prisma.ConversationAiInsightWhereInput;
+  const eventForInsightCohort = {
+    aiInsight: { is: insightScope },
+  } satisfies Prisma.ProductEventWhereInput;
 
   const [
     generatedCount,
@@ -432,14 +435,14 @@ export async function getAiOpsAnalytics(user: AppUser, windowDays = 14): Promise
     highRiskInsightCount,
     latestHighRiskInsights,
   ] = await Promise.all([
-    prisma.productEvent.count({
-      where: { ...eventScope, type: ProductEventType.AI_INSIGHT_GENERATED },
+    prisma.conversationAiInsight.count({
+      where: insightScope,
     }),
     prisma.productEvent.count({
-      where: { ...eventScope, type: ProductEventType.AI_RECOMMENDATION_ACCEPTED },
+      where: { ...eventForInsightCohort, type: ProductEventType.AI_RECOMMENDATION_ACCEPTED },
     }),
     prisma.productEvent.count({
-      where: { ...eventScope, type: ProductEventType.AI_RECOMMENDATION_DISMISSED },
+      where: { ...eventForInsightCohort, type: ProductEventType.AI_RECOMMENDATION_DISMISSED },
     }),
     prisma.productEvent.count({
       where: { ...eventScope, type: ProductEventType.AI_REPLY_COPIED },

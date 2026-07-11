@@ -5,13 +5,12 @@ import { AiInsightActionType, ProductEventType } from "@/generated/prisma/client
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireConversationAccess } from "@/lib/permissions";
+import { conversationAccessErrorResponse } from "@/lib/route-errors";
 
 const actionSchema = z.object({
   action: z.enum([
     AiInsightActionType.ACCEPTED,
     AiInsightActionType.DISMISSED,
-    AiInsightActionType.NOTE_CREATED,
-    AiInsightActionType.FOLLOW_UP_CREATED,
     AiInsightActionType.REPLY_COPIED,
   ]),
 });
@@ -19,10 +18,11 @@ const actionSchema = z.object({
 const eventByAction = {
   [AiInsightActionType.ACCEPTED]: ProductEventType.AI_RECOMMENDATION_ACCEPTED,
   [AiInsightActionType.DISMISSED]: ProductEventType.AI_RECOMMENDATION_DISMISSED,
-  [AiInsightActionType.NOTE_CREATED]: ProductEventType.AI_NOTE_CREATED,
-  [AiInsightActionType.FOLLOW_UP_CREATED]: ProductEventType.AI_FOLLOW_UP_CREATED,
   [AiInsightActionType.REPLY_COPIED]: ProductEventType.AI_REPLY_COPIED,
-} satisfies Record<Exclude<AiInsightActionType, "GENERATED">, ProductEventType>;
+} satisfies Record<
+  typeof AiInsightActionType.ACCEPTED | typeof AiInsightActionType.DISMISSED | typeof AiInsightActionType.REPLY_COPIED,
+  ProductEventType
+>;
 
 type RouteContext = {
   params: Promise<{
@@ -49,6 +49,8 @@ export async function POST(request: Request, context: RouteContext) {
     select: {
       id: true,
       conversationId: true,
+      acceptedAt: true,
+      dismissedAt: true,
     },
   });
 
@@ -59,12 +61,10 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     await requireConversationAccess(session.user, insight.conversationId);
   } catch (error) {
-    if (error instanceof Error && error.message === "Conversation access denied.") {
-      return NextResponse.json({ error: "Conversation access denied." }, { status: 403 });
-    }
+    const response = conversationAccessErrorResponse(error);
 
-    if (error instanceof Error && error.message === "Conversation not found.") {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    if (response) {
+      return response;
     }
 
     console.error("Failed to authorize AI insight action.", {
@@ -75,38 +75,55 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Failed to load AI insight." }, { status: 500 });
   }
 
+  const action = parsed.data.action;
   const now = new Date();
-  const updateData =
-    parsed.data.action === AiInsightActionType.ACCEPTED
-      ? { acceptedAt: now }
-      : parsed.data.action === AiInsightActionType.DISMISSED
-        ? { dismissedAt: now }
-        : {};
 
-  await prisma.$transaction([
-    prisma.conversationAiInsight.update({
-      where: { id: insight.id },
-      data: updateData,
-    }),
-    prisma.productEvent.upsert({
+  await prisma.$transaction(async (tx) => {
+    if (action === AiInsightActionType.ACCEPTED) {
+      await tx.conversationAiInsight.update({
+        where: { id: insight.id },
+        data: { acceptedAt: insight.acceptedAt ?? now, dismissedAt: null },
+      });
+
+      await tx.productEvent.deleteMany({
+        where: {
+          aiInsightId: insight.id,
+          type: eventByAction[AiInsightActionType.DISMISSED],
+        },
+      });
+    } else if (action === AiInsightActionType.DISMISSED) {
+      await tx.conversationAiInsight.update({
+        where: { id: insight.id },
+        data: { acceptedAt: null, dismissedAt: insight.dismissedAt ?? now },
+      });
+
+      await tx.productEvent.deleteMany({
+        where: {
+          aiInsightId: insight.id,
+          type: eventByAction[AiInsightActionType.ACCEPTED],
+        },
+      });
+    }
+
+    await tx.productEvent.upsert({
       where: {
         type_aiInsightId: {
-          type: eventByAction[parsed.data.action],
+          type: eventByAction[action],
           aiInsightId: insight.id,
         },
       },
       update: {},
       create: {
-        type: eventByAction[parsed.data.action],
+        type: eventByAction[action],
         userId: session.user.id,
         conversationId: insight.conversationId,
         aiInsightId: insight.id,
         metadata: {
-          action: parsed.data.action,
+          action,
         },
       },
-    }),
-  ]);
+    });
+  });
 
   return NextResponse.json({ ok: true });
 }

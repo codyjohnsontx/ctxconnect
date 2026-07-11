@@ -1,23 +1,16 @@
 import type { ReactNode } from "react";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { authOptions } from "@/lib/auth";
 import { getShellData } from "@/lib/data";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function AuthenticatedLayout({ children }: { children: ReactNode }) {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    redirect("/login");
-  }
-
-  const shellData = await getShellData(session.user);
+  const user = await requireUser();
+  const shellData = await getShellData(user);
 
   return (
-    <AppShell user={session.user} shellData={shellData}>
+    <AppShell user={user} shellData={shellData}>
       {children}
     </AppShell>
   );

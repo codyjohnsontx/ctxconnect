@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
 import {
   AlertTriangle,
   Bell,
@@ -16,9 +14,9 @@ import {
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { authOptions } from "@/lib/auth";
 import { getCommandCenterData } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
+import { requireUser } from "@/lib/session";
 import { cn, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +39,7 @@ type PageProps = {
 };
 
 export default async function CommandCenterPage({ searchParams }: PageProps) {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    redirect("/login");
-  }
-
+  const user = await requireUser();
   const { focus } = await searchParams;
   const {
     metrics,
@@ -59,9 +52,9 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
     employeeStats,
     aiOpsAnalytics,
   } =
-    await getCommandCenterData(session.user, focus);
+    await getCommandCenterData(user, focus);
   const selectedMetric = metricConfig.find((metric) => metric.key === selectedFocus);
-  const canSeeDealershipRollup = isManagerOrAdmin(session.user);
+  const canSeeDealershipRollup = isManagerOrAdmin(user);
 
   return (
     <div className="p-5 lg:p-8">

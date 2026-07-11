@@ -265,7 +265,11 @@ export function InboxView({
 
           <aside className="hidden min-h-0 overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:block">
             <div className="space-y-6 p-5">
-              <AiOpsBrief conversationId={selectedConversation.id} initialInsight={selectedConversation.aiInsights[0] ?? null} />
+              <AiOpsBrief
+                key={selectedConversation.id}
+                conversationId={selectedConversation.id}
+                initialInsight={selectedConversation.aiInsights[0] ?? null}
+              />
 
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Conversation controls</h3>
@@ -387,6 +391,7 @@ export function InboxView({
                 <h3 className="mb-3 text-sm font-semibold">Add internal note</h3>
                 <form action={addInternalNote} className="space-y-2">
                   <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                  <input type="hidden" name="aiInsightId" data-ai-note-insight />
                   <Textarea name="body" placeholder="Visible only to staff..." />
                   <Button type="submit" variant="secondary" className="w-full">
                     Save note
@@ -399,6 +404,7 @@ export function InboxView({
                 <form action={createTask} className="space-y-2">
                   <input type="hidden" name="customerId" value={selectedConversation.customerId} />
                   <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                  <input type="hidden" name="aiInsightId" data-ai-follow-up-insight />
                   <Input name="title" placeholder="Task title" required />
                   <Textarea name="description" placeholder="Optional details" className="min-h-16" />
                   <Select name="assignedUserId" defaultValue={selectedConversation.assignedUserId ?? "unassigned"}>

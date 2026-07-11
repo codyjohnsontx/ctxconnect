@@ -9,11 +9,53 @@ if (!connectionString) {
   throw new Error("DIRECT_URL or DATABASE_URL is required to seed CTX Chat.");
 }
 
+const seedConnectionString = connectionString;
+
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString }),
+  adapter: new PrismaPg({ connectionString: seedConnectionString }),
 });
 
+const demoSeedAllowFlag = "CTX_ALLOW_DEMO_SEED";
+
+function isAllowedDemoSeedTarget(urlString: string) {
+  let url: URL;
+
+  try {
+    url = new URL(urlString);
+  } catch {
+    return false;
+  }
+
+  const target = `${url.protocol}//${url.hostname}${url.pathname}${url.search}`.toLowerCase();
+  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  const hostname = url.hostname.toLowerCase();
+
+  if (hostname.endsWith(".neon.tech")) {
+    return false;
+  }
+
+  return (
+    localHosts.has(hostname) ||
+    /(^|[._/-])(dev|demo|preview|staging|test|testing|local|nonprod|non-production)([._/-]|$)/i.test(target)
+  );
+}
+
+function assertSafeSeedTarget() {
+  if (process.env[demoSeedAllowFlag] === "true") {
+    return;
+  }
+
+  if (isAllowedDemoSeedTarget(seedConnectionString)) {
+    return;
+  }
+
+  throw new Error(
+    `Refusing to seed CTX Chat because DIRECT_URL/DATABASE_URL does not look local or non-production. Set ${demoSeedAllowFlag}=true only for intentional local/demo seeding.`,
+  );
+}
+
 async function main() {
+  assertSafeSeedTarget();
   await seedDemoData(prisma);
 }
 

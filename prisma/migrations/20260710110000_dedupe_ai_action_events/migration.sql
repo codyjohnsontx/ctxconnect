@@ -13,4 +13,5 @@ WHERE duplicate."aiInsightId" IS NOT NULL
   );
 
 -- Postgres allows multiple NULL values, so request/failure events without an insight remain repeatable.
-CREATE UNIQUE INDEX "ProductEvent_type_aiInsightId_key" ON "ProductEvent"("type", "aiInsightId");
+-- Prisma PostgreSQL migrations are not wrapped in a transaction by default; do not add BEGIN/COMMIT here.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "ProductEvent_type_aiInsightId_key" ON "ProductEvent"("type", "aiInsightId");

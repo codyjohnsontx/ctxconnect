@@ -48,12 +48,22 @@ type CustomerSeedEntry = {
   subject: string;
   messages: readonly SeedMessage[];
   task: string;
+  taskStatus?: TaskStatus;
   dueDate: Date;
+  optedInAt?: Date | null;
   smsOptedIn?: boolean;
   smsOptedOut?: boolean;
   optedOutAt?: Date | null;
   customerNotes?: string;
 };
+
+function requiredSeedDate(value: Date | null | undefined, message: string) {
+  if (!value) {
+    throw new Error(message);
+  }
+
+  return value;
+}
 
 async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.notification.deleteMany({
@@ -79,35 +89,37 @@ async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.optInEvent.deleteMany({ where: { customerId } });
 }
 
-async function createAiInsightWithEvents(
-  prisma: PrismaClient,
-  input: {
-    conversationId: string;
-    requestedByUserId: string;
-    model?: string;
-    summary: string;
-    customerNeed: string;
-    riskLevel: Priority;
-    riskReasons: string[];
-    escalationRecommended: boolean;
-    escalationReason?: string | null;
-    suggestedDepartment?: Department | null;
-    suggestedNextAction: string;
-    suggestedReply?: string | null;
-    suggestedTaskTitle?: string | null;
-    confidence: number;
-    acceptedAt?: Date | null;
-    dismissedAt?: Date | null;
-    events: Array<{
-      type: ProductEventType;
-      userId: string;
-      createdAt?: Date;
-      metadata?: Prisma.InputJsonValue;
-    }>;
-  },
-) {
-  const generatedAt =
-    input.events.find((event) => event.type === ProductEventType.AI_INSIGHT_GENERATED)?.createdAt ?? new Date();
+async function createAiInsightWithEvents(prisma: PrismaClient, input: {
+  conversationId: string;
+  requestedByUserId: string;
+  model?: string;
+  summary: string;
+  customerNeed: string;
+  riskLevel: Priority;
+  riskReasons: string[];
+  escalationRecommended: boolean;
+  escalationReason?: string | null;
+  suggestedDepartment?: Department | null;
+  suggestedNextAction: string;
+  suggestedReply?: string | null;
+  suggestedTaskTitle?: string | null;
+  confidence: number;
+  acceptedAt?: Date | null;
+  dismissedAt?: Date | null;
+  events: Array<{
+    type: ProductEventType;
+    userId: string;
+    createdAt?: Date;
+    metadata?: Prisma.InputJsonValue;
+  }>;
+}) {
+  const generatedEvent = input.events.find((event) => event.type === ProductEventType.AI_INSIGHT_GENERATED);
+
+  if (!generatedEvent?.createdAt) {
+    throw new Error("Seeded AI insight requires an AI_INSIGHT_GENERATED event with a deterministic createdAt.");
+  }
+
+  const generatedAt = generatedEvent.createdAt;
   const insight = await prisma.conversationAiInsight.create({
     data: {
       conversationId: input.conversationId,
@@ -266,6 +278,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         [MessageDirection.INBOUND, "If the number works I can put a deposit down today.", DeliveryStatus.RECEIVED],
       ] as const,
       task: "Send Panigale V4 OTD quote",
+      taskStatus: TaskStatus.DONE,
       dueDate: hoursFromNow(2),
     },
     {
@@ -406,6 +419,7 @@ export async function seedDemoData(prisma: PrismaClient) {
       status: ConversationStatus.WAITING_ON_STAFF,
       tagNames: [],
       subject: "Accessory availability",
+      optedInAt: daysFromNow(-30),
       smsOptedIn: false,
       smsOptedOut: true,
       optedOutAt: hoursFromNow(-2),
@@ -422,6 +436,7 @@ export async function seedDemoData(prisma: PrismaClient) {
   const seededPhones = customerData.map((entry) => entry.phone);
 
   for (const entry of customerData) {
+    const optedInAt = entry.optedInAt ?? daysFromNow(-30);
     const customer = await prisma.customer.upsert({
       where: { phone: entry.phone },
       update: {
@@ -430,7 +445,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         preferredContactMethod: entry.smsOptedOut ? PreferredContactMethod.PHONE : PreferredContactMethod.SMS,
         smsOptedIn: entry.smsOptedIn ?? true,
         smsOptedOut: entry.smsOptedOut ?? false,
-        optedInAt: entry.smsOptedOut ? null : daysFromNow(-30),
+        optedInAt,
         optedOutAt: entry.optedOutAt ?? null,
         notes: entry.customerNotes ?? `${entry.name} is part of the ${dealershipName} demo workflow.`,
       },
@@ -441,7 +456,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         preferredContactMethod: entry.smsOptedOut ? PreferredContactMethod.PHONE : PreferredContactMethod.SMS,
         smsOptedIn: entry.smsOptedIn ?? true,
         smsOptedOut: entry.smsOptedOut ?? false,
-        optedInAt: entry.smsOptedOut ? null : daysFromNow(-30),
+        optedInAt,
         optedOutAt: entry.optedOutAt ?? null,
         notes: entry.customerNotes ?? `${entry.name} is part of the ${dealershipName} demo workflow.`,
       },
@@ -516,18 +531,34 @@ export async function seedDemoData(prisma: PrismaClient) {
         department: entry.department,
         dueDate: entry.dueDate,
         priority: entry.priority,
-        status: TaskStatus.OPEN,
+        status: entry.taskStatus ?? TaskStatus.OPEN,
       },
     });
 
     await prisma.optInEvent.create({
       data: {
         customerId: customer.id,
-        type: entry.smsOptedOut ? OptInEventType.OPT_OUT : OptInEventType.OPT_IN,
+        type: OptInEventType.OPT_IN,
         source: "seed",
-        createdAt: entry.optedOutAt ?? daysFromNow(-30),
+        createdAt: optedInAt,
       },
     });
+
+    if (entry.smsOptedOut) {
+      const optedOutAt = requiredSeedDate(
+        entry.optedOutAt,
+        `Seeded SMS opt-out customer ${entry.name} requires a deterministic optedOutAt timestamp.`,
+      );
+
+      await prisma.optInEvent.create({
+        data: {
+          customerId: customer.id,
+          type: OptInEventType.OPT_OUT,
+          source: "seed",
+          createdAt: optedOutAt,
+        },
+      });
+    }
   }
 
   const seededConversations = await prisma.conversation.findMany({
@@ -895,3 +926,4 @@ export async function seedDemoData(prisma: PrismaClient) {
 
   console.log(`Seeded ${dealershipName}.`);
 }
+

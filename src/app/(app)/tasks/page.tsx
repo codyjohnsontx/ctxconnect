@@ -1,25 +1,18 @@
 import { formatDistanceToNow } from "date-fns";
 import { updateTaskStatus } from "@/app/actions";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
 import { TaskStatus } from "@/generated/prisma/client";
-import { authOptions } from "@/lib/auth";
 import { getTasks } from "@/lib/data";
+import { requireUser } from "@/lib/session";
 import { labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function TasksPage() {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    redirect("/login");
-  }
-
-  const tasks = await getTasks(session.user);
+  const user = await requireUser();
+  const tasks = await getTasks(user);
 
   return (
     <div className="p-5 lg:p-8">

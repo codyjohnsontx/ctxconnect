@@ -130,14 +130,9 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
     return result;
   }
 
-  const smsLanguage = /\b(sms|text|texting|message the customer|send a reply|reply by sms)\b/i;
-  const suggestedNextAction = smsLanguage.test(result.suggestedNextAction)
-    ? "Use a non-SMS channel before any customer outreach because the customer is opted out."
-    : result.suggestedNextAction;
-
   return {
     ...result,
-    suggestedNextAction,
+    suggestedNextAction: "Use a non-SMS channel before any customer outreach because the customer is opted out.",
     suggestedReply: null,
   };
 }

@@ -16,12 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Department, Priority } from "@/generated/prisma/client";
 import { cn, labelize } from "@/lib/utils";
 
-type AiInsightAction =
-  | "ACCEPTED"
-  | "DISMISSED"
-  | "NOTE_CREATED"
-  | "FOLLOW_UP_CREATED"
-  | "REPLY_COPIED";
+type AiInsightAction = "ACCEPTED" | "DISMISSED" | "REPLY_COPIED";
 
 type AiOpsBriefInsight = {
   id: string;
@@ -68,25 +63,29 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     setError(null);
     setNotice(null);
     startTransition(async () => {
-      const response = await fetch("/api/ai/ops-brief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId }),
-      });
+      try {
+        const response = await fetch("/api/ai/ops-brief", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversationId }),
+        });
 
-      const payload = (await response.json().catch(() => null)) as {
-        insight?: AiOpsBriefInsight;
-        error?: string;
-      } | null;
+        const payload = (await response.json().catch(() => null)) as {
+          insight?: AiOpsBriefInsight;
+          error?: string;
+        } | null;
 
-      if (!response.ok) {
-        setError(payload?.error ?? "AI brief could not be generated.");
-        return;
-      }
+        if (!response.ok) {
+          setError(payload?.error ?? "AI brief could not be generated.");
+          return;
+        }
 
-      if (payload?.insight) {
-        setInsight(payload.insight);
-        router.refresh();
+        if (payload?.insight) {
+          setInsight(payload.insight);
+          router.refresh();
+        }
+      } catch {
+        setError("AI brief request failed. Check your connection and try again.");
       }
     });
   }
@@ -96,14 +95,19 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
       return false;
     }
 
-    const response = await fetch(`/api/ai/ops-brief/${insight.id}/action`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
+    try {
+      const response = await fetch(`/api/ai/ops-brief/${insight.id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
 
-    if (!response.ok) {
-      setError("AI action could not be recorded.");
+      if (!response.ok) {
+        setError("AI action could not be recorded.");
+        return false;
+      }
+    } catch {
+      setError("AI action could not be recorded. Check your connection and try again.");
       return false;
     }
 
@@ -116,7 +120,9 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     setNotice(null);
     startTransition(async () => {
       if (await recordAction("ACCEPTED")) {
-        setInsight((current) => (current ? { ...current, acceptedAt: new Date().toISOString() } : current));
+        setInsight((current) =>
+          current ? { ...current, acceptedAt: new Date().toISOString(), dismissedAt: null } : current,
+        );
         setNotice("Recommendation accepted.");
       }
     });
@@ -126,7 +132,9 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     setNotice(null);
     startTransition(async () => {
       if (await recordAction("DISMISSED")) {
-        setInsight((current) => (current ? { ...current, dismissedAt: new Date().toISOString() } : current));
+        setInsight((current) =>
+          current ? { ...current, acceptedAt: null, dismissedAt: new Date().toISOString() } : current,
+        );
         setNotice("Recommendation dismissed.");
       }
     });
@@ -140,13 +148,9 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     setNotice(null);
     startTransition(async () => {
       try {
-        if (!navigator.clipboard?.writeText) {
-          throw new Error("Clipboard unavailable.");
-        }
-
         await navigator.clipboard.writeText(insight.suggestedReply ?? "");
       } catch {
-        setError("Could not copy the reply to the clipboard.");
+        setError("Suggested reply could not be copied.");
         return;
       }
 
@@ -162,6 +166,7 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     }
 
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
+    const aiInsightInput = document.querySelector<HTMLInputElement>("input[data-ai-note-insight]");
 
     if (textarea) {
       textarea.value = insight.suggestedNextAction;
@@ -169,12 +174,12 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
       textarea.focus();
     }
 
+    if (aiInsightInput) {
+      aiInsightInput.value = insight.id;
+    }
+
     setNotice(null);
-    startTransition(async () => {
-      if (await recordAction("NOTE_CREATED")) {
-        setNotice(textarea ? "Internal note draft filled." : insight.suggestedNextAction);
-      }
-    });
+    setNotice(textarea ? "Internal note draft filled." : insight.suggestedNextAction);
   }
 
   function useAsFollowUp() {
@@ -183,6 +188,7 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
     }
 
     const input = document.querySelector<HTMLInputElement>('input[name="title"]');
+    const aiInsightInput = document.querySelector<HTMLInputElement>("input[data-ai-follow-up-insight]");
 
     if (input) {
       input.value = insight.suggestedTaskTitle;
@@ -190,12 +196,12 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
       input.focus();
     }
 
+    if (aiInsightInput) {
+      aiInsightInput.value = insight.id;
+    }
+
     setNotice(null);
-    startTransition(async () => {
-      if (await recordAction("FOLLOW_UP_CREATED")) {
-        setNotice(input ? "Follow-up title filled." : insight.suggestedTaskTitle ?? null);
-      }
-    });
+    setNotice(input ? "Follow-up title filled." : insight.suggestedTaskTitle ?? null);
   }
 
   return (

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { ProductEventType } from "@/generated/prisma/client";
+import { ProductEventType, TaskStatus } from "@/generated/prisma/client";
 import { authOptions } from "@/lib/auth";
 import {
   generateAiOpsBrief,
@@ -10,21 +10,31 @@ import {
 } from "@/lib/ai/ops-brief";
 import { prisma } from "@/lib/prisma";
 import { requireConversationAccess } from "@/lib/permissions";
+import { conversationAccessErrorResponse } from "@/lib/route-errors";
 
 const requestSchema = z.object({
   conversationId: z.string().min(1),
 });
 
-function accessErrorResponse(error: unknown) {
-  if (error instanceof Error && error.message === "Conversation not found.") {
-    return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+const AI_CONTEXT_MESSAGE_DAYS = 90;
+const AI_CONTEXT_TASK_LOOKBACK_DAYS = 30;
+const MAX_AI_MESSAGES = 30;
+const MAX_AI_TASKS = 12;
+const MAX_SUBJECT_CHARS = 240;
+const MAX_CUSTOMER_NOTES_CHARS = 800;
+const MAX_MESSAGE_BODY_CHARS = 1400;
+const MAX_TASK_TITLE_CHARS = 180;
+
+function daysAgo(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+function truncateForAi(value: string | null, maxLength: number) {
+  if (!value) {
+    return value;
   }
 
-  if (error instanceof Error && error.message === "Conversation access denied.") {
-    return NextResponse.json({ error: "Conversation access denied." }, { status: 403 });
-  }
-
-  return null;
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
 export async function POST(request: Request) {
@@ -43,7 +53,7 @@ export async function POST(request: Request) {
   try {
     await requireConversationAccess(session.user, parsed.data.conversationId);
   } catch (error) {
-    const response = accessErrorResponse(error);
+    const response = conversationAccessErrorResponse(error);
 
     if (response) {
       return response;
@@ -59,16 +69,52 @@ export async function POST(request: Request) {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: parsed.data.conversationId },
-    include: {
-      customer: true,
-      assignedUser: true,
-      tags: { include: { tag: true } },
+    select: {
+      id: true,
+      department: true,
+      status: true,
+      priority: true,
+      subject: true,
+      customer: {
+        select: {
+          name: true,
+          smsOptedOut: true,
+          notes: true,
+        },
+      },
       messages: {
-        orderBy: { createdAt: "asc" },
-        include: { sender: true },
+        where: {
+          createdAt: { gte: daysAgo(AI_CONTEXT_MESSAGE_DAYS) },
+        },
+        orderBy: { createdAt: "desc" },
+        take: MAX_AI_MESSAGES,
+        select: {
+          direction: true,
+          body: true,
+          deliveryStatus: true,
+          createdAt: true,
+          sender: {
+            select: {
+              name: true,
+            },
+          },
+        },
       },
       tasks: {
+        where: {
+          OR: [
+            { dueDate: { gte: daysAgo(AI_CONTEXT_TASK_LOOKBACK_DAYS) } },
+            { status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] } },
+          ],
+        },
         orderBy: { dueDate: "asc" },
+        take: MAX_AI_TASKS,
+        select: {
+          title: true,
+          dueDate: true,
+          status: true,
+          priority: true,
+        },
       },
     },
   });
@@ -153,21 +199,21 @@ export async function POST(request: Request) {
         department: conversation.department,
         status: conversation.status,
         priority: conversation.priority,
-        subject: conversation.subject,
+        subject: truncateForAi(conversation.subject, MAX_SUBJECT_CHARS),
         customer: {
-          name: conversation.customer.name,
+          name: truncateForAi(conversation.customer.name, 120) ?? conversation.customer.name,
           smsOptedOut: conversation.customer.smsOptedOut,
-          notes: conversation.customer.notes,
+          notes: truncateForAi(conversation.customer.notes, MAX_CUSTOMER_NOTES_CHARS),
         },
-        messages: conversation.messages.map((message) => ({
+        messages: [...conversation.messages].reverse().map((message) => ({
           direction: message.direction,
-          body: message.body,
+          body: truncateForAi(message.body, MAX_MESSAGE_BODY_CHARS) ?? "",
           deliveryStatus: message.deliveryStatus,
           createdAt: message.createdAt,
-          senderName: message.sender?.name ?? null,
+          senderName: truncateForAi(message.sender?.name ?? null, 120),
         })),
         tasks: conversation.tasks.map((task) => ({
-          title: task.title,
+          title: truncateForAi(task.title, MAX_TASK_TITLE_CHARS) ?? "",
           dueDate: task.dueDate,
           status: task.status,
           priority: task.priority,
@@ -201,37 +247,41 @@ export async function POST(request: Request) {
   }
 
   try {
-    const insight = await prisma.conversationAiInsight.create({
-      data: {
-        conversationId: conversation.id,
-        requestedByUserId: session.user.id,
-        model,
-        summary: brief.summary,
-        customerNeed: brief.customerNeed,
-        riskLevel: brief.riskLevel,
-        riskReasons: brief.riskReasons,
-        escalationRecommended: brief.escalationRecommended,
-        escalationReason: brief.escalationReason,
-        suggestedDepartment: brief.suggestedDepartment,
-        suggestedNextAction: brief.suggestedNextAction,
-        suggestedReply: brief.suggestedReply,
-        suggestedTaskTitle: brief.suggestedTaskTitle,
-        confidence: brief.confidence,
-      },
-    });
-
-    await prisma.productEvent.create({
-      data: {
-        type: ProductEventType.AI_INSIGHT_GENERATED,
-        userId: session.user.id,
-        conversationId: conversation.id,
-        aiInsightId: insight.id,
-        metadata: {
+    const insight = await prisma.$transaction(async (tx) => {
+      const createdInsight = await tx.conversationAiInsight.create({
+        data: {
+          conversationId: conversation.id,
+          requestedByUserId: session.user.id,
           model,
-          riskLevel: insight.riskLevel,
-          escalationRecommended: insight.escalationRecommended,
+          summary: brief.summary,
+          customerNeed: brief.customerNeed,
+          riskLevel: brief.riskLevel,
+          riskReasons: brief.riskReasons,
+          escalationRecommended: brief.escalationRecommended,
+          escalationReason: brief.escalationReason,
+          suggestedDepartment: brief.suggestedDepartment,
+          suggestedNextAction: brief.suggestedNextAction,
+          suggestedReply: brief.suggestedReply,
+          suggestedTaskTitle: brief.suggestedTaskTitle,
+          confidence: brief.confidence,
         },
-      },
+      });
+
+      await tx.productEvent.create({
+        data: {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: session.user.id,
+          conversationId: conversation.id,
+          aiInsightId: createdInsight.id,
+          metadata: {
+            model,
+            riskLevel: createdInsight.riskLevel,
+            escalationRecommended: createdInsight.escalationRecommended,
+          },
+        },
+      });
+
+      return createdInsight;
     });
 
     return NextResponse.json({ insight });
