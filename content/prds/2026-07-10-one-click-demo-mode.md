@@ -73,7 +73,7 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 - Demo sign-in must not transmit or expose any password.
 - `isDemo` must be derived from the account (email match with `DEMO_USER_EMAIL`), not the login path, so legacy-password logins to the demo account are equally guarded.
 - SMS block must run before any `Message` row is created (no junk FAILED rows).
-- AI cap must be enforced before the OpenAI call and before the `AI_INSIGHT_REQUESTED` event insert. The quota counts successful generations (`AI_INSIGHT_GENERATED`, excluding seeded insights), so failed attempts do not consume the cap.
+- AI cap must be enforced before the OpenAI call and before the `AI_INSIGHT_REQUESTED` event insert. The quota counts successful generations (`AI_INSIGHT_GENERATED`, excluding seeded insights), so failed attempts do not consume the cap. The check is deliberately non-atomic: concurrent requests may exceed the limit by at most the number of in-flight generations, and this bounded overage is accepted. The independent hard spend backstop is a budget limit configured on the OpenAI API key/project, not this application-level cap.
 - Turnstile must fail open when keys are unset (local dev) and fail closed when configured.
 - With `DEMO_USER_EMAIL` unset, the demo button is hidden and the demo provider rejects — feature cleanly off.
 - Reseed endpoint must reject requests without the correct `Authorization: Bearer ${CRON_SECRET}` header, including when the secret is unset.
@@ -145,7 +145,7 @@ No live usage metrics yet.
 - `isDemo` flows: JWT callback email match → session callback → server-component props (no SessionProvider in this app).
 - AI cap reuses the existing `ProductEvent` table and its `@@index([type, createdAt])` — no new rate-limiting infrastructure.
 - New env vars: `DEMO_USER_EMAIL`, `DEMO_AI_DAILY_LIMIT`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `CRON_SECRET`, `SEED_PASSWORD`.
-- Deployment follow-ups: set env vars in Vercel, create the Turnstile widget in the Cloudflare dashboard, set a random `SEED_PASSWORD`, trigger one reseed to rotate the password.
+- Deployment follow-ups: set env vars in Vercel, create the Turnstile widget in the Cloudflare dashboard, set a random `SEED_PASSWORD`, trigger one reseed to rotate the password, and set a monthly budget limit on the OpenAI API key/project as the hard spend backstop behind the soft cap.
 
 ## Portfolio Notes
 
