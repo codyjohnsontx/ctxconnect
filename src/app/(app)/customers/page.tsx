@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { authOptions } from "@/lib/auth";
 import { getCustomers } from "@/lib/data";
@@ -9,7 +10,12 @@ export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
   const session = await getServerSession(authOptions);
-  const customers = await getCustomers(session!.user);
+
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const customers = await getCustomers(session.user);
 
   return (
     <div className="p-5 lg:p-8">

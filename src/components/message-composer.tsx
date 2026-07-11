@@ -23,6 +23,7 @@ type MessageComposerProps = {
   department: Department;
   templates: Template[];
   disabled?: boolean;
+  demoBlocked?: boolean;
 };
 
 export function MessageComposer({
@@ -34,6 +35,7 @@ export function MessageComposer({
   department,
   templates,
   disabled,
+  demoBlocked,
 }: MessageComposerProps) {
   const router = useRouter();
   const [body, setBody] = useState("");
@@ -106,21 +108,31 @@ export function MessageComposer({
         <Textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
-          placeholder={disabled ? "Customer is opted out of SMS." : "Type a customer message..."}
-          disabled={disabled || isPending}
+          placeholder={
+            demoBlocked
+              ? "SMS sending is disabled in demo mode."
+              : disabled
+                ? "Customer is opted out of SMS."
+                : "Type a customer message..."
+          }
+          disabled={disabled || demoBlocked || isPending}
           className="min-h-20"
         />
         <Button
           size="icon"
           onClick={sendMessage}
-          disabled={disabled || isPending || !body.trim()}
+          disabled={disabled || demoBlocked || isPending || !body.trim()}
           title="Send message"
           className="mt-auto"
         >
           <SendHorizonal className="h-4 w-4" />
         </Button>
       </div>
-      {disabled ? (
+      {demoBlocked ? (
+        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+          Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
+        </p>
+      ) : disabled ? (
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           This customer has opted out with STOP. They must text START before staff can send again.
         </p>

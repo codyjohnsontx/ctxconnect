@@ -8,6 +8,7 @@ import {
   NotificationType,
   type Prisma,
   Priority,
+  ProductEventType,
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
@@ -184,6 +185,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
             messages: {
               orderBy: { createdAt: "asc" },
               include: { sender: true },
+            },
+            aiInsights: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
             },
           },
         })
@@ -385,6 +390,110 @@ function labelDepartment(value: Department) {
   return labelStatus(value);
 }
 
+export type AiOpsAnalytics = {
+  generatedCount: number;
+  acceptedCount: number;
+  dismissedCount: number;
+  copiedReplyCount: number;
+  followUpCreatedCount: number;
+  noteCreatedCount: number;
+  acceptanceRate: number | null;
+  highRiskInsightCount: number;
+  latestHighRiskInsights: Array<{
+    id: string;
+    conversationId: string;
+    customerName: string;
+    riskLevel: Priority;
+    summary: string;
+    suggestedNextAction: string;
+    createdAt: Date;
+  }>;
+};
+
+export async function getAiOpsAnalytics(user: AppUser, windowDays = 14): Promise<AiOpsAnalytics> {
+  const scope = scopedConversationWhere(user);
+  const windowStart = subDays(new Date(), windowDays);
+  const eventScope = {
+    createdAt: { gte: windowStart },
+    conversation: { is: scope },
+  } satisfies Prisma.ProductEventWhereInput;
+  const insightScope = {
+    createdAt: { gte: windowStart },
+    conversation: scope,
+  } satisfies Prisma.ConversationAiInsightWhereInput;
+
+  const [
+    generatedCount,
+    acceptedCount,
+    dismissedCount,
+    copiedReplyCount,
+    followUpCreatedCount,
+    noteCreatedCount,
+    highRiskInsightCount,
+    latestHighRiskInsights,
+  ] = await Promise.all([
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_INSIGHT_GENERATED },
+    }),
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_RECOMMENDATION_ACCEPTED },
+    }),
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_RECOMMENDATION_DISMISSED },
+    }),
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_REPLY_COPIED },
+    }),
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_FOLLOW_UP_CREATED },
+    }),
+    prisma.productEvent.count({
+      where: { ...eventScope, type: ProductEventType.AI_NOTE_CREATED },
+    }),
+    prisma.conversationAiInsight.count({
+      where: {
+        ...insightScope,
+        riskLevel: { in: [Priority.HIGH, Priority.URGENT] },
+      },
+    }),
+    prisma.conversationAiInsight.findMany({
+      where: {
+        ...insightScope,
+        riskLevel: { in: [Priority.HIGH, Priority.URGENT] },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: {
+        conversation: {
+          include: {
+            customer: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    generatedCount,
+    acceptedCount,
+    dismissedCount,
+    copiedReplyCount,
+    followUpCreatedCount,
+    noteCreatedCount,
+    acceptanceRate: generatedCount > 0 ? Math.round((acceptedCount / generatedCount) * 100) : null,
+    highRiskInsightCount,
+    latestHighRiskInsights: latestHighRiskInsights.map((insight) => ({
+      id: insight.id,
+      conversationId: insight.conversationId,
+      customerName: insight.conversation.customer.name,
+      riskLevel: insight.riskLevel,
+      summary: insight.summary,
+      suggestedNextAction: insight.suggestedNextAction,
+      createdAt: insight.createdAt,
+    })),
+  };
+}
+
 export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   await syncOperationalNotifications();
 
@@ -422,6 +531,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     users,
     volume,
     responseMessages,
+    aiOpsAnalytics,
   ] = await Promise.all([
     prisma.conversation.count({ where: { AND: [scope, { unread: true }] } }),
     prisma.conversation.count({
@@ -585,6 +695,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
         },
       },
     }),
+    getAiOpsAnalytics(user),
   ]);
 
   const responseTimesMs: number[] = [];
@@ -658,6 +769,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       overdueFollowUps: employee.assignedTasks.filter((task) => task.dueDate < todayStart).length,
       activeNotifications: employee.notifications.length,
     })),
+    aiOpsAnalytics,
   };
 }
 

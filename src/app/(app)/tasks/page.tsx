@@ -1,6 +1,7 @@
 import { formatDistanceToNow } from "date-fns";
 import { updateTaskStatus } from "@/app/actions";
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -13,7 +14,12 @@ export const dynamic = "force-dynamic";
 
 export default async function TasksPage() {
   const session = await getServerSession(authOptions);
-  const tasks = await getTasks(session!.user);
+
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const tasks = await getTasks(session.user);
 
   return (
     <div className="p-5 lg:p-8">

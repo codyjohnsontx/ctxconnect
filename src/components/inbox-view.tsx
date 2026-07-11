@@ -2,6 +2,7 @@ import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, Circle, Clock3, MessageCircle, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, updateConversation } from "@/app/actions";
+import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { MessageComposer } from "@/components/message-composer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
 type InboxViewProps = InboxData & {
   selectedId?: string;
   searchParams: Record<string, string | undefined>;
+  isDemo?: boolean;
 };
 
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
@@ -54,6 +56,7 @@ export function InboxView({
   templates,
   dealershipSettings,
   searchParams,
+  isDemo,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
   const unit = selectedVehicle
@@ -256,11 +259,14 @@ export function InboxView({
               department={selectedConversation.department}
               templates={templates}
               disabled={selectedConversation.customer.smsOptedOut}
+              demoBlocked={isDemo}
             />
           </div>
 
           <aside className="hidden min-h-0 overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:block">
             <div className="space-y-6 p-5">
+              <AiOpsBrief conversationId={selectedConversation.id} initialInsight={selectedConversation.aiInsights[0] ?? null} />
+
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Conversation controls</h3>
                 <form action={updateConversation} className="space-y-3">

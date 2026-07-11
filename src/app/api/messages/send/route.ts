@@ -21,6 +21,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
+  if (session.user.isDemo) {
+    return NextResponse.json(
+      { error: "Demo mode: outbound SMS is disabled. Everything else is live." },
+      { status: 403 },
+    );
+  }
+
   const parsed = sendSchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {

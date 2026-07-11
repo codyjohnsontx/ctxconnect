@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { InboxView } from "@/components/inbox-view";
 import { authOptions } from "@/lib/auth";
 import { getInboxData } from "@/lib/data";
@@ -11,8 +12,13 @@ type PageProps = {
 
 export default async function InboxPage({ searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
-  const params = await searchParams;
-  const data = await getInboxData(session!.user, params);
 
-  return <InboxView {...data} searchParams={params} />;
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const params = await searchParams;
+  const data = await getInboxData(session.user, params);
+
+  return <InboxView {...data} searchParams={params} isDemo={Boolean(session.user.isDemo)} />;
 }

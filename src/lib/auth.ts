@@ -2,6 +2,11 @@ import { compare } from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { verifyTurnstileToken } from "@/lib/turnstile";
+
+function getDemoUserEmail() {
+  return process.env.DEMO_USER_EMAIL?.toLowerCase() || null;
+}
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -45,6 +50,44 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
+    CredentialsProvider({
+      id: "demo",
+      name: "Demo",
+      credentials: {
+        turnstileToken: { label: "Verification token", type: "text" },
+      },
+      async authorize(credentials, req) {
+        const demoEmail = getDemoUserEmail();
+
+        if (!demoEmail) {
+          return null;
+        }
+
+        const forwardedFor = req?.headers?.["x-forwarded-for"];
+        const remoteIp =
+          typeof forwardedFor === "string" ? forwardedFor.split(",")[0]?.trim() : undefined;
+
+        if (!(await verifyTurnstileToken(credentials?.turnstileToken, remoteIp))) {
+          return null;
+        }
+
+        const user = await prisma.user.findUnique({
+          where: { email: demoEmail },
+        });
+
+        if (!user?.active) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+        };
+      },
+    }),
   ],
   callbacks: {
     async jwt({ token, user }) {
@@ -52,6 +95,7 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = user.role;
         token.department = user.department;
+        token.isDemo = Boolean(user.email && user.email.toLowerCase() === getDemoUserEmail());
       }
 
       return token;
@@ -61,6 +105,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
         session.user.department = token.department as string | null;
+        session.user.isDemo = token.isDemo === true;
       }
 
       return session;

@@ -6,13 +6,9 @@ CTX Chat is a single `Next.js` app for both the public website and the internal 
 
 Screens below show the local demo UI.
 
-| Login | Inbox |
-| --- | --- |
-| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) |
-
-| Tasks |
-| --- |
-| ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
+| Login | Inbox | Tasks |
+| --- | --- | --- |
+| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) | ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
 
 ## Stack
 
@@ -50,6 +46,11 @@ Twilio env:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_PHONE_NUMBER` or `TWILIO_MESSAGING_SERVICE_SID`
+
+AI env:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` defaults to `gpt-4.1-mini` when unset
 
 ## Local Setup
 
@@ -90,7 +91,9 @@ pnpm dev
 - `service@ctxchat.local`
 - `parts@ctxchat.local`
 
-The local seed creates demo customers, conversations, tasks, notifications, tags, and templates. Do not use it for production initialization.
+The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
+
+The seed uses fictional customer data and prebuilt AI insights so local and demo environments render useful Command Center analytics without making OpenAI calls during setup.
 
 ## Production Bootstrap
 

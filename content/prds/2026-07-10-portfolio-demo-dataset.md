@@ -1,0 +1,60 @@
+# PRD: Portfolio Demo Dataset
+
+## Status
+
+Ready for Build
+
+## Date
+
+2026-07-10
+
+## Summary
+
+Stock the seeded CTX Chat demo database with realistic dealership operations data, prebaked AI Ops Brief insights, and product analytics events so portfolio reviewers can understand the inbox and Command Center immediately.
+
+## Problem
+
+A fresh demo can look under-instrumented or inactive unless someone manually creates AI briefs and operational follow-ups first. Portfolio viewers need the product story to be visible immediately without setup work.
+
+## Target User
+
+Portfolio reviewers, hiring managers, PM interviewers, and technical product leaders viewing the app through the GM / operations owner workflow.
+
+## Goal
+
+Make a freshly seeded demo database feel like an active dealership operations workspace with realistic triage pressure, measurable AI usage, and clear safety constraints.
+
+## v1 Scope
+
+- Seed realistic customer conversations across Sales, Service, Parts, Finance, and General.
+- Seed operational states including urgent lead, overdue approval, failed outbound message, unassigned request, pickup-ready customer, and SMS opt-out.
+- Seed deterministic AI Ops Brief insights without calling OpenAI.
+- Seed product analytics events for generated, accepted, dismissed, copied-reply, note-created, and follow-up-created AI actions.
+- Seed AI-correlated note and follow-up task records.
+- Make seeded customer child data idempotent across repeated seed runs.
+- Update README seed documentation and PRD index.
+
+## Non-Goals
+
+- Do not call OpenAI during seed.
+- Do not add new schema, API routes, app pages, or a public demo mode.
+- Do not use real customer or business data.
+- Do not add GA4, Looker, random data generation, or screenshot capture in this slice.
+
+## Acceptance Criteria
+
+- Given a fresh dev/demo database, when `pnpm prisma:seed` runs, then the app has realistic stocked demo data.
+- Given the GM opens Inbox, when they inspect conversations, then multiple threads show realistic operational states.
+- Given the GM opens Command Center, then AI Ops Analytics shows generated briefs, accepted/dismissed recommendations, high-risk insights, and note/follow-up usage.
+- Given seed is run repeatedly, then seeded tasks/events/opt-in records do not duplicate.
+- Given a customer is SMS opted out, then the seeded AI insight does not include a suggested SMS reply.
+
+## Risks / Open Questions
+
+- The seed targets local and demo databases only; operators must avoid running it against production.
+- Seeded analytics are demonstration data, not real usage metrics.
+- Manual QA is still needed to verify the final UI presentation after seeding.
+
+## Portfolio Notes
+
+This demonstrates product-system thinking: the demo is not only stocked with messages, but also with measurable AI workflow events, realistic operational pressure, and a compliance-aware opt-out example that shows AI as controlled decision support rather than automation for its own sake.
