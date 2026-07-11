@@ -12,6 +12,8 @@ export default async function LoginPage() {
     redirect("/inbox");
   }
 
+  const demoEnabled = Boolean(process.env.DEMO_USER_EMAIL);
+
   return (
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
       <section className="hidden min-h-dvh flex-col justify-between border-r border-white/10 p-10 lg:flex">
@@ -34,20 +36,7 @@ export default async function LoginPage() {
             assignments, and next actions visible without chasing five systems.
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-4 text-sm text-zinc-300">
-          <div>
-            <div className="text-2xl font-semibold text-white">9</div>
-            Seeded conversations
-          </div>
-          <div>
-            <div className="text-2xl font-semibold text-white">5</div>
-            Staff roles
-          </div>
-          <div>
-            <div className="text-2xl font-semibold text-white">17</div>
-            Reply templates
-          </div>
-        </div>
+        <div />
       </section>
       <section className="flex min-h-dvh items-center justify-center bg-zinc-50 p-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
         <div className="w-full max-w-sm">
@@ -60,9 +49,16 @@ export default async function LoginPage() {
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-xl font-semibold">Sign in</h2>
-            <p className="mb-6 mt-1 text-sm text-zinc-500 dark:text-zinc-400">Use a seeded staff account to open the MVP.</p>
+            <p className="mb-6 mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {demoEnabled
+                ? "Sign in with your staff account, or take a look around with the demo."
+                : "Sign in with your staff account."}
+            </p>
             <Suspense>
-              <LoginForm />
+              <LoginForm
+                demoEnabled={demoEnabled}
+                turnstileSiteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null}
+              />
             </Suspense>
           </div>
           <div className="mt-4 flex items-center justify-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">

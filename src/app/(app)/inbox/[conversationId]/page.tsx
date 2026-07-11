@@ -20,5 +20,12 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     notFound();
   }
 
-  return <InboxView {...data} selectedId={conversationId} searchParams={query} />;
+  return (
+    <InboxView
+      {...data}
+      selectedId={conversationId}
+      searchParams={query}
+      isDemo={Boolean(user.isDemo)}
+    />
+  );
 }

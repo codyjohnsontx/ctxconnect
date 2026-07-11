@@ -34,6 +34,7 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
 type InboxViewProps = InboxData & {
   selectedId?: string;
   searchParams: Record<string, string | undefined>;
+  isDemo?: boolean;
 };
 
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
@@ -55,6 +56,7 @@ export function InboxView({
   templates,
   dealershipSettings,
   searchParams,
+  isDemo,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
   const unit = selectedVehicle
@@ -257,6 +259,7 @@ export function InboxView({
               department={selectedConversation.department}
               templates={templates}
               disabled={selectedConversation.customer.smsOptedOut}
+              demoBlocked={isDemo}
             />
           </div>
 

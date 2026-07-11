@@ -123,6 +123,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   }
 
+  if (session.user.isDemo) {
+    const parsedLimit = Number(process.env.DEMO_AI_DAILY_LIMIT);
+    const demoAiDailyLimit = Number.isFinite(parsedLimit) && parsedLimit >= 0 ? parsedLimit : 20;
+    // Count successful generations only, so failed attempts (provider
+    // errors, missing API key) do not consume the demo quota. Seeded
+    // insights carry model "seeded-demo" and must not count either.
+    const generatedCount = await prisma.productEvent.count({
+      where: {
+        type: ProductEventType.AI_INSIGHT_GENERATED,
+        userId: session.user.id,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        aiInsight: { model: { not: "seeded-demo" } },
+      },
+    });
+
+    if (generatedCount >= demoAiDailyLimit) {
+      await prisma.productEvent.create({
+        data: {
+          type: ProductEventType.AI_INSIGHT_FAILED,
+          userId: session.user.id,
+          conversationId: conversation.id,
+          metadata: {
+            reason: "demo_cap",
+            limit: demoAiDailyLimit,
+          },
+        },
+      });
+
+      return NextResponse.json(
+        { error: "Demo limit reached: live AI briefs are capped for the shared demo and reset within 24 hours." },
+        { status: 429 },
+      );
+    }
+  }
+
   await prisma.productEvent.create({
     data: {
       type: ProductEventType.AI_INSIGHT_REQUESTED,

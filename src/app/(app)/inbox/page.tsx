@@ -13,5 +13,5 @@ export default async function InboxPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const data = await getInboxData(user, params);
 
-  return <InboxView {...data} searchParams={params} />;
+  return <InboxView {...data} searchParams={params} isDemo={Boolean(user.isDemo)} />;
 }

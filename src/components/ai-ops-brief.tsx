@@ -55,7 +55,7 @@ function riskReasons(value: unknown) {
 export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBriefProps) {
   const router = useRouter();
   const [insight, setInsight] = useState<AiOpsBriefInsight | null>(initialInsight);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; status?: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -76,16 +76,30 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
         } | null;
 
         if (!response.ok) {
-          setError(payload?.error ?? "AI brief could not be generated.");
+          setError({
+            message: payload?.error ?? "AI brief could not be generated.",
+            status: response.status,
+          });
           return;
         }
 
         if (payload?.insight) {
           setInsight(payload.insight);
+
+          // A new brief invalidates any insight attribution staged in the
+          // note / follow-up forms; clear it so stale IDs cannot be submitted.
+          for (const selector of ["input[data-ai-note-insight]", "input[data-ai-follow-up-insight]"]) {
+            const staged = document.querySelector<HTMLInputElement>(selector);
+
+            if (staged) {
+              staged.value = "";
+            }
+          }
+
           router.refresh();
         }
       } catch {
-        setError("AI brief request failed. Check your connection and try again.");
+        setError({ message: "AI brief request failed. Check your connection and try again." });
       }
     });
   }
@@ -103,11 +117,11 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
       });
 
       if (!response.ok) {
-        setError("AI action could not be recorded.");
+        setError({ message: "AI action could not be recorded.", status: response.status });
         return false;
       }
     } catch {
-      setError("AI action could not be recorded. Check your connection and try again.");
+      setError({ message: "AI action could not be recorded. Check your connection and try again." });
       return false;
     }
 
@@ -150,7 +164,7 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
       try {
         await navigator.clipboard.writeText(insight.suggestedReply ?? "");
       } catch {
-        setError("Suggested reply could not be copied.");
+        setError({ message: "Suggested reply could not be copied." });
         return;
       }
 
@@ -305,12 +319,12 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
         <p
           className={cn(
             "mt-3 rounded-md p-2 text-xs leading-5",
-            error.includes("not configured")
+            error.status === 429 || error.status === 503
               ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
               : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200",
           )}
         >
-          {error}
+          {error.message}
         </p>
       ) : null}
       {notice ? <p className="mt-3 rounded-md bg-blue-50 p-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-200">{notice}</p> : null}

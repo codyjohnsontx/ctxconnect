@@ -6,13 +6,9 @@ CTX Chat is a single `Next.js` app for both the public website and the internal 
 
 Screens below show the local demo UI.
 
-| Login | Inbox |
-| --- | --- |
-| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) |
-
-| Tasks |
-| --- |
-| ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
+| Login | Inbox | Tasks |
+| --- | --- | --- |
+| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) | ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
 
 ## Stack
 
