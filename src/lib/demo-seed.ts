@@ -154,7 +154,13 @@ async function createAiInsightWithEvents(
 }
 
 export async function seedDemoData(prisma: PrismaClient) {
-  const demoPassword = process.env.SEED_PASSWORD || "ctxdemo123";
+  const seedPassword = process.env.SEED_PASSWORD?.trim();
+
+  if (!seedPassword && process.env.NODE_ENV === "production") {
+    throw new Error("SEED_PASSWORD must be set to seed demo data in production.");
+  }
+
+  const demoPassword = seedPassword || "ctxdemo123";
   const passwordHash = await hash(demoPassword, 12);
 
   await prisma.dealershipSettings.upsert({

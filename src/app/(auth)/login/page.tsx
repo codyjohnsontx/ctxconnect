@@ -12,6 +12,8 @@ export default async function LoginPage() {
     redirect("/inbox");
   }
 
+  const demoEnabled = Boolean(process.env.DEMO_USER_EMAIL);
+
   return (
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
       <section className="hidden min-h-dvh flex-col justify-between border-r border-white/10 p-10 lg:flex">
@@ -48,11 +50,13 @@ export default async function LoginPage() {
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-xl font-semibold">Sign in</h2>
             <p className="mb-6 mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Sign in with your staff account, or take a look around with the demo.
+              {demoEnabled
+                ? "Sign in with your staff account, or take a look around with the demo."
+                : "Sign in with your staff account."}
             </p>
             <Suspense>
               <LoginForm
-                demoEnabled={Boolean(process.env.DEMO_USER_EMAIL)}
+                demoEnabled={demoEnabled}
                 turnstileSiteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null}
               />
             </Suspense>

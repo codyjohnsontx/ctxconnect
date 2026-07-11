@@ -39,7 +39,7 @@ Demo sessions get live AI ops briefs capped at `DEMO_AI_DAILY_LIMIT` (default 20
 
 ## Reasoning
 
-- Live AI is the flagship feature — a canned demo undersells it, and `gpt-4.1-mini` makes the worst case ~$0.40/day at the cap. SMS is the opposite trade: highest blast radius (spam from a real number, compliance exposure) for minimal demo value.
+- Live AI is the flagship feature — a canned demo undersells it, and the cap bounds worst-case spend to an **estimated** ~$0.40/day. (Estimate, not a measured figure: ~$0.02 per brief on `gpt-4.1-mini` at OpenAI's published pricing as of July 2026, assuming a few thousand input tokens and a few hundred output tokens per brief, × the 20-brief daily cap. Actual spend should be confirmed against the OpenAI usage dashboard after launch.) SMS is the opposite trade: highest blast radius (spam from a real number, compliance exposure) for minimal demo value.
 - Full interactivity with nightly reseed gives the best recruiter experience at near-zero infra cost; the reseed doubles as cleanup for any bot mess.
 - Turnstile is invisible to most humans, so it adds bot friction without recruiter friction; per-IP limiting would need new storage infrastructure for marginal benefit given the caps.
 - Env-var designation avoids a schema migration for a single-account lookup, is per-environment, and is instantly revocable (unset = demo off). Email-match derivation means the old leaked password still lands inside the guardrails.

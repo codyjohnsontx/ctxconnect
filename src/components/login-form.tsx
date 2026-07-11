@@ -102,22 +102,27 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
     setDemoLoading(true);
     setError(null);
 
-    const result = await signIn("demo", {
-      turnstileToken: turnstileToken ?? "",
-      redirect: false,
-      callbackUrl,
-    });
+    try {
+      const result = await signIn("demo", {
+        turnstileToken: turnstileToken ?? "",
+        redirect: false,
+        callbackUrl,
+      });
 
-    setDemoLoading(false);
+      if (result?.error) {
+        setError("Demo sign-in failed. Please try again.");
+        resetTurnstile();
+        return;
+      }
 
-    if (result?.error) {
+      router.push(result?.url ?? "/inbox");
+      router.refresh();
+    } catch {
       setError("Demo sign-in failed. Please try again.");
       resetTurnstile();
-      return;
+    } finally {
+      setDemoLoading(false);
     }
-
-    router.push(result?.url ?? "/inbox");
-    router.refresh();
   }
 
   return (

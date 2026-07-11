@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for Build
+Built
 
 ## Date
 
@@ -43,7 +43,7 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 
 ## v1 Scope
 
-1. "View demo" button on the login page that signs into the designated demo account (`DEMO_USER_EMAIL`, default `gm@ctxchat.local`) with no password entry.
+1. "View demo" button on the login page that signs into the designated demo account with no password entry. The account is set by the required `DEMO_USER_EMAIL` env var (typically `gm@ctxchat.local`); there is no built-in default — leaving it unset disables demo mode entirely.
 2. Server-derived `isDemo` session flag (email match in the JWT callback, regardless of which login path was used).
 3. SMS sending hard-blocked server-side for demo sessions, with a clear composer notice.
 4. AI ops-brief generation live for demo sessions but capped per rolling 24h (`DEMO_AI_DAILY_LIMIT`, default 20), enforced server-side via existing `ProductEvent` counts; friendly 429 message in the UI.

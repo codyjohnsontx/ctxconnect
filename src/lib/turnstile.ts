@@ -4,7 +4,12 @@ export async function verifyTurnstileToken(token: string | undefined, remoteIp?:
   const secret = process.env.TURNSTILE_SECRET_KEY;
 
   if (!secret) {
-    console.warn("TURNSTILE_SECRET_KEY is not set; skipping Turnstile verification.");
+    if (process.env.NODE_ENV === "production") {
+      console.error("TURNSTILE_SECRET_KEY is not set; refusing Turnstile verification in production.");
+      return false;
+    }
+
+    console.warn("TURNSTILE_SECRET_KEY is not set; skipping Turnstile verification outside production.");
     return true;
   }
 
@@ -19,7 +24,11 @@ export async function verifyTurnstileToken(token: string | undefined, remoteIp?:
   }
 
   try {
-    const response = await fetch(TURNSTILE_VERIFY_URL, { method: "POST", body });
+    const response = await fetch(TURNSTILE_VERIFY_URL, {
+      method: "POST",
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
 
     if (!response.ok) {
       return false;

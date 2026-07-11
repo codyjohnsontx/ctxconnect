@@ -139,7 +139,17 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
 
     setNotice(null);
     startTransition(async () => {
-      await navigator.clipboard.writeText(insight.suggestedReply ?? "");
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("Clipboard unavailable.");
+        }
+
+        await navigator.clipboard.writeText(insight.suggestedReply ?? "");
+      } catch {
+        setError("Could not copy the reply to the clipboard.");
+        return;
+      }
+
       if (await recordAction("REPLY_COPIED")) {
         setNotice("Suggested reply copied.");
       }

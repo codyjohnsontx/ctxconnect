@@ -1,10 +1,8 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## Purpose
 
-This file is read automatically by **OpenAI Codex** and other agents such as Cursor, Copilot, and Aider. Rules here apply to all agent sessions in this repository.
-
-For Claude Code: this repo also has a [`CLAUDE.md`](./CLAUDE.md), which Claude Code reads automatically and should contain the same rules.
+This file is read automatically by **Claude Code**. It is the Claude-specific copy of the repository agent rules; [`AGENTS.md`](./AGENTS.md) contains the same rules for OpenAI Codex and other agents such as Cursor, Copilot, and Aider. Keep the two files in sync.
 
 Agents must follow these instructions to produce safe, predictable, maintainable, minimal changes while also helping the user practice strong Product Manager thinking.
 
@@ -1157,12 +1155,12 @@ If larger work is required:
 
 ## Project Structure
 
-This repository uses a Next.js App Router layout:
+This repository uses a Next.js App Router layout under `src/`:
 
-* `app/`
-* `app/api/`
-* `components/`
-* `lib/`
+* `src/app/`
+* `src/app/api/`
+* `src/components/`
+* `src/lib/`
 * `tests/`
 * `public/`
 * `content/`
@@ -1170,9 +1168,9 @@ This repository uses a Next.js App Router layout:
 
 Guidelines:
 
-* UI belongs in `components`
-* business logic belongs in `lib`
-* API handlers belong in `app/api`
+* UI belongs in `src/components`
+* business logic belongs in `src/lib`
+* API handlers belong in `src/app/api`
 * tests belong in `tests`
 * static assets belong in `public`
 * editable site content belongs in `content`

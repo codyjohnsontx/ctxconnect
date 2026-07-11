@@ -208,6 +208,15 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
     throw new Error("OpenAI returned an empty AI ops brief.");
   }
 
-  const parsed = aiOpsBriefSchema.parse(JSON.parse(outputText));
+  // The model sometimes returns "" where the schema expects null; don't
+  // reject an otherwise valid brief over an empty optional field.
+  const raw = JSON.parse(outputText) as Record<string, unknown>;
+  for (const field of ["escalationReason", "suggestedReply", "suggestedTaskTitle"]) {
+    if (typeof raw[field] === "string" && (raw[field] as string).trim() === "") {
+      raw[field] = null;
+    }
+  }
+
+  const parsed = aiOpsBriefSchema.parse(raw);
   return sanitizeSmsOptOut(input, parsed);
 }

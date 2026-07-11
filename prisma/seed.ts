@@ -13,10 +13,14 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString }),
 });
 
-seedDemoData(prisma)
+async function main() {
+  await seedDemoData(prisma);
+}
+
+main()
   .catch((error) => {
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

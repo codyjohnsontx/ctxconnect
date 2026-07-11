@@ -1157,12 +1157,12 @@ If larger work is required:
 
 ## Project Structure
 
-This repository uses a Next.js App Router layout:
+This repository uses a Next.js App Router layout under `src/`:
 
-* `app/`
-* `app/api/`
-* `components/`
-* `lib/`
+* `src/app/`
+* `src/app/api/`
+* `src/components/`
+* `src/lib/`
 * `tests/`
 * `public/`
 * `content/`
@@ -1170,9 +1170,9 @@ This repository uses a Next.js App Router layout:
 
 Guidelines:
 
-* UI belongs in `components`
-* business logic belongs in `lib`
-* API handlers belong in `app/api`
+* UI belongs in `src/components`
+* business logic belongs in `src/lib`
+* API handlers belong in `src/app/api`
 * tests belong in `tests`
 * static assets belong in `public`
 * editable site content belongs in `content`
