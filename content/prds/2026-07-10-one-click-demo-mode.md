@@ -73,7 +73,7 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 - Demo sign-in must not transmit or expose any password.
 - `isDemo` must be derived from the account (email match with `DEMO_USER_EMAIL`), not the login path, so legacy-password logins to the demo account are equally guarded.
 - SMS block must run before any `Message` row is created (no junk FAILED rows).
-- AI cap must be enforced before the OpenAI call and before the `AI_INSIGHT_REQUESTED` event insert.
+- AI cap must be enforced before the OpenAI call and before the `AI_INSIGHT_REQUESTED` event insert. The quota counts successful generations (`AI_INSIGHT_GENERATED`, excluding seeded insights), so failed attempts do not consume the cap.
 - Turnstile must fail open when keys are unset (local dev) and fail closed when configured.
 - With `DEMO_USER_EMAIL` unset, the demo button is hidden and the demo provider rejects — feature cleanly off.
 - Reseed endpoint must reject requests without the correct `Authorization: Bearer ${CRON_SECRET}` header, including when the secret is unset.
@@ -108,7 +108,7 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 
 ## Data Requirements
 
-- Read: `ProductEvent` count (`AI_INSIGHT_REQUESTED`, demo `userId`, rolling 24h) for cap enforcement.
+- Read: `ProductEvent` count (`AI_INSIGHT_GENERATED`, demo `userId`, rolling 24h, excluding `seeded-demo` insights) for cap enforcement.
 - Created: `AI_INSIGHT_FAILED` ProductEvent with `metadata.reason = "demo_cap"` when the cap blocks a request.
 - No schema changes or migrations.
 - Reseed: destructive-recreate of seeded customers' conversations/messages/tasks/insights (existing seed behavior), stable user IDs.

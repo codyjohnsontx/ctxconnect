@@ -82,6 +82,17 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
 
         if (payload?.insight) {
           setInsight(payload.insight);
+
+          // A new brief invalidates any insight attribution staged in the
+          // note / follow-up forms; clear it so stale IDs cannot be submitted.
+          for (const selector of ["input[data-ai-note-insight]", "input[data-ai-follow-up-insight]"]) {
+            const staged = document.querySelector<HTMLInputElement>(selector);
+
+            if (staged) {
+              staged.value = "";
+            }
+          }
+
           router.refresh();
         }
       } catch {
