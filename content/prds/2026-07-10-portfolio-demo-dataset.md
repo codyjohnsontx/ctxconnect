@@ -46,7 +46,7 @@ Make a freshly seeded demo database feel like an active dealership operations wo
 - Given a fresh dev/demo database, when `pnpm prisma:seed` runs, then the app has realistic stocked demo data.
 - Given the GM opens Inbox, when they inspect conversations, then multiple threads show realistic operational states.
 - Given the GM opens Command Center, then AI Ops Analytics shows generated briefs, accepted/dismissed recommendations, high-risk insights, and note/follow-up usage.
-- Given seed is run repeatedly, then seeded tasks/events/opt-in records do not duplicate.
+- Given seed is run repeatedly, then seeded tasks, events, and opt-in and opt-out records do not duplicate.
 - Given a customer is SMS opted out, then the seeded AI insight does not include a suggested SMS reply.
 
 ## Risks / Open Questions

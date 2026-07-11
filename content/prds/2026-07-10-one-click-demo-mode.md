@@ -118,8 +118,8 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 No live usage metrics yet.
 
 - Expected outcome: a recruiter reaches a working inbox in one click with zero credential handling.
-- Signals to track after launch: demo sign-ins (NextAuth logs / Vercel analytics), `AI_INSIGHT_FAILED` events with `reason: "demo_cap"` (indicates cap pressure or abuse), OpenAI daily spend staying under the cap ceiling (~$0.40/day worst case at 20 briefs × ~$0.02).
-- Portfolio-safe claim: "Designed demo mode balancing recruiter experience against abuse of paid API surfaces; bounded worst-case daily OpenAI spend to ~$0.40."
+- Signals to track after launch: demo sign-ins (NextAuth logs / Vercel analytics), `AI_INSIGHT_FAILED` events with `reason: "demo_cap"` (indicates cap pressure or abuse), OpenAI daily spend staying near the cap ceiling (estimated ~$0.40/day at 20 briefs × ~$0.02). Note this is a **soft cap**: the quota count and request-event insert are not atomic, so a burst of concurrent requests can briefly exceed the limit by a few briefs.
+- Portfolio-safe claim: "Designed demo mode balancing recruiter experience against abuse of paid API surfaces; a soft daily cap keeps expected OpenAI spend to an estimated ~$0.40/day."
 
 ## Risks
 
@@ -149,4 +149,4 @@ No live usage metrics yet.
 
 ## Portfolio Notes
 
-This feature demonstrates threat-model-driven product scoping: the ask was "a demo button," but discovery showed the login page already published credentials against two unmetered paid APIs. The product decisions — live-but-capped AI (keep the flagship feature real), hard-blocked SMS (highest blast radius, lowest demo value), full write access with nightly reseed (best recruiter experience at near-zero infra cost), and invisible CAPTCHA over IP infrastructure (friction vs. dependency tradeoff) — each traded demo fidelity against bounded worst-case cost. Screenshots to capture after build: login page with demo button, SMS-blocked composer note, AI cap notice.
+This feature demonstrates threat-model-driven product scoping: the ask was "a demo button," but discovery showed the login page already published credentials against two unmetered paid APIs. The product decisions — live-but-capped AI (keep the flagship feature real), hard-blocked SMS (highest blast radius, lowest demo value), full write access with nightly reseed (best recruiter experience at near-zero infra cost), and invisible CAPTCHA over IP infrastructure (friction vs. dependency tradeoff) — each traded demo fidelity against a bounded expected cost. Screenshots to capture after build: login page with demo button, SMS-blocked composer note, AI cap notice.
