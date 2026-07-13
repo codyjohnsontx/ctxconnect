@@ -17,9 +17,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, seededAt: new Date().toISOString() });
   } catch (error) {
     console.error("Demo reseed failed.", error);
-    // The endpoint is CRON_SECRET-gated, so surfacing the failure detail to the
-    // authorized caller is safe and aids operational debugging.
-    const detail = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: "Demo reseed failed.", detail }, { status: 500 });
+    return NextResponse.json({ error: "Demo reseed failed." }, { status: 500 });
   }
 }
