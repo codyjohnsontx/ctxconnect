@@ -22,14 +22,19 @@ const STATUS_ORDER: TaskStatus[] = [
 
 const ACTIVE_STATUSES: TaskStatus[] = [TaskStatus.OPEN, TaskStatus.IN_PROGRESS];
 
-// A task is overdue only if it's still active and its due date has passed.
-// The time read lives here (not in a component render) to keep the render pure.
-function taskIsOverdue(task: TaskListItem) {
-  return ACTIVE_STATUSES.includes(task.status) && task.dueDate.getTime() < Date.now();
+// Read the clock once per request, outside any component render, so every task
+// is compared against the same instant and the render functions stay pure.
+function nowTimestamp() {
+  return Date.now();
 }
 
-function TaskCard({ task }: { task: TaskListItem }) {
-  const isOverdue = taskIsOverdue(task);
+// A task is overdue only if it's still active and its due date has passed.
+function taskIsOverdue(task: TaskListItem, now: number) {
+  return ACTIVE_STATUSES.includes(task.status) && task.dueDate.getTime() < now;
+}
+
+function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
+  const isOverdue = taskIsOverdue(task, now);
 
   return (
     <div
@@ -90,6 +95,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
   const user = await requireUser();
   const params = await searchParams;
   const tasks = await getTasks(user);
+  const now = nowTimestamp();
 
   const activeStatus = STATUS_ORDER.find((status) => status === params.status) ?? null;
 
@@ -150,7 +156,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
         ) : (
           <div className="space-y-3">
             {filtered.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} now={now} />
             ))}
           </div>
         )
@@ -163,7 +169,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
               </h2>
               <div className="space-y-3">
                 {(tasksByStatus.get(status) ?? []).map((task) => (
-                  <TaskCard key={task.id} task={task} />
+                  <TaskCard key={task.id} task={task} now={now} />
                 ))}
               </div>
             </section>
