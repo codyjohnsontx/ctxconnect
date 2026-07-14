@@ -20,7 +20,17 @@ const STATUS_ORDER: TaskStatus[] = [
   TaskStatus.CANCELED,
 ];
 
+const ACTIVE_STATUSES: TaskStatus[] = [TaskStatus.OPEN, TaskStatus.IN_PROGRESS];
+
+// A task is overdue only if it's still active and its due date has passed.
+// The time read lives here (not in a component render) to keep the render pure.
+function taskIsOverdue(task: TaskListItem) {
+  return ACTIVE_STATUSES.includes(task.status) && task.dueDate.getTime() < Date.now();
+}
+
 function TaskCard({ task }: { task: TaskListItem }) {
+  const isOverdue = taskIsOverdue(task);
+
   return (
     <div
       className={cn(
@@ -41,9 +51,13 @@ function TaskCard({ task }: { task: TaskListItem }) {
               {labelize(task.priority)}
             </Badge>
             <Badge>{labelize(task.status)}</Badge>
+            {isOverdue ? <Badge variant="red">Overdue</Badge> : null}
           </div>
           <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {task.customer.name} · {labelize(task.department)} · due {formatDistanceToNow(task.dueDate, { addSuffix: true })}
+            {task.customer.name} · {labelize(task.department)} ·{" "}
+            <span className={isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}>
+              due {formatDistanceToNow(task.dueDate, { addSuffix: true })}
+            </span>
           </div>
           {task.description ? <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{task.description}</p> : null}
         </div>
