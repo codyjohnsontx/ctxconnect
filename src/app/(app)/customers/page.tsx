@@ -29,7 +29,7 @@ export default async function CustomersPage() {
           return (
             <Link
               key={customer.id}
-              href={latest ? `/inbox/${latest.id}` : "/inbox"}
+              href={latest ? `/inbox/${latest.id}?from=customers` : "/inbox"}
               className="grid gap-3 border-b border-zinc-100 p-4 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 md:grid-cols-[1.2fr_1fr_1fr_1fr] md:items-center"
             >
               <div>
