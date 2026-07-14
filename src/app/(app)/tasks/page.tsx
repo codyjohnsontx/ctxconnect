@@ -79,8 +79,12 @@ export default async function TasksPage({ searchParams }: PageProps) {
 
   const activeStatus = STATUS_ORDER.find((status) => status === params.status) ?? null;
 
+  const tasksByStatus = new Map<TaskStatus, TaskListItem[]>(STATUS_ORDER.map((status) => [status, []]));
+  for (const task of tasks) {
+    tasksByStatus.get(task.status)?.push(task);
+  }
   const countByStatus = Object.fromEntries(
-    STATUS_ORDER.map((status) => [status, tasks.filter((task) => task.status === status).length]),
+    STATUS_ORDER.map((status) => [status, tasksByStatus.get(status)?.length ?? 0]),
   ) as Record<TaskStatus, number>;
 
   const tabs = [
@@ -93,7 +97,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
     })),
   ];
 
-  const filtered = activeStatus ? tasks.filter((task) => task.status === activeStatus) : tasks;
+  const filtered = activeStatus ? tasksByStatus.get(activeStatus) ?? [] : tasks;
 
   return (
     <div className="p-5 lg:p-8">
@@ -109,6 +113,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
             <Link
               key={tab.label}
               href={tab.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
                 active
@@ -143,11 +148,9 @@ export default async function TasksPage({ searchParams }: PageProps) {
                 {labelize(status)} <span className="ml-1 opacity-70">{countByStatus[status]}</span>
               </h2>
               <div className="space-y-3">
-                {tasks
-                  .filter((task) => task.status === status)
-                  .map((task) => (
-                    <TaskCard key={task.id} task={task} />
-                  ))}
+                {(tasksByStatus.get(status) ?? []).map((task) => (
+                  <TaskCard key={task.id} task={task} />
+                ))}
               </div>
             </section>
           ))}
