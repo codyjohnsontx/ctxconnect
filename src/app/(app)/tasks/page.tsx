@@ -30,7 +30,7 @@ function TaskCard({ task }: { task: TaskListItem }) {
     >
       {task.conversationId ? (
         <Link href={`/inbox/${task.conversationId}?from=tasks`} className="absolute inset-0 rounded-lg">
-          <span className="sr-only">Open conversation for {task.customer.name}</span>
+          <span className="sr-only">Open conversation for {task.title} ({task.customer.name})</span>
         </Link>
       ) : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
