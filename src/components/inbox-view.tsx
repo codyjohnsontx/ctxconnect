@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, Circle, Clock3, MessageCircle, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, updateConversation } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { MessageComposer } from "@/components/message-composer";
@@ -37,10 +37,19 @@ type InboxViewProps = InboxData & {
   isDemo?: boolean;
 };
 
+// Origins that a conversation can be opened from, with the label/href for the
+// contextual back link. Navigating within the inbox list drops this origin.
+const BACK_TARGETS: Record<string, { href: string; label: string }> = {
+  tasks: { href: "/tasks", label: "Back to tasks" },
+  customers: { href: "/customers", label: "Back to customers" },
+};
+
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
-    if (value) {
+    // Drop the origin marker: clicking a sibling thread in the list means the
+    // user is navigating within the inbox, not still coming from tasks/customers.
+    if (value && key !== "from") {
       params.set(key, value);
     }
   }
@@ -63,6 +72,7 @@ export function InboxView({
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "unit";
   const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
+  const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
 
   return (
     <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
@@ -197,6 +207,15 @@ export function InboxView({
           <div className="flex min-h-0 flex-col">
             <header className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="min-w-0">
+                {backTarget ? (
+                  <Link
+                    href={backTarget.href}
+                    className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    {backTarget.label}
+                  </Link>
+                ) : null}
                 <h2 className="truncate text-lg font-semibold">{selectedConversation.customer.name}</h2>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {selectedConversation.subject ?? labelize(selectedConversation.department)} · {formatPhone(selectedConversation.customer.phone)}

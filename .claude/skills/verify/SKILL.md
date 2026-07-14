@@ -10,6 +10,7 @@ description: How to run and drive ctxChat locally to verify changes end-to-end (
 - `npm run dev` (port 3000). Next 16 refuses a second dev server for the same dir — if one is already running, reuse it (it hot-reloads code AND `.env` changes) or kill it first.
 - Gotcha: a long-running dev server keeps a **stale Prisma client** in its module graph after `prisma generate` / new migrations — Prisma validation errors like "Unknown argument `<compoundUnique>`" mean restart the dev server, not a code bug.
 - `npm run build` fails locally at `prisma generate` (`ERR_REQUIRE_ESM` in `@prisma/dev` on Node 20) — pre-existing; run `npx --no-install next build` directly to validate the app build against the existing generated client in `src/generated/`.
+- `next build` needs `DATABASE_URL` **in the environment** — it does not load `.env` for the Prisma-client module eval during page-data collection, so a clean build errors with "DATABASE_URL is required to create the Prisma client" on every Prisma-importing route (`/login`, etc.). Export it first: `export $(grep -E '^(DATABASE_URL|DIRECT_URL)=' .env | sed 's/\"//g')` then `npx --no-install next build`. (On Vercel it's a real build env var, so CI/prod builds fine.)
 - `npm run prisma:seed` reseeds demo data (destructive-recreate of seeded conversations; user IDs stable).
 
 ## Driving auth flows without a browser
