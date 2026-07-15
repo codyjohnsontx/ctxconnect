@@ -20,7 +20,22 @@ const STATUS_ORDER: TaskStatus[] = [
   TaskStatus.CANCELED,
 ];
 
-function TaskCard({ task }: { task: TaskListItem }) {
+const ACTIVE_STATUSES: TaskStatus[] = [TaskStatus.OPEN, TaskStatus.IN_PROGRESS];
+
+// Read the clock once per request, outside any component render, so every task
+// is compared against the same instant and the render functions stay pure.
+function nowTimestamp() {
+  return Date.now();
+}
+
+// A task is overdue only if it's still active and its due date has passed.
+function taskIsOverdue(task: TaskListItem, now: number) {
+  return ACTIVE_STATUSES.includes(task.status) && task.dueDate.getTime() < now;
+}
+
+function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
+  const isOverdue = taskIsOverdue(task, now);
+
   return (
     <div
       className={cn(
@@ -41,9 +56,13 @@ function TaskCard({ task }: { task: TaskListItem }) {
               {labelize(task.priority)}
             </Badge>
             <Badge>{labelize(task.status)}</Badge>
+            {isOverdue ? <Badge variant="red">Overdue</Badge> : null}
           </div>
           <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {task.customer.name} · {labelize(task.department)} · due {formatDistanceToNow(task.dueDate, { addSuffix: true })}
+            {task.customer.name} · {labelize(task.department)} ·{" "}
+            <span className={isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}>
+              due {formatDistanceToNow(task.dueDate, { addSuffix: true })}
+            </span>
           </div>
           {task.description ? <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{task.description}</p> : null}
         </div>
@@ -76,6 +95,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
   const user = await requireUser();
   const params = await searchParams;
   const tasks = await getTasks(user);
+  const now = nowTimestamp();
 
   const activeStatus = STATUS_ORDER.find((status) => status === params.status) ?? null;
 
@@ -136,7 +156,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
         ) : (
           <div className="space-y-3">
             {filtered.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} now={now} />
             ))}
           </div>
         )
@@ -149,7 +169,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
               </h2>
               <div className="space-y-3">
                 {(tasksByStatus.get(status) ?? []).map((task) => (
-                  <TaskCard key={task.id} task={task} />
+                  <TaskCard key={task.id} task={task} now={now} />
                 ))}
               </div>
             </section>
