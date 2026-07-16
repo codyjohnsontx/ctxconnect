@@ -215,7 +215,17 @@ export function InboxView({
                     <ArrowLeft className="h-3.5 w-3.5" />
                     {backTarget.label}
                   </Link>
-                ) : null}
+                ) : (
+                  // On mobile the conversation list is hidden when a thread is open,
+                  // so give an inbox-origin conversation a way back to the list.
+                  <Link
+                    href="/inbox"
+                    className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 lg:hidden dark:text-zinc-400 dark:hover:text-zinc-100"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Back to inbox
+                  </Link>
+                )}
                 <h2 className="truncate text-lg font-semibold">{selectedConversation.customer.name}</h2>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {selectedConversation.subject ?? labelize(selectedConversation.department)} · {formatPhone(selectedConversation.customer.phone)}
