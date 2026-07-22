@@ -38,7 +38,9 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
   const turnstileRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
 
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/inbox";
+  const requestedCallbackUrl = searchParams.get("callbackUrl");
+  const staffCallbackUrl = requestedCallbackUrl ?? "/inbox";
+  const demoCallbackUrl = requestedCallbackUrl ?? "/command-center";
   const turnstileActive = demoEnabled && Boolean(turnstileSiteKey);
   const demoReady = !turnstileActive || Boolean(turnstileToken);
 
@@ -84,7 +86,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
       email: String(formData.get("email") ?? ""),
       password: String(formData.get("password") ?? ""),
       redirect: false,
-      callbackUrl,
+      callbackUrl: staffCallbackUrl,
     });
 
     setLoading(false);
@@ -94,7 +96,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
       return;
     }
 
-    router.push(result?.url ?? "/inbox");
+    router.push(result?.url ?? staffCallbackUrl);
     router.refresh();
   }
 
@@ -106,7 +108,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
       const result = await signIn("demo", {
         turnstileToken: turnstileToken ?? "",
         redirect: false,
-        callbackUrl,
+        callbackUrl: demoCallbackUrl,
       });
 
       if (result?.error) {
@@ -115,7 +117,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
         return;
       }
 
-      router.push(result?.url ?? "/inbox");
+      router.push(result?.url ?? demoCallbackUrl);
       router.refresh();
     } catch {
       setError("Demo sign-in failed. Please try again.");
@@ -156,7 +158,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
             {demoLoading ? "Opening demo..." : "View demo"}
           </Button>
           <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-            Explore the workspace with seeded dealership data. No account needed.
+            Start in Command Center, then open a flagged conversation to explore the AI-assisted workflow. Seeded data; no account needed.
           </p>
           {turnstileActive ? (
             <>
