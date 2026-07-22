@@ -65,6 +65,16 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
             ? "Dealership operations view of what needs attention now."
             : "Your scoped operations view of what needs attention now."}
         </p>
+        {user.isDemo ? (
+          <div className="mt-4 border-l-2 border-blue-600 pl-3 dark:border-blue-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+              Recommended demo path
+            </p>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+              Choose an operational signal, open a conversation, then review its AI brief and turn the recommendation into a human-approved action.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
