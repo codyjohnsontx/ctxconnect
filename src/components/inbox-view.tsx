@@ -77,7 +77,7 @@ export function InboxView({
   return (
     <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
       <section className={cn("min-h-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation && "hidden lg:block")}>
-        <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="relative z-10 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
