@@ -23,7 +23,11 @@ const MAX_TASK_TITLE_CHARS = 180;
 /** Where a brief request came from. Recorded on every AI ProductEvent. */
 export type BriefSource = "inbox" | "ambient_pass" | "seed";
 
-export type BriefFailureReason = "not_found" | "openai_not_configured" | "provider_failure";
+export type BriefFailureReason =
+  | "not_found"
+  | "openai_not_configured"
+  | "provider_failure"
+  | "persist_failure";
 
 export type BriefRunResult =
   | { ok: true; insight: ConversationAiInsight }
@@ -223,43 +227,77 @@ export async function generateAndSaveBrief({
     };
   }
 
-  const insight = await prisma.$transaction(async (tx) => {
-    const createdInsight = await tx.conversationAiInsight.create({
-      data: {
-        conversationId: conversation.id,
-        requestedByUserId: userId,
-        model,
-        summary: brief.summary,
-        customerNeed: brief.customerNeed,
-        riskLevel: brief.riskLevel,
-        riskReasons: brief.riskReasons,
-        escalationRecommended: brief.escalationRecommended,
-        escalationReason: brief.escalationReason,
-        suggestedDepartment: brief.suggestedDepartment,
-        suggestedNextAction: brief.suggestedNextAction,
-        suggestedReply: brief.suggestedReply,
-        suggestedTaskTitle: brief.suggestedTaskTitle,
-        confidence: brief.confidence,
-      },
-    });
+  let insight: ConversationAiInsight;
 
-    await tx.productEvent.create({
-      data: {
-        type: ProductEventType.AI_INSIGHT_GENERATED,
-        userId,
-        conversationId: conversation.id,
-        aiInsightId: createdInsight.id,
-        metadata: {
-          source,
+  try {
+    insight = await prisma.$transaction(async (tx) => {
+      const createdInsight = await tx.conversationAiInsight.create({
+        data: {
+          conversationId: conversation.id,
+          requestedByUserId: userId,
           model,
-          riskLevel: createdInsight.riskLevel,
-          escalationRecommended: createdInsight.escalationRecommended,
+          summary: brief.summary,
+          customerNeed: brief.customerNeed,
+          riskLevel: brief.riskLevel,
+          riskReasons: brief.riskReasons,
+          escalationRecommended: brief.escalationRecommended,
+          escalationReason: brief.escalationReason,
+          suggestedDepartment: brief.suggestedDepartment,
+          suggestedNextAction: brief.suggestedNextAction,
+          suggestedReply: brief.suggestedReply,
+          suggestedTaskTitle: brief.suggestedTaskTitle,
+          confidence: brief.confidence,
         },
-      },
+      });
+
+      await tx.productEvent.create({
+        data: {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId,
+          conversationId: conversation.id,
+          aiInsightId: createdInsight.id,
+          metadata: {
+            source,
+            model,
+            riskLevel: createdInsight.riskLevel,
+            escalationRecommended: createdInsight.escalationRecommended,
+          },
+        },
+      });
+
+      return createdInsight;
+    });
+  } catch (error) {
+    // The brief was generated and paid for, so a failed write is recorded
+    // rather than thrown: a pass over many conversations must count this one as
+    // failed and keep going.
+    console.error("AI ops brief persistence failed.", {
+      conversationId: conversation.id,
+      userId,
+      source,
+      model,
+      error,
     });
 
-    return createdInsight;
-  });
+    await prisma.productEvent
+      .create({
+        data: {
+          type: ProductEventType.AI_INSIGHT_FAILED,
+          userId,
+          conversationId: conversation.id,
+          metadata: { source, reason: "persist_failure", model },
+        },
+      })
+      .catch((eventError) => {
+        console.error("Failed to record AI ops brief persistence failure.", eventError);
+      });
+
+    return {
+      ok: false,
+      reason: "persist_failure",
+      message: "AI brief generated but could not be saved.",
+    };
+  }
 
   return { ok: true, insight };
 }

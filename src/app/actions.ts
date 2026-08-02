@@ -4,7 +4,7 @@ import { hash } from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
-import { runAmbientBriefPass } from "@/lib/ai/ambient-pass";
+import { maxBriefsPerPass, runAmbientBriefPass } from "@/lib/ai/ambient-pass";
 import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
 import {
@@ -524,7 +524,19 @@ export async function updateDealershipSettings(formData: FormData) {
 export async function runAiBriefPass(): Promise<string> {
   const user = await requireSessionUser();
 
-  const maxBriefs = user.isDemo ? (await remainingDemoBriefQuota(user.id)).remaining : undefined;
+  let maxBriefs: number | undefined;
+
+  if (user.isDemo) {
+    const { remaining } = await remainingDemoBriefQuota(user.id);
+
+    if (remaining <= 0) {
+      return "Demo limit reached: live AI briefs are capped for the shared demo and reset within 24 hours.";
+    }
+
+    // Both bounds apply: the per-run ceiling still holds for the demo account,
+    // the daily quota only tightens it further.
+    maxBriefs = Math.min(remaining, maxBriefsPerPass());
+  }
 
   // Scoped to what this user can see: an advisor's button should not spend
   // briefs on the sales lane she cannot open.
@@ -546,7 +558,7 @@ export async function runAiBriefPass(): Promise<string> {
   }
 
   if (result.briefed === 0) {
-    return `The AI provider failed on ${result.failed} conversation${result.failed === 1 ? "" : "s"}. No briefs were written.`;
+    return `The AI pass failed on ${result.failed} conversation${result.failed === 1 ? "" : "s"}. No briefs were written.`;
   }
 
   const extra = [

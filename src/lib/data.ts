@@ -233,6 +233,7 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     dealershipSettings,
     queueStatus: {
       briefed: conversations.filter((conversation) => conversation.aiInsights.length > 0).length,
+      queueSize: conversations.length,
       lastBriefAt,
       aiConfigured: isAiOpsBriefConfigured(),
     },

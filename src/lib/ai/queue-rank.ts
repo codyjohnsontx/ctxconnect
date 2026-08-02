@@ -8,6 +8,7 @@ export type RankableInsight = {
 
 export type RankableConversation = {
   unread: boolean;
+  priority: Priority;
   lastMessageAt: Date;
   aiInsights: RankableInsight[];
 };
@@ -22,9 +23,6 @@ const riskWeight: Record<Priority, number> = {
 /** An unbriefed thread is an unknown, not a safe one: it sorts as NORMAL. */
 const UNBRIEFED_WEIGHT = riskWeight[Priority.NORMAL];
 
-/** A dismissed recommendation stops shouting. It sorts below everything briefed. */
-const DISMISSED_WEIGHT = 0;
-
 export function queueScore(conversation: RankableConversation) {
   const insight = conversation.aiInsights[0];
 
@@ -33,7 +31,12 @@ export function queueScore(conversation: RankableConversation) {
   }
 
   if (insight.dismissedAt) {
-    return DISMISSED_WEIGHT;
+    // A dismissed brief stops shouting its AI risk, but dismissing the AI's
+    // opinion must not erase the human's. The act of saying "I have seen this"
+    // must not bury a genuinely urgent job below conversations the AI never
+    // looked at, which is the opposite of what a ranked queue exists for. So
+    // the thread falls back to what staff said, not to zero.
+    return riskWeight[conversation.priority];
   }
 
   // Escalation is the strongest signal the model produces: it means this thread

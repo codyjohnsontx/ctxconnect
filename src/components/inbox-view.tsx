@@ -208,9 +208,11 @@ export function InboxView({
                       ) : null}
                       <Badge>{labelize(conversation.department)}</Badge>
                       <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>
-                      {/* The staff-set priority is only worth a badge where the AI has
-                          not rated the thread; otherwise the two say the same word twice. */}
-                      {!insight &&
+                      {/* The staff-set priority is only worth a badge where the AI is not
+                          currently rating the thread; otherwise the two say the same word
+                          twice. A dismissed brief counts as not rating it: dismissing the
+                          AI's opinion must not erase the human's. */}
+                      {(!insight || insight.dismissedAt) &&
                       (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
                         <Badge variant="red">
                           <AlertTriangle className="mr-1 h-3 w-3" />

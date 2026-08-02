@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 
 export type QueueStatusData = {
   briefed: number;
+  /** Conversations visible in this queue, so "briefed" has something to be out of. */
+  queueSize: number;
   lastBriefAt: Date | null;
   aiConfigured: boolean;
 };
@@ -40,10 +42,12 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between gap-2">
+        {/* Says only what the insight rows know. Nothing records when a pass ran,
+            so this line never claims a last run it cannot observe. */}
         <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-          AI pass briefed {status.briefed}
+          {status.briefed} of {status.queueSize} briefed
           {status.lastBriefAt
-            ? `, last run ${formatDistanceToNow(status.lastBriefAt, { addSuffix: true })}`
+            ? `, newest brief ${formatDistanceToNow(status.lastBriefAt, { addSuffix: true })}`
             : ""}
         </p>
         <Button onClick={runPass} disabled={isPending} variant="ghost" size="sm" className="shrink-0">

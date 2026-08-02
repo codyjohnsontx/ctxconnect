@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { seedDemoData } from "@/lib/demo-seed";
 import { prisma } from "@/lib/prisma";
 
-export const maxDuration = 60;
+// The seed regenerates its briefs through the real model when a key is set, so
+// this needs the same headroom as the ambient pass rather than a plain-DB budget.
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;

@@ -100,17 +100,18 @@ needs: `riskLevel`, `escalationRecommended`, `confidence`, `dismissedAt`.
   created.
 - Given two briefed conversations, when one recommends escalation, then it sorts
   above the other regardless of message recency.
-- Given a brief the advisor dismissed, then that conversation sorts below every
-  active brief.
+- Given a brief the advisor dismissed, then that conversation stops carrying its AI
+  risk and falls back to the priority staff set on it, so dismissing the AI's opinion
+  never erases the human's.
 
 ## Edge Cases
 
 - **No key**: banner instead of the run control; nothing briefed; nothing fabricated.
-- **Provider failure**: the run reports "the AI provider failed on N conversations.
+- **Provider failure**: the run reports "the AI pass failed on N conversations.
   No briefs were written."
 - **Nothing eligible**: the run says so rather than looking like it worked.
-- **Demo quota exhausted**: the on-demand pass briefs zero and the existing 429 path
-  still guards the per-conversation button.
+- **Demo quota exhausted**: the on-demand pass stops before spending anything and
+  names the quota, matching the 429 that guards the per-conversation button.
 - **Unbriefed thread**: sorts as NORMAL, not as safe. An unknown is not a low risk.
 
 ## Data Requirements
@@ -139,8 +140,9 @@ Signals to track once there is traffic:
   ceiling, and the demo quota - but a busy dealership with 500 threads a day would
   need a real budget conversation before this ships.
 - **Ranking trust.** If the model over-rates routine threads, the queue becomes
-  noise and the advisor goes back to reading everything. The dismissed-sinks-down
-  rule is the first defense; a confidence floor is the obvious next one.
+  noise and the advisor goes back to reading everything. Falling a dismissed brief
+  back to the staff priority is the first defense; a confidence floor is the obvious
+  next one.
 - **Latency.** A pass over many conversations is sequential and slow. Acceptable for
   a nightly job; it would need batching before it could run per-message.
 

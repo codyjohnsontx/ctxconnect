@@ -141,9 +141,17 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
  * Strips anything shaped like an API key out of provider error text before it is
  * logged or persisted. Providers echo a masked key in 401 bodies; nothing that
  * looks like a credential should reach a log line or a database row.
+ *
+ * Covers the three shapes that actually appear: an OpenAI `sk-` key, a Bearer
+ * fragment from a gateway or proxy, and a long opaque token from an Azure or
+ * OpenAI-compatible deployment. The opaque pattern is deliberately long and
+ * mixed-case-or-digit so ordinary error prose survives unredacted.
  */
 export function redactProviderSecrets(message: string) {
-  return message.replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]");
+  return message
+    .replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
+    .replace(/(Bearer\s+)\S+/gi, "$1[redacted]")
+    .replace(/\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g, "[redacted]");
 }
 
 export function getAiOpsBriefModel() {

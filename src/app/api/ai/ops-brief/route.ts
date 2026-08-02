@@ -81,6 +81,7 @@ export async function POST(request: Request) {
     not_found: 404,
     openai_not_configured: 503,
     provider_failure: 502,
+    persist_failure: 500,
   } as const;
 
   return NextResponse.json({ error: result.message }, { status: statusByReason[result.reason] });
