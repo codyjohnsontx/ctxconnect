@@ -137,6 +137,15 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
   };
 }
 
+/**
+ * Strips anything shaped like an API key out of provider error text before it is
+ * logged or persisted. Providers echo a masked key in 401 bodies; nothing that
+ * looks like a credential should reach a log line or a database row.
+ */
+export function redactProviderSecrets(message: string) {
+  return message.replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]");
+}
+
 export function getAiOpsBriefModel() {
   return process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 }

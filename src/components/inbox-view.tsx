@@ -240,9 +240,9 @@ export function InboxView({
       </section>
 
       {selectedConversation ? (
-        <section className="grid min-h-0 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="flex min-h-0 flex-col">
-            <header className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <section className="flex min-h-0 flex-col overflow-y-auto pb-20 lg:grid lg:pb-0 lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
+          <div className="flex min-h-0 shrink-0 flex-col">
+            <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 lg:static dark:border-zinc-800 dark:bg-zinc-950">
               <div className="min-w-0">
                 {backTarget ? (
                   <Link
@@ -273,7 +273,7 @@ export function InboxView({
               </Badge>
             </header>
 
-            <div className="flex-1 space-y-4 overflow-y-auto bg-zinc-50 p-5 dark:bg-zinc-950">
+            <div className="max-h-[34dvh] flex-none space-y-4 overflow-y-auto bg-zinc-50 p-5 lg:max-h-none lg:flex-1 dark:bg-zinc-950">
               {selectedConversation.messages.map((message) => {
                 const internal = message.direction === MessageDirection.INTERNAL;
                 const outbound = message.direction === MessageDirection.OUTBOUND;
@@ -329,7 +329,7 @@ export function InboxView({
             />
           </div>
 
-          <aside className="hidden min-h-0 overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:block">
+          <aside className="min-h-0 shrink-0 border-t border-zinc-200 bg-white lg:overflow-y-auto lg:border-l lg:border-t-0 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="space-y-6 p-5">
               <AiOpsBrief
                 key={selectedConversation.id}

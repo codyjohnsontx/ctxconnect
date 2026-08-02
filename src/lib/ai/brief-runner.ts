@@ -7,6 +7,7 @@ import {
   generateAiOpsBrief,
   getAiOpsBriefModel,
   isAiOpsBriefConfigured,
+  redactProviderSecrets,
 } from "@/lib/ai/ops-brief";
 import { prisma } from "@/lib/prisma";
 
@@ -189,7 +190,9 @@ export async function generateAndSaveBrief({
       },
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "AI provider failed.";
+    const errorMessage = redactProviderSecrets(
+      error instanceof Error ? error.message : "AI provider failed.",
+    );
 
     await prisma.productEvent.create({
       data: {
@@ -210,7 +213,7 @@ export async function generateAndSaveBrief({
       userId,
       source,
       model,
-      error,
+      error: errorMessage,
     });
 
     return {

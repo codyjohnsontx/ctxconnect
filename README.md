@@ -58,6 +58,7 @@ AI env:
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL` defaults to `gpt-4.1-mini` when unset
 - `AI_PASS_MAX_BRIEFS` caps how many conversations one ambient pass will brief, defaults to `12`
+- `SEED_AI_BRIEFS` set to `false` to stop the seed regenerating its briefs through the real model
 
 ## Local Setup
 
@@ -100,7 +101,15 @@ pnpm dev
 
 The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
 
-The seed uses fictional customer data and prebuilt AI insights so local and demo environments render useful Command Center analytics without making OpenAI calls during setup.
+The seed uses fictional customer data. It always writes a hand-written fallback
+brief for each demo conversation so the app is never empty and never depends on a
+provider being up.
+
+When `OPENAI_API_KEY` is set, the seed then regenerates those same briefs through
+the real inference path, so a viewer sees genuine model output rather than text
+someone typed. A conversation whose call fails keeps its written fallback, which is
+why the demo cannot break on a provider outage. Each regenerated brief is a paid
+call; set `SEED_AI_BRIEFS=false` to skip that step and keep the written text.
 
 ## The Ambient AI Pass
 

@@ -21,6 +21,12 @@ import {
   defaultTagData,
   defaultTemplateData,
 } from "../../prisma/baseline-data";
+import {
+  generateAiOpsBrief,
+  getAiOpsBriefModel,
+  isAiOpsBriefConfigured,
+  redactProviderSecrets,
+} from "./ai/ops-brief";
 
 const dealershipName = defaultDealershipSettings.dealershipName;
 
@@ -164,6 +170,113 @@ async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   }
 
   return insight;
+}
+
+
+const SEEDED_FALLBACK_MODEL = "seeded-demo";
+
+function seedAiBriefsEnabled() {
+  return process.env.SEED_AI_BRIEFS?.trim().toLowerCase() !== "false";
+}
+
+/**
+ * Replaces the written fallback briefs with real model output.
+ *
+ * The seed always writes a hand-written brief for each demo conversation so the
+ * app is never empty. When a key is configured, this regenerates those same rows
+ * through the real inference path, so a viewer sees genuine output rather than
+ * text someone typed. A conversation whose call fails keeps its fallback, which
+ * is why the demo cannot break on a provider outage.
+ *
+ * Every regenerated brief is a paid call. Set SEED_AI_BRIEFS=false to skip.
+ */
+async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
+  if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
+    return;
+  }
+
+  const model = getAiOpsBriefModel();
+  const fallbackInsights = await prisma.conversationAiInsight.findMany({
+    where: { model: SEEDED_FALLBACK_MODEL },
+    include: {
+      conversation: {
+        include: {
+          customer: true,
+          messages: { orderBy: { createdAt: "asc" }, include: { sender: true } },
+          tasks: true,
+        },
+      },
+    },
+  });
+
+  let regenerated = 0;
+
+  for (const insight of fallbackInsights) {
+    const { conversation } = insight;
+
+    try {
+      const brief = await generateAiOpsBrief({
+        dealershipName,
+        conversation: {
+          id: conversation.id,
+          department: conversation.department,
+          status: conversation.status,
+          priority: conversation.priority,
+          subject: conversation.subject,
+          customer: {
+            name: conversation.customer.name,
+            smsOptedOut: conversation.customer.smsOptedOut,
+            notes: conversation.customer.notes,
+          },
+          messages: conversation.messages.map((message) => ({
+            direction: message.direction,
+            body: message.body,
+            deliveryStatus: message.deliveryStatus,
+            createdAt: message.createdAt,
+            senderName: message.sender?.name ?? null,
+          })),
+          tasks: conversation.tasks.map((task) => ({
+            title: task.title,
+            dueDate: task.dueDate,
+            status: task.status,
+            priority: task.priority,
+          })),
+        },
+      });
+
+      // createdAt is deliberately left alone: the seeded timestamps are what make
+      // the demo read as "the pass already ran before you got here".
+      await prisma.conversationAiInsight.update({
+        where: { id: insight.id },
+        data: {
+          model,
+          summary: brief.summary,
+          customerNeed: brief.customerNeed,
+          riskLevel: brief.riskLevel,
+          riskReasons: brief.riskReasons,
+          escalationRecommended: brief.escalationRecommended,
+          escalationReason: brief.escalationReason,
+          suggestedDepartment: brief.suggestedDepartment,
+          suggestedNextAction: brief.suggestedNextAction,
+          suggestedReply: brief.suggestedReply,
+          suggestedTaskTitle: brief.suggestedTaskTitle,
+          confidence: brief.confidence,
+        },
+      });
+
+      regenerated += 1;
+    } catch (error) {
+      console.warn(
+        `Kept the written fallback brief for ${conversation.customer.name}: ${redactProviderSecrets(
+          error instanceof Error ? error.message : "AI provider failed.",
+        )}`,
+      );
+    }
+  }
+
+  console.log(
+    `Regenerated ${regenerated} of ${fallbackInsights.length} seeded AI briefs with ${model}.`,
+  );
 }
 
 export async function seedDemoData(prisma: PrismaClient) {
@@ -749,14 +862,14 @@ export async function seedDemoData(prisma: PrismaClient) {
       where: { id: tiresParts.messages[1].id },
       data: {
         deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: "Carrier rejected message during demo seed.",
+        errorMessage: "Carrier rejected message: unreachable destination.",
       },
     });
     await prisma.notification.create({
       data: {
         type: NotificationType.MESSAGE_FAILED,
         title: "Message failed",
-        body: `${tiresParts.customer.name}: Carrier rejected message during demo seed.`,
+        body: `${tiresParts.customer.name}: Carrier rejected message: unreachable destination.`,
         recipientUserId: manager.id,
         conversationId: tiresParts.id,
         messageId: tiresParts.messages[1].id,
@@ -1147,6 +1260,8 @@ export async function seedDemoData(prisma: PrismaClient) {
       ],
     });
   }
+
+  await upgradeSeededBriefsWithRealAi(prisma);
 
   console.log(`Seeded ${dealershipName}.`);
 }
