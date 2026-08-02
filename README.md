@@ -152,10 +152,15 @@ a dollar. It is accepted rather than fixed: the alternative is capping the pass 
 what it needs to read every conversation. Not mitigated, and it needs simultaneous
 clicks to happen at all.
 
-Known limit: the staleness check runs in application code, so every pass loads every
-non-closed conversation that has an inbound message before it selects which ones to
-brief. That candidate scan is unbounded. It is fine at dealership volume and would
-need bounding if conversation volume grew materially.
+Known limit: the staleness check runs in application code, so picking candidates means
+loading every non-closed conversation that has an inbound message and filtering them
+in memory. That candidate scan is unbounded, and it does not run only on a pass: the
+inbox header's `N of M briefed` line is counted over exactly the same candidate set,
+so the scan also runs on every `/inbox` load, every filter change, and every thread
+open. It is a second query of a shape the inbox already runs, since the conversation
+list itself is loaded unbounded on every render, rather than a new kind of cost. It is
+fine at dealership volume and would need bounding if conversation volume grew
+materially.
 
 Without `OPENAI_API_KEY` the pass writes nothing, the inbox says AI is not
 configured, and no brief is ever fabricated.

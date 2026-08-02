@@ -10,8 +10,10 @@ export type QueueStatusData = {
   briefed: number;
   /**
    * Conversations the pass will consider, so "briefed" has something to be out
-   * of. Smaller than the rows on screen when some of them are closed or have no
-   * inbound message, because the pass never briefs those.
+   * of. It does not track the rows on screen in either direction: smaller when
+   * some of those rows are closed or have no inbound message, which the pass
+   * never briefs, and larger under an active filter, because coverage is scoped
+   * like the pass itself rather than like the filtered list. See getInboxData.
    */
   queueSize: number;
   lastBriefAt: Date | null;

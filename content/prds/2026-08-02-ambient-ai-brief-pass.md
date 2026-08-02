@@ -147,9 +147,12 @@ Signals to track once there is traffic:
   a nightly job; it would need batching before it could run per-message.
 - **Unbounded candidate scan.** The staleness rule compares a brief's timestamp
   against the thread's last activity, which the ORM cannot express in a query, so
-  every pass loads every non-closed conversation with an inbound message and filters
-  in application code. Nothing bounds that scan. It is fine at the volume this app
-  runs at and would need bounding if conversation volume grew materially.
+  picking candidates loads every non-closed conversation with an inbound message and
+  filters in application code. Nothing bounds that scan, and it runs on every inbox
+  render as well as on every pass, because the header's briefed counter is counted
+  over the same candidate set. That is a second query of a shape the inbox already
+  runs unbounded on every render, not a new kind of cost. It is fine at the volume
+  this app runs at and would need bounding if conversation volume grew materially.
 
 ## Open Questions
 
