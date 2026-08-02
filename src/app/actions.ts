@@ -557,14 +557,16 @@ export async function runAiBriefPass(): Promise<string> {
     return "Nothing to brief. Every conversation already has a brief newer than its last message.";
   }
 
-  if (result.briefed === 0) {
-    return `The AI pass failed on ${result.failed} conversation${result.failed === 1 ? "" : "s"}. No briefs were written.`;
-  }
-
-  const extra = [
+  // One shape for every outcome, so no branch can report a run by the part of it
+  // that went well. A reader can tell a provider outage from a budget stop:
+  // failed conversations were attempted, deferred ones never were.
+  const outcome = [
+    `${result.briefed} briefed`,
     result.failed > 0 ? `${result.failed} failed` : null,
     result.deferred > 0 ? `${result.deferred} left for the next pass` : null,
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .join(", ");
 
-  return `Briefed ${result.briefed} conversation${result.briefed === 1 ? "" : "s"}.${extra.length ? ` ${extra.join(", ")}.` : ""}`;
+  return `AI pass over ${result.eligible} conversation${result.eligible === 1 ? "" : "s"}: ${outcome}.`;
 }

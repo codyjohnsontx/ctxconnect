@@ -149,10 +149,11 @@ re-running the pass costs nothing until something actually happens.
 Entry points:
 
 - `GET /api/ai/sweep`, authorized with `CRON_SECRET`. Scheduled daily in
-  `vercel.json`, after the demo reseed. It skips the threads the seed
-  deliberately leaves stale (`demoStaleBriefSubjects` in `src/lib/demo-seed.ts`),
-  so the reseed's curated state lasts the whole day instead of until the sweep
-  runs. `Run pass` is a person asking, so it still briefs them.
+  `vercel.json`, after the demo reseed. It skips the one thread the seed
+  deliberately leaves stale, matched on the seeded customer in
+  `src/lib/demo-fixtures.ts`, so the reseed's curated state lasts the whole day
+  instead of until the sweep runs. `Run pass` is a person asking, so it still
+  briefs it.
 - `Run pass` in the inbox header, which runs the same pass scoped to the
   conversations the signed-in user can see, and reports what it did.
 
@@ -165,14 +166,18 @@ sequential model calls the cron route makes. `AI_PASS_MAX_BRIEFS` alone does not
 inside that budget: twelve calls against a thirty second provider timeout is 360
 seconds against a 300 second invocation, so a degraded provider used to have the
 invocation killed mid-pass and the briefs already written reported as nothing having
-happened. The pass therefore stops starting briefs at `PASS_DEADLINE_MS` in
-`src/lib/ai/ambient-pass.ts` and counts the rest as left for the next pass. That
-deadline is derived from the invocation budget and the provider timeout rather than
-typed, so raising `AI_PASS_MAX_BRIEFS` cannot reopen the overrun.
+happened. Every loop that calls the model one conversation at a time therefore asks
+`startBriefBudget` in `src/lib/ai/ops-brief.ts` before each call and reports what it
+managed once the answer is no. There are two: the ambient pass, behind
+`/api/ai/sweep`, `/inbox` and `/inbox/[conversationId]`, which counts the rest as
+left for the next pass; and the seed's regeneration of its own written briefs,
+behind `/api/demo/reseed`, which leaves the rest on their hand-written fallback and
+says so. The deadline is derived from the invocation budget and the provider timeout
+rather than typed, so raising `AI_PASS_MAX_BRIEFS` or adding seeded conversations
+cannot reopen the overrun.
 
-Still hand-maintained: `PASS_INVOCATION_BUDGET_MS` has to match `maxDuration` in the
-four routes that host a pass, `/api/ai/sweep`, `/api/demo/reseed`, `/inbox`, and
-`/inbox/[conversationId]`.
+Still hand-maintained: `INVOCATION_BUDGET_MS` in that file has to match `maxDuration`
+in those four routes.
 
 Known limit: `DEMO_AI_DAILY_LIMIT` is read and then spent, with no reservation in
 between, so two people who click `Run pass` on the shared demo account at the same

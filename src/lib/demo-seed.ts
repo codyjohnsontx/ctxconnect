@@ -27,7 +27,9 @@ import {
   getAiOpsBriefModel,
   isAiOpsBriefConfigured,
   redactProviderSecrets,
+  startBriefBudget,
 } from "./ai/ops-brief";
+import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
 
 const dealershipName = defaultDealershipSettings.dealershipName;
 
@@ -216,18 +218,6 @@ const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
 };
 
 /**
- * Conversation subjects whose brief the seed deliberately leaves older than the
- * thread's own last activity, keyed the same way as the pinned fields above.
- *
- * Nina Caldwell's thread takes a staff note after its brief is written, so the
- * inbox marks her badges `earlier brief` and the header counts her as unbriefed.
- * That is the state docs/demo-script.md points at, and the scheduled sweep
- * excludes these threads so it survives the whole day rather than a window each
- * morning. See /api/ai/sweep.
- */
-export const demoStaleBriefSubjects = ["RO 48219 service update"] as const;
-
-/**
  * Replaces the written fallback briefs with real model output.
  *
  * The seed always writes a hand-written brief for each demo conversation so the
@@ -236,7 +226,10 @@ export const demoStaleBriefSubjects = ["RO 48219 service update"] as const;
  * text someone typed. A conversation whose call fails keeps its fallback, which
  * is why the demo cannot break on a provider outage.
  *
- * Every regenerated brief is a paid call. Set SEED_AI_BRIEFS=false to skip.
+ * Every regenerated brief is a paid call, made one after another against the
+ * reseed route's own invocation budget, so this shares the ambient pass's
+ * deadline rather than trusting nine briefs to fit. Set SEED_AI_BRIEFS=false to
+ * skip.
  */
 async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
   if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
@@ -258,9 +251,18 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
     },
   });
 
+  const hasBudget = startBriefBudget();
+
   let regenerated = 0;
+  let attempted = 0;
 
   for (const insight of fallbackInsights) {
+    if (!hasBudget()) {
+      break;
+    }
+
+    attempted += 1;
+
     const { conversation } = insight;
 
     try {
@@ -352,8 +354,14 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
     }
   }
 
+  const unattempted = fallbackInsights.length - attempted;
+
   console.log(
-    `Regenerated ${regenerated} of ${fallbackInsights.length} seeded AI briefs with ${model}.`,
+    `Regenerated ${regenerated} of ${fallbackInsights.length} seeded AI briefs with ${model}.${
+      unattempted > 0
+        ? ` Stopped at the invocation budget, so ${unattempted} kept their written fallback untried.`
+        : ""
+    }`,
   );
 }
 
@@ -475,7 +483,7 @@ export async function seedDemoData(prisma: PrismaClient) {
     },
     {
       name: "Nina Caldwell",
-      phone: "+15125550102",
+      phone: demoStaleBriefCustomerPhone,
       email: "nina.caldwell@example.com",
       vehicle: [2023, "Triumph", "Tiger 900", "SMTDAD85HPT001234", "U24088", 8420, VehicleRelationship.SERVICE_UNIT] as const,
       department: Department.SERVICE,

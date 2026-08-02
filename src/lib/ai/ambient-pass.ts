@@ -1,43 +1,16 @@
 import { ConversationStatus, MessageDirection, type Prisma } from "@/generated/prisma/client";
 import { generateAndSaveBrief } from "@/lib/ai/brief-runner";
-import { AI_BRIEF_TIMEOUT_MS, isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
+import { isAiOpsBriefConfigured, startBriefBudget } from "@/lib/ai/ops-brief";
 import { prisma } from "@/lib/prisma";
 
 /**
  * Ceiling on how many conversations one pass will brief. Every brief is a paid
  * model call, so the pass is bounded rather than unbounded-by-eligibility.
  *
- * This bounds cost, not time. PASS_DEADLINE_MS below is what keeps the pass
- * inside its invocation, so raising this cannot overrun the budget.
+ * This bounds cost, not time. startBriefBudget is what keeps the pass inside its
+ * invocation, so raising this cannot overrun the budget.
  */
 export const DEFAULT_MAX_BRIEFS_PER_PASS = 12;
-
-/**
- * The `maxDuration` every route that runs a pass declares: /api/ai/sweep,
- * /api/demo/reseed, /inbox and /inbox/[conversationId]. Changing it there means
- * changing it here.
- */
-const PASS_INVOCATION_BUDGET_MS = 300_000;
-
-/** Left for the database writes and the response after the last brief returns. */
-const PASS_RESPONSE_MARGIN_MS = 30_000;
-
-/**
- * How long a pass may keep starting briefs.
- *
- * The pass runs its model calls one after another, so the worst case is
- * AI_PASS_MAX_BRIEFS times the provider timeout: 360 seconds at the defaults of
- * 12 and 30, against a 300 second invocation. A degraded provider would
- * therefore have the invocation killed mid-pass, and the briefs already written
- * would be reported as nothing having happened. Instead the pass stops starting
- * briefs at this deadline and counts the rest as deferred.
- *
- * Derived rather than typed so the arithmetic cannot drift: the last brief the
- * pass starts may still run the full provider timeout, which is why that timeout
- * is subtracted here rather than assumed to be small.
- */
-const PASS_DEADLINE_MS =
-  PASS_INVOCATION_BUDGET_MS - AI_BRIEF_TIMEOUT_MS - PASS_RESPONSE_MARGIN_MS;
 
 export type AmbientPassResult = {
   status: "ok" | "not_configured";
@@ -194,7 +167,7 @@ export async function runAmbientBriefPass({
 } = {}): Promise<AmbientPassResult> {
   // Started before the candidate scan, not after it: that scan is unbounded and
   // spends the same invocation the briefs do.
-  const startedAt = Date.now();
+  const hasBudget = startBriefBudget();
   const limit = Math.max(0, maxBriefs ?? maxBriefsPerPass());
 
   if (!isAiOpsBriefConfigured()) {
@@ -210,7 +183,7 @@ export async function runAmbientBriefPass({
   for (const conversation of selected) {
     // Checked before the call rather than after it, because the deadline exists
     // to stop the invocation being killed with an unreported result.
-    if (Date.now() - startedAt >= PASS_DEADLINE_MS) {
+    if (!hasBudget()) {
       console.warn("Ambient brief pass stopped at its time budget.", {
         briefed,
         failed,
