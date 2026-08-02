@@ -8,6 +8,10 @@ The primary user is the **service advisor**. There is no public or customer-faci
 website in this app - every route except `/login`, `/privacy-policy`, and
 `/terms-and-conditions` requires a staff session.
 
+The ninety-second demo path is in [docs/demo-script.md](docs/demo-script.md). The
+product decisions behind the current framing are in
+[content/decisions/2026-08-02-service-advisor-is-the-primary-user.md](content/decisions/2026-08-02-service-advisor-is-the-primary-user.md).
+
 ## Screenshots
 
 Screens below show the local demo UI.
