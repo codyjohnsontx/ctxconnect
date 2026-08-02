@@ -9,13 +9,6 @@ import { prisma } from "@/lib/prisma";
  */
 export const DEFAULT_MAX_BRIEFS_PER_PASS = 12;
 
-/**
- * How many rows the candidate query loads to fill one pass's row cap. A small
- * multiple, so the pass still has stale threads to choose from after the
- * staleness filter drops the already-briefed ones.
- */
-const CANDIDATE_WINDOW_MULTIPLE = 5;
-
 export type AmbientPassResult = {
   status: "ok" | "not_configured";
   /** Conversations that needed a brief when the pass started. */
@@ -41,10 +34,11 @@ export function maxBriefsPerPass() {
  *
  * The staleness clause compares two columns on different tables (the latest
  * insight's createdAt against the conversation's lastMessageAt), which Prisma
- * cannot express in a `where`, so it runs in JS. To keep that from loading the
- * whole open queue, the query takes a bounded window of the most recently
- * active conversations. The trade: `eligible` and `deferred` are counted within
- * that window, so on a very large queue they are a floor rather than a total.
+ * cannot express in a `where`, so it runs in JS over every candidate row. The
+ * candidate scan is therefore unbounded by design: every non-closed conversation
+ * with an inbound message is loaded on each pass, so no thread is ever out of
+ * reach. That is a known performance limit, not a solved one. It would need
+ * bounding if conversation volume grew materially.
  */
 export async function findConversationsNeedingBrief(
   limit: number,
@@ -61,7 +55,6 @@ export async function findConversationsNeedingBrief(
       ],
     },
     orderBy: { lastMessageAt: "desc" },
-    take: Math.max(1, limit) * CANDIDATE_WINDOW_MULTIPLE,
     select: {
       id: true,
       lastMessageAt: true,

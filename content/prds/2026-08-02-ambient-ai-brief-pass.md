@@ -145,6 +145,11 @@ Signals to track once there is traffic:
   next one.
 - **Latency.** A pass over many conversations is sequential and slow. Acceptable for
   a nightly job; it would need batching before it could run per-message.
+- **Unbounded candidate scan.** The staleness rule compares a brief's timestamp
+  against the thread's last activity, which the ORM cannot express in a query, so
+  every pass loads every non-closed conversation with an inbound message and filters
+  in application code. Nothing bounds that scan. It is fine at the volume this app
+  runs at and would need bounding if conversation volume grew materially.
 
 ## Open Questions
 

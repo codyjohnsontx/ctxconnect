@@ -145,13 +145,23 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
  * Covers the three shapes that actually appear: an OpenAI `sk-` key, a Bearer
  * fragment from a gateway or proxy, and a long opaque token from an Azure or
  * OpenAI-compatible deployment. The opaque pattern is deliberately long and
- * mixed-case-or-digit so ordinary error prose survives unredacted.
+ * mixed-case-or-digit so ordinary error prose survives unredacted, and request
+ * ids are kept: they are how a failure is traced back to the provider, and they
+ * are not credentials.
  */
 export function redactProviderSecrets(message: string) {
   return message
     .replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
     .replace(/(Bearer\s+)\S+/gi, "$1[redacted]")
-    .replace(/\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g, "[redacted]");
+    .replace(
+      /\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g,
+      (token, offset: number, full: string) =>
+        isRequestId(token, full.slice(0, offset)) ? token : "[redacted]",
+    );
+}
+
+function isRequestId(token: string, precedingText: string) {
+  return /^req(uest)?[-_]/i.test(token) || /request[-_ ]?id["']?\s*[:=]\s*$/i.test(precedingText);
 }
 
 export function getAiOpsBriefModel() {

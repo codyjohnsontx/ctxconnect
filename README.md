@@ -135,6 +135,11 @@ Entry points:
 Each brief is a paid model call. `AI_PASS_MAX_BRIEFS` bounds a single run, and the
 shared demo account is additionally bounded by `DEMO_AI_DAILY_LIMIT`.
 
+Known limit: the staleness check runs in application code, so every pass loads every
+non-closed conversation that has an inbound message before it selects which ones to
+brief. That candidate scan is unbounded. It is fine at dealership volume and would
+need bounding if conversation volume grew materially.
+
 Without `OPENAI_API_KEY` the pass writes nothing, the inbox says AI is not
 configured, and no brief is ever fabricated.
 
