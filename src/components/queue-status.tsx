@@ -37,8 +37,10 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
       } catch {
         // A rejected action leaves no result line at all, so the button looks
         // like it did nothing. Session expiry, a dropped connection and a server
-        // error all land here and all deserve to be visible.
-        setMessage("The pass could not be started. Check your connection, then try again.");
+        // error all land here and all deserve to be visible. What it must not
+        // claim is that nothing ran: the pass commits each brief as it goes, so
+        // work may already be saved that this reply never made it back to report.
+        setMessage("The pass did not report back, so some briefs may already be saved. Reload to see where it got to.");
       }
     });
   }
@@ -56,8 +58,13 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
     <div className="mb-3">
       <div className="flex items-center justify-between gap-2">
         {/* Says only what the insight rows know. Nothing records when a pass ran,
-            so this line never claims a last run it cannot observe. */}
-        <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+            so this line never claims a last run it cannot observe. The relative
+            time is rendered on the server and again on hydration, which can land
+            either side of a minute boundary, so the difference is expected. */}
+        <p
+          suppressHydrationWarning
+          className="text-xs leading-5 text-zinc-500 dark:text-zinc-400"
+        >
           {status.briefed} of {status.queueSize} briefed
           {status.lastBriefAt
             ? `, newest brief ${formatDistanceToNow(status.lastBriefAt, { addSuffix: true })}`

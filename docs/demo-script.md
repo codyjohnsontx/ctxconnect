@@ -61,8 +61,9 @@ One more label to expect, for the same reason. Nina Caldwell's row carries an
 after her brief was written. The app says so rather than presenting an out-of-date
 read as current, and the header counts her as unbriefed - which is why that line says
 `4 of 5 briefed` against six rows on screen. Five is the number of threads the pass
-will consider, so Priya is in neither number. If the room wants to see the pass move,
-Nina's thread is exactly what `Run pass` re-briefs.
+will consider, so Priya is in neither number. The scheduled pass leaves that one
+thread alone so the marker is on screen whenever you present. If the room wants to
+see the pass move, Nina's thread is exactly what `Run pass` re-briefs.
 
 Then read the top row out loud, because it does the work for you:
 

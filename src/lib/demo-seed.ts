@@ -216,6 +216,18 @@ const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
 };
 
 /**
+ * Conversation subjects whose brief the seed deliberately leaves older than the
+ * thread's own last activity, keyed the same way as the pinned fields above.
+ *
+ * Nina Caldwell's thread takes a staff note after its brief is written, so the
+ * inbox marks her badges `earlier brief` and the header counts her as unbriefed.
+ * That is the state docs/demo-script.md points at, and the scheduled sweep
+ * excludes these threads so it survives the whole day rather than a window each
+ * morning. See /api/ai/sweep.
+ */
+export const demoStaleBriefSubjects = ["RO 48219 service update"] as const;
+
+/**
  * Replaces the written fallback briefs with real model output.
  *
  * The seed always writes a hand-written brief for each demo conversation so the

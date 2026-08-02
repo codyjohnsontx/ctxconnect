@@ -196,6 +196,16 @@ export function isAiOpsBriefConfigured() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
+/**
+ * Per-call ceiling on the provider request.
+ *
+ * Exported because the ambient pass derives its own deadline from it: the pass
+ * runs these calls one after another, so this is the longest a single brief can
+ * hold the invocation. Raising it shortens the pass. See PASS_DEADLINE_MS in
+ * src/lib/ai/ambient-pass.ts before changing it.
+ */
+export const AI_BRIEF_TIMEOUT_MS = 30_000;
+
 export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsBriefResult> {
   if (!isAiOpsBriefConfigured()) {
     throw new Error("OPENAI_API_KEY is required to generate an AI ops brief.");
@@ -214,12 +224,14 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
             {
               type: "input_text",
               text: [
-                "You are an operations assistant for a motorcycle dealership GM.",
+                "You are an operations assistant for a service advisor at a motorcycle dealership.",
+                "She owns these customer conversations and needs the single next action on each one.",
                 "Use only facts present in the supplied conversation context.",
                 "Do not invent facts, promised actions, staff contact, customer contact, or outcomes.",
                 "Do not claim the customer was contacted unless a message shows it.",
                 "If the customer is opted out of SMS, suggestedReply must be null and suggestedNextAction must not recommend SMS.",
                 "Treat failed messages, SLA misses, urgent priority, high priority, and overdue follow-ups as risk signals.",
+                "Recommend escalation only when the next step is above what the advisor can resolve alone.",
                 "Keep recommendations operational, specific, and human-approved.",
                 "Return structured output only.",
               ].join(" "),
@@ -245,7 +257,7 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
         },
       },
     },
-    { timeout: 30_000 },
+    { timeout: AI_BRIEF_TIMEOUT_MS },
   );
 
   const outputText = response.output_text;

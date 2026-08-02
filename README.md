@@ -149,23 +149,30 @@ re-running the pass costs nothing until something actually happens.
 Entry points:
 
 - `GET /api/ai/sweep`, authorized with `CRON_SECRET`. Scheduled daily in
-  `vercel.json`, after the demo reseed.
+  `vercel.json`, after the demo reseed. It skips the threads the seed
+  deliberately leaves stale (`demoStaleBriefSubjects` in `src/lib/demo-seed.ts`),
+  so the reseed's curated state lasts the whole day instead of until the sweep
+  runs. `Run pass` is a person asking, so it still briefs them.
 - `Run pass` in the inbox header, which runs the same pass scoped to the
   conversations the signed-in user can see, and reports what it did.
 
 Each brief is a paid model call. `AI_PASS_MAX_BRIEFS` bounds a single run, and the
 shared demo account is additionally bounded by `DEMO_AI_DAILY_LIMIT`.
 
-Constraint, not a solved item: `Run pass` is a Server Action, so it runs inside the
-serverless invocation that rendered the page it was clicked on. Its time budget has
-to cover `AI_PASS_MAX_BRIEFS` sequential model calls, the same work the cron route
-does. Three places therefore have to agree, and a change to any one of them has to
-carry the others: `AI_PASS_MAX_BRIEFS`, `maxDuration` on `/api/ai/sweep` and
-`/api/demo/reseed`, and `maxDuration` on the two routes that host the button,
-`/inbox` and `/inbox/[conversationId]`. If a page's budget runs out mid-pass the
-invocation is killed, the button reports that the pass could not be started, and the
-briefs already written stay invisible until the advisor reloads by hand, which reads
-as total failure over a partial success.
+`Run pass` is a Server Action, so it runs inside the serverless invocation that
+rendered the page it was clicked on, and its time budget has to cover the same
+sequential model calls the cron route makes. `AI_PASS_MAX_BRIEFS` alone does not fit
+inside that budget: twelve calls against a thirty second provider timeout is 360
+seconds against a 300 second invocation, so a degraded provider used to have the
+invocation killed mid-pass and the briefs already written reported as nothing having
+happened. The pass therefore stops starting briefs at `PASS_DEADLINE_MS` in
+`src/lib/ai/ambient-pass.ts` and counts the rest as left for the next pass. That
+deadline is derived from the invocation budget and the provider timeout rather than
+typed, so raising `AI_PASS_MAX_BRIEFS` cannot reopen the overrun.
+
+Still hand-maintained: `PASS_INVOCATION_BUDGET_MS` has to match `maxDuration` in the
+four routes that host a pass, `/api/ai/sweep`, `/api/demo/reseed`, `/inbox`, and
+`/inbox/[conversationId]`.
 
 Known limit: `DEMO_AI_DAILY_LIMIT` is read and then spent, with no reservation in
 between, so two people who click `Run pass` on the shared demo account at the same
