@@ -4,10 +4,10 @@
 
 CTX Chat runs as one `Next.js` application deployed as one `Vercel` project.
 
-That single deployment serves:
-
-- the public-facing website
-- the internal staff application
+That deployment serves one thing: the internal staff workspace. Every application
+route requires an authenticated staff session; the only unauthenticated pages are
+`/login`, `/privacy-policy`, and `/terms-and-conditions`. There is no public
+marketing or customer-facing website in this codebase.
 
 The database model is explicit:
 

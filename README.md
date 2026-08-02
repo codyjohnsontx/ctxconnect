@@ -1,6 +1,12 @@
 # CTX Chat
 
-CTX Chat is a single `Next.js` app for both the public website and the internal staff workspace for one motorcycle dealership.
+CTX Chat reads every conversation a service advisor has and tells her what to do next.
+
+It is an internal staff workspace for one motorcycle dealership: a shared SMS inbox
+ranked by an AI pass that briefs each thread and flags the ones that need a human.
+The primary user is the **service advisor**. There is no public or customer-facing
+website in this app - every route except `/login`, `/privacy-policy`, and
+`/terms-and-conditions` requires a staff session.
 
 ## Screenshots
 
@@ -94,6 +100,15 @@ pnpm dev
 The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
 
 The seed uses fictional customer data and prebuilt AI insights so local and demo environments render useful Command Center analytics without making OpenAI calls during setup.
+
+## Demo Mode
+
+`DEMO_USER_EMAIL` names the account the login page's `View demo` button signs into.
+It is `service@ctxchat.local` (Alyssa Torres, service advisor) because the service
+advisor is the product's primary user - the demo has to land inside her work, not on
+a manager's dashboard. The demo session lands on `/inbox`.
+
+Leaving `DEMO_USER_EMAIL` unset hides the button and disables the demo provider.
 
 ## Production Bootstrap
 
