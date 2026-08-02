@@ -6,7 +6,10 @@
 
 ## Status
 
-Accepted
+Reversed on 2026-08-02 by
+[The service advisor is the primary user](./2026-08-02-service-advisor-is-the-primary-user.md).
+The one-click demo now signs in as the service advisor and lands on `/inbox`, and the
+Command Center orientation copy was removed.
 
 ## Context
 

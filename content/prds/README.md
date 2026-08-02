@@ -3,7 +3,7 @@
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
 | 2026-08-02 | Built | [Ambient AI Brief Pass and Ranked Advisor Queue](./2026-08-02-ambient-ai-brief-pass.md) | Inbox / AI | Briefs every conversation with new activity on a schedule, and orders the service advisor's inbox by what the AI flagged. |
-| 2026-07-22 | Built | [SVP Demo Readiness](./2026-07-22-svp-demo-readiness.md) | Demo / Portfolio | Leads demo reviewers from operational signals into the human-in-the-loop AI workflow. |
+| 2026-07-22 | Deprecated | [SVP Demo Readiness](./2026-07-22-svp-demo-readiness.md) | Demo / Portfolio | Led demo reviewers into Command Center; superseded by the service-advisor demo path. |
 | 2026-07-13 | Ready for Build | [Tasks Status Views + Conversation Back Link](./2026-07-13-tasks-status-views-and-back-link.md) | Tasks / Navigation | Filter tabs + grouped sections on Tasks, and a contextual back link from conversations. |
 | 2026-07-13 | Ready for Build | [Clickable Task Rows](./2026-07-13-clickable-task-rows.md) | Tasks / Navigation | Task rows link to their conversation thread while keeping in-row status controls. |
 | 2026-07-10 | Built | [One-Click Demo Mode with Abuse Guardrails](./2026-07-10-one-click-demo-mode.md) | Auth / Demo / AI Guardrails | One-click recruiter demo login with SMS blocked, AI briefs capped, Turnstile bot protection, and nightly data reseed. |

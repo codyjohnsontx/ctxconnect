@@ -11,7 +11,7 @@ description: How to run and drive ctxChat locally to verify changes end-to-end (
 - Gotcha: a long-running dev server keeps a **stale Prisma client** in its module graph after `prisma generate` / new migrations — Prisma validation errors like "Unknown argument `<compoundUnique>`" mean restart the dev server, not a code bug.
 - `npm run build` fails locally at `prisma generate` (`ERR_REQUIRE_ESM` in `@prisma/dev` on Node 20) — pre-existing; run `npx --no-install next build` directly to validate the app build against the existing generated client in `src/generated/`.
 - `next build` needs `DATABASE_URL` **in the environment** — it does not load `.env` for the Prisma-client module eval during page-data collection, so a clean build errors with "DATABASE_URL is required to create the Prisma client" on every Prisma-importing route (`/login`, etc.). `next build` only needs `DATABASE_URL` (that's all `src/lib/prisma.ts` reads). Export it first: `export $(grep -E '^DATABASE_URL=' .env | sed 's/\"//g')` then `npx --no-install next build`. (On Vercel it's a real build env var, so CI/prod builds fine.)
-- `npm run prisma:seed` reseeds demo data (destructive-recreate of seeded conversations; user IDs stable).
+- `npm run prisma:seed` reseeds demo data (destructive-recreate of seeded conversations; user IDs stable). With `OPENAI_API_KEY` set it also regenerates every seeded AI brief through the real model, so the seed costs money: `SEED_AI_BRIEFS=false` skips that step (see the README's seed section).
 
 ## Driving auth flows without a browser
 
@@ -39,3 +39,4 @@ Seeded logins: admin/gm/sales/service/parts `@ctxchat.local`, password `ctxdemo1
 - Login page render: `curl -s localhost:3000/login` — grep for what should(n't) be there.
 - Demo guardrails: SMS send → 403 as demo; AI brief → live once, 429 past `DEMO_AI_DAILY_LIMIT` (set it to 1 in `.env` for cheap cap tests; each live brief costs ~$0.02).
 - Reseed: `curl localhost:3000/api/demo/reseed -H "Authorization: Bearer $CRON_SECRET"` — 401 without/incorrect header, 200 + pristine data with it.
+- Ambient AI pass: `curl localhost:3000/api/ai/sweep -H "Authorization: Bearer $CRON_SECRET"` - same auth contract as reseed; a second immediate run should brief 0, which is the staleness rule working. Each brief is a paid call.

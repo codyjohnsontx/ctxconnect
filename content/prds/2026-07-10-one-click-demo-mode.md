@@ -36,14 +36,14 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 ## Background
 
 - Auth: NextAuth v4 credentials provider, JWT sessions (`src/lib/auth.ts`).
-- The seeded `gm@ctxchat.local` (MANAGER) sees all 9 conversations, tasks, customers, and command center — the best showcase account.
-- AI ops briefs cost ~$0.02 each on `gpt-4.1-mini`; each is a user-triggered click in the inbox.
+- The seeded `gm@ctxchat.local` (MANAGER) sees every seeded conversation, task, customer, and command center — the best showcase account at the time. Superseded on 2026-08-02: the demo account is now the service advisor, per [the service advisor decision](../decisions/2026-08-02-service-advisor-is-the-primary-user.md).
+- AI ops briefs cost ~$0.02 each on `gpt-4.1-mini`; at the time each was a user-triggered click in the inbox. Briefs are now also produced by the ambient pass described in the README.
 - SMS sends go through the real Twilio account — cost plus compliance/spam risk.
 - Demo data is shared and mutable: one visitor's mess is the next visitor's first impression.
 
 ## v1 Scope
 
-1. "View demo" button on the login page that signs into the designated demo account with no password entry. The account is set by the required `DEMO_USER_EMAIL` env var (typically `gm@ctxchat.local`); there is no built-in default — leaving it unset disables demo mode entirely.
+1. "View demo" button on the login page that signs into the designated demo account with no password entry. The account is set by the required `DEMO_USER_EMAIL` env var (its current value and rationale live in the README's `Demo Mode` section); there is no built-in default — leaving it unset disables demo mode entirely.
 2. Server-derived `isDemo` session flag (email match in the JWT callback, regardless of which login path was used).
 3. SMS sending hard-blocked server-side for demo sessions, with a clear composer notice.
 4. AI ops-brief generation live for demo sessions but capped per rolling 24h (`DEMO_AI_DAILY_LIMIT`, default 20), enforced server-side via existing `ProductEvent` counts; friendly 429 message in the UI.

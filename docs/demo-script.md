@@ -62,8 +62,9 @@ And the bottom row, because the contrast is the point:
 > **Kelsey Nakamura** - Low. A first-service scheduling question. It is at the bottom
 > because it should be.
 
-If someone asks whether the AI is really running: the header says when the last pass
-ran, and `Run pass` runs it live in front of them.
+If someone asks whether the AI is really running: the header says how many of these
+threads are briefed and how recent the newest brief is, and `Run pass` runs it live in
+front of them.
 
 ---
 

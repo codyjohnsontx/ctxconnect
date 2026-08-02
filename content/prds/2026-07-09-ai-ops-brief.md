@@ -2,7 +2,10 @@
 
 ## Status
 
-Built
+Built. Two parts below were superseded on 2026-08-02: briefs are no longer produced
+only by a click - see [Ambient AI Brief Pass and Ranked Advisor Queue](./2026-08-02-ambient-ai-brief-pass.md) -
+and the Command Center experiment-readiness panel was removed from the UI, with its
+content now owned by [docs/experiment-plan.md](../../docs/experiment-plan.md).
 
 ## Date
 
