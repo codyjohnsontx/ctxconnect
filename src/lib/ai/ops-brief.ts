@@ -148,16 +148,34 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
  * mixed-case-or-digit so ordinary error prose survives unredacted, and request
  * ids are kept: they are how a failure is traced back to the provider, and they
  * are not credentials.
+ *
+ * The first two patterns are anchored so they cannot fire inside ordinary words.
+ * A key starts a word, so `risk-level` and `task-id` are not keys, and what
+ * follows `Bearer` in prose is a word rather than a credential. Scrubbing the
+ * diagnostic text this function exists to preserve is a failure of it, not a
+ * conservative success.
  */
 export function redactProviderSecrets(message: string) {
   return message
-    .replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
-    .replace(/(Bearer\s+)\S+/gi, "$1[redacted]")
+    .replace(/\bsk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
+    .replace(/(Bearer\s+)(\S+)/gi, (match, scheme: string, token: string) =>
+      isOrdinaryWord(token) ? match : `${scheme}[redacted]`,
+    )
     .replace(
       /\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g,
       (token, offset: number, full: string) =>
         isRequestId(token, full.slice(0, offset)) ? token : "[redacted]",
     );
+}
+
+/**
+ * A single short run of letters, optionally closing a sentence. This is what
+ * follows `Bearer` in prose ("Bearer token missing"), and it is what a credential
+ * never is: real tokens carry digits, symbols, or capitals inside them. Anything
+ * else after the scheme is redacted, so the conservative direction is kept.
+ */
+function isOrdinaryWord(token: string) {
+  return /^[A-Za-z][a-z]{0,15}[.,;:!?]?$/.test(token);
 }
 
 function isRequestId(token: string, precedingText: string) {

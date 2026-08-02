@@ -38,6 +38,20 @@ describe("redactProviderSecrets", () => {
       const result = redactProviderSecrets("tried sk-one111 then sk-two222");
       assert.equal(result, "tried sk-[redacted] then sk-[redacted]");
     });
+
+    it("masks a key that starts a word even where a mid-word lookalike is nearby", () => {
+      assert.equal(
+        redactProviderSecrets("risk-level exceeded for sk-proj-abc123DEF456"),
+        "risk-level exceeded for sk-[redacted]",
+      );
+    });
+
+    it("masks a real Bearer token in the same message as Bearer prose", () => {
+      assert.equal(
+        redactProviderSecrets("Bearer token rejected: Bearer aBcD1234eFgH5678"),
+        "Bearer token rejected: Bearer [redacted]",
+      );
+    });
   });
 
   describe("request id preservation", () => {
@@ -119,6 +133,29 @@ describe("redactProviderSecrets", () => {
     it("keeps a token shorter than the redaction threshold", () => {
       const message = "code a1b2c3d4e5f6g7h8";
       assert.equal(redactProviderSecrets(message), message);
+    });
+
+    // A key starts a word, so a word that merely ends in one is not a key. These
+    // are the words this codebase actually logs, and mangling them defeats the
+    // point of keeping the diagnostic text at all.
+    it("keeps words that end in the sk- prefix", () => {
+      for (const message of [
+        "risk-level threshold exceeded",
+        "task-id 7 never completed",
+        "disk-full on the worker",
+      ]) {
+        assert.equal(redactProviderSecrets(message), message);
+      }
+    });
+
+    it("keeps prose that follows the Bearer scheme", () => {
+      for (const message of [
+        "Bearer token missing from the request",
+        "bearer credential rejected",
+        "Bearer authentication failed.",
+      ]) {
+        assert.equal(redactProviderSecrets(message), message);
+      }
     });
 
     it("returns an empty string unchanged", () => {

@@ -67,6 +67,26 @@ async function recordEvent(data: Prisma.ProductEventUncheckedCreateInput) {
 }
 
 /**
+ * Counts the briefs a conversation already has, for telemetry only.
+ *
+ * Guarded for the same reason the writes above are: a query that exists to
+ * describe the run must not be able to end it. An unknown count is recorded as
+ * null, which the event taxonomy already treats as an optional field.
+ */
+async function countExistingInsights(conversationId: string) {
+  try {
+    return await prisma.conversationAiInsight.count({ where: { conversationId } });
+  } catch (error) {
+    console.error("Failed to count existing AI insights.", {
+      conversationId,
+      error: error instanceof Error ? error.message : error,
+    });
+
+    return null;
+  }
+}
+
+/**
  * Loads the bounded slice of a conversation that is safe and useful to send to
  * the model: recent messages and live tasks only, every free-text field capped.
  */
@@ -152,9 +172,7 @@ export async function generateAndSaveBrief({
     conversationId: conversation.id,
     metadata: {
       source,
-      existingInsightCount: await prisma.conversationAiInsight.count({
-        where: { conversationId: conversation.id },
-      }),
+      existingInsightCount: await countExistingInsights(conversation.id),
     },
   });
 

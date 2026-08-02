@@ -15,6 +15,7 @@ import {
   MessageDirection,
   Priority,
 } from "@/generated/prisma/client";
+import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import type { getInboxData } from "@/lib/data";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
@@ -159,6 +160,11 @@ export function InboxView({
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
                 const insight = conversation.aiInsights[0];
+                // The freshness rule the header counter uses, read from the one
+                // place that defines it. A row that presented a brief older than
+                // the thread's newest message as the current read would contradict
+                // the counter that already excluded it.
+                const briefIsCurrent = hasCurrentBrief(conversation);
 
                 return (
                   <Link
@@ -187,7 +193,11 @@ export function InboxView({
                     {insight && !insight.dismissedAt ? (
                       <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
                         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span className="line-clamp-2">{insight.suggestedNextAction}</span>
+                        <span className="line-clamp-2">
+                          {briefIsCurrent
+                            ? insight.suggestedNextAction
+                            : `Earlier brief: ${insight.suggestedNextAction}`}
+                        </span>
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -195,16 +205,20 @@ export function InboxView({
                         insight.dismissedAt ? (
                           <Badge>Dismissed</Badge>
                         ) : (
-                          <Badge variant={aiRiskTone[insight.riskLevel]}>
+                          <Badge variant={briefIsCurrent ? aiRiskTone[insight.riskLevel] : "neutral"}>
                             <Sparkles className="mr-1 h-3 w-3" />
-                            {labelize(insight.riskLevel)}
+                            {briefIsCurrent
+                              ? labelize(insight.riskLevel)
+                              : `${labelize(insight.riskLevel)} · earlier brief`}
                           </Badge>
                         )
                       ) : (
                         <Badge>Not briefed</Badge>
                       )}
                       {insight?.escalationRecommended && !insight.dismissedAt ? (
-                        <Badge variant="red">Escalate</Badge>
+                        <Badge variant={briefIsCurrent ? "red" : "neutral"}>
+                          {briefIsCurrent ? "Escalate" : "Escalate · earlier brief"}
+                        </Badge>
                       ) : null}
                       <Badge>{labelize(conversation.department)}</Badge>
                       <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>

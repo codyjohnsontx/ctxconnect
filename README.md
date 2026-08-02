@@ -155,6 +155,17 @@ Entry points:
 Each brief is a paid model call. `AI_PASS_MAX_BRIEFS` bounds a single run, and the
 shared demo account is additionally bounded by `DEMO_AI_DAILY_LIMIT`.
 
+Constraint, not a solved item: `Run pass` is a Server Action, so it runs inside the
+serverless invocation that rendered the page it was clicked on. Its time budget has
+to cover `AI_PASS_MAX_BRIEFS` sequential model calls, the same work the cron route
+does. Three places therefore have to agree, and a change to any one of them has to
+carry the others: `AI_PASS_MAX_BRIEFS`, `maxDuration` on `/api/ai/sweep` and
+`/api/demo/reseed`, and `maxDuration` on the two routes that host the button,
+`/inbox` and `/inbox/[conversationId]`. If a page's budget runs out mid-pass the
+invocation is killed, the button reports that the pass could not be started, and the
+briefs already written stay invisible until the advisor reloads by hand, which reads
+as total failure over a partial success.
+
 Known limit: `DEMO_AI_DAILY_LIMIT` is read and then spent, with no reservation in
 between, so two people who click `Run pass` on the shared demo account at the same
 moment both see the full remaining quota and both run a full pass. Before the ambient

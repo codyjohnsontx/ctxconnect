@@ -168,13 +168,23 @@ export async function runAmbientBriefPass({
   let failed = 0;
 
   for (const conversation of selected) {
+    // One conversation is allowed to fail for any reason, including one the
+    // brief runner does not model, without costing every conversation behind it
+    // in the sweep its brief. A throw counts as failed, like a provider failure.
     const result = await generateAndSaveBrief({
       conversationId: conversation.id,
       userId,
       source: "ambient_pass",
+    }).catch((error) => {
+      console.error("Ambient brief pass failed on a conversation.", {
+        conversationId: conversation.id,
+        error: error instanceof Error ? error.message : error,
+      });
+
+      return null;
     });
 
-    if (result.ok) {
+    if (result?.ok) {
       briefed += 1;
     } else {
       failed += 1;
