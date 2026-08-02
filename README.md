@@ -64,6 +64,14 @@ AI env:
 - `AI_PASS_MAX_BRIEFS` caps how many conversations one ambient pass will brief, defaults to `12`
 - `SEED_AI_BRIEFS` set to `false` to stop the seed regenerating its briefs through the real model
 
+Demo and cron env:
+
+- `DEMO_USER_EMAIL` names the demo account, see `Demo Mode`
+- `DEMO_AI_DAILY_LIMIT` caps how many briefs the demo account can generate per rolling 24h, defaults to `20`
+- `CRON_SECRET` authorizes the scheduled `GET /api/demo/reseed` and `GET /api/ai/sweep` routes
+- `SEED_PASSWORD` is required before demo data can be seeded in production
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` gate the `View demo` button; without the secret, verification is skipped outside production and refused in production
+
 ## Local Setup
 
 1. Copy `.env.example` to `.env`.
