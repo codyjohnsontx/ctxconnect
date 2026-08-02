@@ -199,10 +199,11 @@ export function isAiOpsBriefConfigured() {
 /**
  * Per-call ceiling on the provider request.
  *
- * Exported because the ambient pass derives its own deadline from it: the pass
- * runs these calls one after another, so this is the longest a single brief can
- * hold the invocation. Raising it shortens the pass. See PASS_DEADLINE_MS in
- * src/lib/ai/ambient-pass.ts before changing it.
+ * The longest a single brief can hold an invocation, which is why
+ * BRIEF_BUDGET_DEADLINE_MS below subtracts a whole one. That derivation is not
+ * the ambient pass's own: it is shared through startBriefBudget by both loops
+ * that call this module in sequence, so raising this shortens every one of them.
+ * Read it before changing this.
  */
 export const AI_BRIEF_TIMEOUT_MS = 30_000;
 
@@ -223,20 +224,31 @@ const RESPONSE_MARGIN_MS = 30_000;
  */
 const BRIEF_BUDGET_DEADLINE_MS = INVOCATION_BUDGET_MS - AI_BRIEF_TIMEOUT_MS - RESPONSE_MARGIN_MS;
 
+/** Whether an invocation still has room to start another brief. */
+export type BriefBudget = () => boolean;
+
 /**
- * Starts the clock for one invocation. The returned predicate says whether there
- * is still room to start another brief, so a caller asks before the call rather
- * than after, and reports what it managed once the answer is no.
+ * Starts the clock for one invocation.
+ *
+ * Call it where the invocation begins rather than where the loop does, and pass
+ * the predicate down: work that runs before the first brief spends the same
+ * budget the briefs draw down, so a loop that started its own clock would
+ * believe it had a whole invocation left. Only whoever owns the invocation
+ * starts one, which is also what keeps a budget from being started twice on a
+ * path that has an outer caller.
+ *
+ * The predicate is asked before a call rather than after, so a loop that runs
+ * out stops cleanly and reports what it managed instead of being killed.
  *
  * Two loops call generateAiOpsBrief one conversation at a time, and neither
  * count fits the invocation on its own: the ambient pass runs
  * AI_PASS_MAX_BRIEFS calls, 360 seconds at the defaults of 12 and 30, and the
- * seed regenerates its own written briefs, 270 seconds for nine of them before
- * the reseed's database work. Both share this rather than bounding their own
+ * seed regenerates its own written briefs, 270 seconds for nine of them on top
+ * of the reseed's database work. Both share this rather than bounding their own
  * count against the budget separately, which would have to be redone every time
  * a count or a timeout changed.
  */
-export function startBriefBudget() {
+export function startBriefBudget(): BriefBudget {
   const startedAt = Date.now();
 
   return () => Date.now() - startedAt < BRIEF_BUDGET_DEADLINE_MS;

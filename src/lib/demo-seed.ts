@@ -23,11 +23,11 @@ import {
 } from "../../prisma/baseline-data";
 import {
   type AiOpsBriefResult,
+  type BriefBudget,
   generateAiOpsBrief,
   getAiOpsBriefModel,
   isAiOpsBriefConfigured,
   redactProviderSecrets,
-  startBriefBudget,
 } from "./ai/ops-brief";
 import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
 
@@ -226,12 +226,13 @@ const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
  * text someone typed. A conversation whose call fails keeps its fallback, which
  * is why the demo cannot break on a provider outage.
  *
- * Every regenerated brief is a paid call, made one after another against the
- * reseed route's own invocation budget, so this shares the ambient pass's
- * deadline rather than trusting nine briefs to fit. Set SEED_AI_BRIEFS=false to
- * skip.
+ * Every regenerated brief is a paid call, made one after another. The budget
+ * belongs to the caller and has been running since the seed began, so the
+ * destructive recreate that precedes this draws it down too: an invocation with
+ * nothing left regenerates nothing rather than starting a call it cannot finish,
+ * and says so on the line below. Set SEED_AI_BRIEFS=false to skip.
  */
-async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
+async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient, hasBudget: BriefBudget) {
   if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
     return;
   }
@@ -250,8 +251,6 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
       },
     },
   });
-
-  const hasBudget = startBriefBudget();
 
   let regenerated = 0;
   let attempted = 0;
@@ -359,13 +358,22 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
   console.log(
     `Regenerated ${regenerated} of ${fallbackInsights.length} seeded AI briefs with ${model}.${
       unattempted > 0
-        ? ` Stopped at the invocation budget, so ${unattempted} kept their written fallback untried.`
+        ? ` The invocation budget ran out, so ${unattempted} kept their written fallback untried.`
         : ""
     }`,
   );
 }
 
-export async function seedDemoData(prisma: PrismaClient) {
+/**
+ * Rebuilds the demo dataset from scratch.
+ *
+ * `hasBudget` belongs to whoever owns the invocation. /api/demo/reseed starts
+ * one with the request, so the recreate below and the brief regeneration at the
+ * end draw down the same clock. The CLI seed passes none and runs unbounded: a
+ * terminal has no invocation to fit inside, and skipping regeneration there
+ * would be a worse answer than taking the time.
+ */
+export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget = () => true) {
   const seedPassword = process.env.SEED_PASSWORD?.trim();
 
   if (!seedPassword && process.env.NODE_ENV === "production") {
@@ -1347,7 +1355,7 @@ export async function seedDemoData(prisma: PrismaClient) {
     });
   }
 
-  await upgradeSeededBriefsWithRealAi(prisma);
+  await upgradeSeededBriefsWithRealAi(prisma, hasBudget);
 
   console.log(`Seeded ${dealershipName}.`);
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { startBriefBudget } from "@/lib/ai/ops-brief";
 import { seedDemoData } from "@/lib/demo-seed";
 import { prisma } from "@/lib/prisma";
 
@@ -7,6 +8,10 @@ import { prisma } from "@/lib/prisma";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
+  // Started with the request rather than with the regeneration loop, because the
+  // destructive recreate that runs first spends the same invocation the model
+  // calls at the end have to finish inside.
+  const hasBudget = startBriefBudget();
   const secret = process.env.CRON_SECRET;
   const authorization = request.headers.get("authorization");
 
@@ -15,7 +20,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    await seedDemoData(prisma);
+    await seedDemoData(prisma, hasBudget);
     return NextResponse.json({ ok: true, seededAt: new Date().toISOString() });
   } catch (error) {
     console.error("Demo reseed failed.", error);

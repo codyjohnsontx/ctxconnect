@@ -168,13 +168,16 @@ seconds against a 300 second invocation, so a degraded provider used to have the
 invocation killed mid-pass and the briefs already written reported as nothing having
 happened. Every loop that calls the model one conversation at a time therefore asks
 `startBriefBudget` in `src/lib/ai/ops-brief.ts` before each call and reports what it
-managed once the answer is no. There are two: the ambient pass, behind
-`/api/ai/sweep`, `/inbox` and `/inbox/[conversationId]`, which counts the rest as
-left for the next pass; and the seed's regeneration of its own written briefs,
-behind `/api/demo/reseed`, which leaves the rest on their hand-written fallback and
-says so. The deadline is derived from the invocation budget and the provider timeout
-rather than typed, so raising `AI_PASS_MAX_BRIEFS` or adding seeded conversations
-cannot reopen the overrun.
+managed once the answer is no. The clock starts where the invocation starts and is
+passed down, so whatever ran before the first brief draws down the same budget.
+There are two loops: the ambient pass, behind `/api/ai/sweep`, `/inbox` and
+`/inbox/[conversationId]`, which counts the rest as left for the next pass; and the
+seed's regeneration of its own written briefs, behind `/api/demo/reseed`, where the
+destructive recreate spends the budget first and the rest stay on their hand-written
+fallback. `npm run prisma:seed` passes no budget and regenerates all of them,
+because a terminal has no invocation to fit inside. The deadline is derived from the
+invocation budget and the provider timeout rather than typed, so raising
+`AI_PASS_MAX_BRIEFS` or adding seeded conversations cannot reopen the overrun.
 
 Still hand-maintained: `INVOCATION_BUDGET_MS` in that file has to match `maxDuration`
 in those four routes.
