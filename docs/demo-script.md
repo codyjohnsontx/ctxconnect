@@ -56,6 +56,14 @@ inbound customer message, so the pass has nothing to read and leaves it alone. H
 says `Not briefed`. If anyone points at it, that is the honest and useful answer - the
 pass skips what it cannot assess rather than inventing a rating for it.
 
+One more label to expect, for the same reason. Nina Caldwell's row carries an
+`earlier brief` marker on its risk badge, because a staff note landed in her thread
+after her brief was written. The app says so rather than presenting an out-of-date
+read as current, and the header counts her as unbriefed - which is why that line says
+`4 of 5 briefed` against six rows on screen. Five is the number of threads the pass
+will consider, so Priya is in neither number. If the room wants to see the pass move,
+Nina's thread is exactly what `Run pass` re-briefs.
+
 Then read the top row out loud, because it does the work for you:
 
 > **Renee Whitlock** - Urgent, Escalate.

@@ -10,8 +10,11 @@ marketing or customer-facing website in this codebase.
 Every UI page requires an authenticated staff session, except `/login`,
 `/privacy-policy`, and `/terms-and-conditions`.
 
-Not every route is a UI page, and the rest do not use staff sessions at all. Each
-has its own authentication contract:
+The API routes are not UI pages and do not share one contract. Most of them still
+run on a staff session: `POST /api/messages/send`, `POST /api/ai/ops-brief`, and
+`POST /api/ai/ops-brief/[insightId]/action` each require a session and then check
+that the caller may see the conversation. The rest authorize on something else
+entirely:
 
 - `/api/auth/*` are the NextAuth endpoints that issue a session in the first place,
   so they are reachable before one exists.

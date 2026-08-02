@@ -189,18 +189,6 @@ function seedAiBriefsEnabled() {
 }
 
 /**
- * Replaces the written fallback briefs with real model output.
- *
- * The seed always writes a hand-written brief for each demo conversation so the
- * app is never empty. When a key is configured, this regenerates those same rows
- * through the real inference path, so a viewer sees genuine output rather than
- * text someone typed. A conversation whose call fails keeps its fallback, which
- * is why the demo cannot break on a provider outage.
- *
- * Every regenerated brief is a paid call. Set SEED_AI_BRIEFS=false to skip.
- */
-
-/**
  * Insight fields the demo script asserts by value, keyed by conversation subject.
  *
  * docs/demo-script.md reads Renee Whitlock's suggested next action out loud word
@@ -227,6 +215,17 @@ const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
   },
 };
 
+/**
+ * Replaces the written fallback briefs with real model output.
+ *
+ * The seed always writes a hand-written brief for each demo conversation so the
+ * app is never empty. When a key is configured, this regenerates those same rows
+ * through the real inference path, so a viewer sees genuine output rather than
+ * text someone typed. A conversation whose call fails keeps its fallback, which
+ * is why the demo cannot break on a provider outage.
+ *
+ * Every regenerated brief is a paid call. Set SEED_AI_BRIEFS=false to skip.
+ */
 async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
   if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
     return;

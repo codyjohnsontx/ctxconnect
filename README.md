@@ -8,10 +8,11 @@ The primary user is the **service advisor**. There is no public or customer-faci
 website in this app. Every UI page requires a staff session except `/login`,
 `/privacy-policy`, and `/terms-and-conditions`.
 
-The machine endpoints are not staff-session-gated and never were: `/api/auth/*`
-issues sessions, `GET /api/ai/sweep` and `GET /api/demo/reseed` are cron entry
-points authorized by a `CRON_SECRET` bearer token, and the Twilio webhooks are
-authorized by signature verification.
+Some API routes are not staff-session-gated and never were: `/api/auth/*` issues
+sessions, `GET /api/ai/sweep` and `GET /api/demo/reseed` are cron entry points
+authorized by a `CRON_SECRET` bearer token, and the Twilio webhooks are authorized
+by signature verification. The rest do require a staff session.
+[ARCHITECTURE.md](ARCHITECTURE.md) names each contract.
 
 The ninety-second demo path is in [docs/demo-script.md](docs/demo-script.md). The
 product decisions behind the current framing are in
@@ -72,7 +73,7 @@ AI env:
 Demo and cron env:
 
 - `DEMO_USER_EMAIL` names the demo account, see `Demo Mode`
-- `DEMO_AI_DAILY_LIMIT` caps how many briefs the demo account can generate per rolling 24h, defaults to `20`
+- `DEMO_AI_DAILY_LIMIT` caps how many briefs the demo account can generate per rolling 24h, defaults to `20`. An explicit `0` is honoured and turns live demo AI off; blank, unset, or unparseable falls back to the default rather than to zero
 - `CRON_SECRET` authorizes the scheduled `GET /api/demo/reseed` and `GET /api/ai/sweep` routes
 - `SEED_PASSWORD` is required before demo data can be seeded in production
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` gate the `View demo` button; without the secret, verification is skipped outside production and refused in production
