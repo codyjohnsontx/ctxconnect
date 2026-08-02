@@ -1234,3 +1234,29 @@ Use this format when relevant:
 ```
 
 Keep the final response concise, honest, and specific.
+
+## Product Framing
+
+Settled, and it governs product decisions in this repo. The primary user is the
+**service advisor**, and the pitch is:
+
+> CTX Chat reads every conversation a service advisor has and tells her what to do next.
+
+The app is an internal staff workspace only - there is no public website. Staff-to-staff
+messaging does not exist beyond internal notes on customer threads, and it stays a
+roadmap line rather than a pitch line.
+
+Before proposing product-facing work, ask whether a service advisor's day gets visibly
+better. Additions that widen the product back toward "everyone at the dealership" are
+the answer that already failed once.
+
+Background: [content/decisions/2026-08-02-service-advisor-is-the-primary-user.md](./content/decisions/2026-08-02-service-advisor-is-the-primary-user.md),
+demo path: [docs/demo-script.md](./docs/demo-script.md).
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
+Keep `AGENTS.md` and `CLAUDE.md` in sync: every change to one belongs in the other.
