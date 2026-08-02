@@ -63,7 +63,7 @@ A visitor reaches a fully working inbox in one click, sees the flagship AI featu
 
 1. Visitor lands on `/login`. No credentials are displayed anywhere.
 2. Visitor clicks "View demo". Turnstile has (usually invisibly) issued a token; the button is enabled once the token exists.
-3. Visitor lands in `/inbox` as the GM demo user with full visibility of seeded conversations, tasks, and the command center.
+3. Visitor lands in `/inbox` as the demo user. Superseded on 2026-08-02: that account was the GM at the time and is now the service advisor `service@ctxchat.local`, so the visitor lands in her ranked inbox rather than on a manager's view of every department.
 4. Visitor generates AI ops briefs — real OpenAI calls, up to the daily cap. At the cap, an amber notice explains the demo limit.
 5. Visitor opens the composer — it is disabled with a note: demo mode has outbound SMS turned off; everything else is live.
 6. Overnight, a cron reseed restores pristine data for the next visitor.

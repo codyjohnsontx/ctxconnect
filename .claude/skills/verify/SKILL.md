@@ -39,4 +39,7 @@ Seeded logins: admin/gm/sales/service/parts `@ctxchat.local`, password `ctxdemo1
 - Login page render: `curl -s localhost:3000/login` — grep for what should(n't) be there.
 - Demo guardrails: SMS send → 403 as demo; AI brief → live once, 429 past `DEMO_AI_DAILY_LIMIT` (set it to 1 in `.env` for cheap cap tests; each live brief costs ~$0.02).
 - Reseed: `curl localhost:3000/api/demo/reseed -H "Authorization: Bearer $CRON_SECRET"` — 401 without/incorrect header, 200 + pristine data with it.
-- Ambient AI pass: `curl localhost:3000/api/ai/sweep -H "Authorization: Bearer $CRON_SECRET"` - same auth contract as reseed; a second immediate run should brief 0, which is the staleness rule working. Each brief is a paid call.
+- Ambient AI pass: `curl localhost:3000/api/ai/sweep -H "Authorization: Bearer $CRON_SECRET"` - same auth contract as reseed. Each brief is a paid call.
+  - A second immediate run briefs 0 only when the first run both succeeded and covered every eligible conversation. That is the staleness rule working; it is not what a second run always returns.
+  - A provider failure persists no insight, so that conversation stays stale and is retried by the next run. Expect `failed > 0` on the first run to reappear as `eligible > 0` on the second.
+  - If eligibility exceeded `AI_PASS_MAX_BRIEFS`, the first run reports `deferred > 0` and the second run briefs that remainder rather than returning 0.

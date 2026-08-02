@@ -28,11 +28,28 @@ and no experiment results are claimed.
 | **Hypothesis** | AI-suggested replies reduce time from inbound customer message to staff response. |
 | **Primary metric** | Average response time after AI brief generation. |
 | **Guardrail metric** | Failed outbound messages, or dismissed AI recommendations. |
-| **Test idea** | Compare conversations where the service advisor accepts an AI suggestion against conversations where the AI brief is ignored. |
-| **Unit of randomization** | Conversation. Not staff member - advisors talk to each other and would contaminate a per-person split. |
+| **Test idea** | Randomly withhold the brief on a share of eligible conversations. Compare response time on conversations where the advisor had a brief against conversations where she did not. |
+| **Unit of randomization** | Conversation, assigned when the pass first finds the thread eligible, before anyone has seen a brief for it. Not staff member - advisors talk to each other and would contaminate a per-person split. |
 
-The test idea originally read "conversations where the GM accepts an AI suggestion."
-The primary user is the service advisor, so the acceptor is the advisor.
+The test idea originally read "compare conversations where the advisor accepts an AI
+suggestion against conversations where the AI brief is ignored." That is not an
+experiment. Acceptance happens after the brief exists and is chosen by the advisor,
+so it is an outcome, not an assignment: the threads she accepts on are the ones she
+already judged worth acting on, and they would have resolved faster than the ones she
+ignored whether or not the AI existed. Splitting on it measures her judgement and
+calls it the model's effect.
+
+Assignment therefore has to be made before acceptance can occur, and by the system
+rather than by the advisor. Accept and dismiss stay in the plan as **outcome
+measures** of whether a brief was useful, never as the thing that sorts conversations
+into arms.
+
+The honest cost of this design, stated because it is a real one: the control arm means
+deliberately withholding a brief from an advisor on live customer conversations. That
+is a decision about degrading the product for some threads to learn whether it works
+on the others, and it should be taken explicitly rather than assumed. The cheaper
+alternative is to accept an observational comparison and drop the causal claim, which
+answers a weaker question.
 
 ## What is already instrumented
 

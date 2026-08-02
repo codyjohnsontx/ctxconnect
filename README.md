@@ -5,8 +5,13 @@ CTX Chat reads every conversation a service advisor has and tells her what to do
 It is an internal staff workspace for one motorcycle dealership: a shared SMS inbox
 ranked by an AI pass that briefs each thread and flags the ones that need a human.
 The primary user is the **service advisor**. There is no public or customer-facing
-website in this app - every route except `/login`, `/privacy-policy`, and
-`/terms-and-conditions` requires a staff session.
+website in this app. Every UI page requires a staff session except `/login`,
+`/privacy-policy`, and `/terms-and-conditions`.
+
+The machine endpoints are not staff-session-gated and never were: `/api/auth/*`
+issues sessions, `GET /api/ai/sweep` and `GET /api/demo/reseed` are cron entry
+points authorized by a `CRON_SECRET` bearer token, and the Twilio webhooks are
+authorized by signature verification.
 
 The ninety-second demo path is in [docs/demo-script.md](docs/demo-script.md). The
 product decisions behind the current framing are in
@@ -122,6 +127,13 @@ the real inference path, so a viewer sees genuine model output rather than text
 someone typed. A conversation whose call fails keeps its written fallback, which is
 why the demo cannot break on a provider outage. Each regenerated brief is a paid
 call; set `SEED_AI_BRIEFS=false` to skip that step and keep the written text.
+
+One exception, stated because it is a real one: a short list of fields that
+[docs/demo-script.md](docs/demo-script.md) quotes word for word is held across
+regeneration, so a reseed cannot leave the script describing a screen that says
+something else. Those specific values are written rather than inferred even when a
+key is present. They are listed in `demoScriptPinnedFields` in `src/lib/demo-seed.ts`
+and cover two conversations; every other field on every brief is model output.
 
 ## The Ambient AI Pass
 

@@ -48,8 +48,13 @@ Command Center. Do not tour the nav.
 Point at the top of the list and say:
 
 > "This is her Monday. It is not in message order - it is in the order the AI decided
-> matters. Six conversations, each one already read, each one carrying the reason it
-> is where it is."
+> matters. Six conversations, and the ones it has read carry the reason they are where
+> they are."
+
+Do not claim every row has an AI reason. One does not: Priya Patel's thread has no
+inbound customer message, so the pass has nothing to read and leaves it alone. Her row
+says `Not briefed`. If anyone points at it, that is the honest and useful answer - the
+pass skips what it cannot assess rather than inventing a rating for it.
 
 Then read the top row out loud, because it does the work for you:
 

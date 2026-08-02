@@ -1,5 +1,6 @@
 import {
   type ConversationAiInsight,
+  type Prisma,
   ProductEventType,
   TaskStatus,
 } from "@/generated/prisma/client";
@@ -43,6 +44,26 @@ function truncateForAi(value: string | null, maxLength: number) {
   }
 
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+/**
+ * Records a ProductEvent without letting telemetry decide the caller's fate.
+ *
+ * These writes sit on the failure paths, where throwing would replace the
+ * failure the caller is trying to report with a database error, and would abort
+ * the ambient pass mid-sweep so every remaining conversation went unprocessed.
+ * Losing one analytics row is the cheaper loss.
+ */
+async function recordEvent(data: Prisma.ProductEventUncheckedCreateInput) {
+  try {
+    await prisma.productEvent.create({ data });
+  } catch (error) {
+    console.error("Failed to record an AI ProductEvent.", {
+      type: data.type,
+      conversationId: data.conversationId,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
 }
 
 /**
@@ -125,28 +146,24 @@ export async function generateAndSaveBrief({
     return { ok: false, reason: "not_found", message: "Conversation not found." };
   }
 
-  await prisma.productEvent.create({
-    data: {
-      type: ProductEventType.AI_INSIGHT_REQUESTED,
-      userId,
-      conversationId: conversation.id,
-      metadata: {
-        source,
-        existingInsightCount: await prisma.conversationAiInsight.count({
-          where: { conversationId: conversation.id },
-        }),
-      },
+  await recordEvent({
+    type: ProductEventType.AI_INSIGHT_REQUESTED,
+    userId,
+    conversationId: conversation.id,
+    metadata: {
+      source,
+      existingInsightCount: await prisma.conversationAiInsight.count({
+        where: { conversationId: conversation.id },
+      }),
     },
   });
 
   if (!isAiOpsBriefConfigured()) {
-    await prisma.productEvent.create({
-      data: {
-        type: ProductEventType.AI_INSIGHT_FAILED,
-        userId,
-        conversationId: conversation.id,
-        metadata: { source, reason: "openai_not_configured" },
-      },
+    await recordEvent({
+      type: ProductEventType.AI_INSIGHT_FAILED,
+      userId,
+      conversationId: conversation.id,
+      metadata: { source, reason: "openai_not_configured" },
     });
 
     return {
@@ -198,17 +215,15 @@ export async function generateAndSaveBrief({
       error instanceof Error ? error.message : "AI provider failed.",
     );
 
-    await prisma.productEvent.create({
-      data: {
-        type: ProductEventType.AI_INSIGHT_FAILED,
-        userId,
-        conversationId: conversation.id,
-        metadata: {
-          source,
-          reason: "provider_failure",
-          message: errorMessage,
-          model,
-        },
+    await recordEvent({
+      type: ProductEventType.AI_INSIGHT_FAILED,
+      userId,
+      conversationId: conversation.id,
+      metadata: {
+        source,
+        reason: "provider_failure",
+        message: errorMessage,
+        model,
       },
     });
 

@@ -14,8 +14,24 @@ const DEFAULT_DEMO_AI_DAILY_LIMIT = 20;
 const SEEDED_BRIEF_SOURCE: BriefSource = "seed";
 
 export function demoAiDailyLimit() {
-  const parsed = Number(process.env.DEMO_AI_DAILY_LIMIT);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_DEMO_AI_DAILY_LIMIT;
+  // A blank value is unset, not zero. `Number("")` is 0, which would silently
+  // turn a variable someone left empty into "the demo may never generate a
+  // brief". An explicit 0 is still honoured: it is a legitimate way to turn
+  // live AI off for the demo, and quietly replacing it with the default would
+  // spend money the operator asked not to spend.
+  const raw = process.env.DEMO_AI_DAILY_LIMIT?.trim();
+
+  if (!raw) {
+    return DEFAULT_DEMO_AI_DAILY_LIMIT;
+  }
+
+  const parsed = Number(raw);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_DEMO_AI_DAILY_LIMIT;
+  }
+
+  return Math.floor(parsed);
 }
 
 /**

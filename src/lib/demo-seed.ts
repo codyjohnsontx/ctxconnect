@@ -22,6 +22,7 @@ import {
   defaultTemplateData,
 } from "../../prisma/baseline-data";
 import {
+  type AiOpsBriefResult,
   generateAiOpsBrief,
   getAiOpsBriefModel,
   isAiOpsBriefConfigured,
@@ -198,6 +199,34 @@ function seedAiBriefsEnabled() {
  *
  * Every regenerated brief is a paid call. Set SEED_AI_BRIEFS=false to skip.
  */
+
+/**
+ * Insight fields the demo script asserts by value, keyed by conversation subject.
+ *
+ * docs/demo-script.md reads Renee Whitlock's suggested next action out loud word
+ * for word, names her risk and escalation, leans on her sitting at the top of the
+ * ranked queue, and calls Kelsey Nakamura's thread low risk to make the contrast.
+ * Regeneration applies real model output to every other field, but these are held
+ * so a reseed cannot leave the script describing a screen that says something else.
+ *
+ * Keep this list as short as the script requires. Every entry is a field a viewer
+ * with a key sees that is written rather than inferred, which is a cost, so it is
+ * disclosed in the README's seed section.
+ */
+const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
+  "RO 48257 warranty claim": {
+    riskLevel: Priority.URGENT,
+    escalationRecommended: true,
+    escalationReason:
+      "The claim is stalled with the regional rep, which is above what the advisor can resolve alone.",
+    suggestedNextAction:
+      "Get the service manager on the warranty claim today and give the customer a dated commitment.",
+  },
+  "First service scheduling": {
+    riskLevel: Priority.LOW,
+  },
+};
+
 async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
   if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
     return;
@@ -224,7 +253,7 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
     const { conversation } = insight;
 
     try {
-      const brief = await generateAiOpsBrief({
+      const generated = await generateAiOpsBrief({
         dealershipName,
         conversation: {
           id: conversation.id,
@@ -252,6 +281,13 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
           })),
         },
       });
+
+      // The demo script quotes a few of these values verbatim, so regeneration is
+      // not allowed to replace them. Everything else on the row is model output.
+      const brief: AiOpsBriefResult = {
+        ...generated,
+        ...(conversation.subject ? demoScriptPinnedFields[conversation.subject] ?? {} : {}),
+      };
 
       // createdAt is deliberately left alone: the seeded timestamps are what make
       // the demo read as "the pass already ran before you got here".

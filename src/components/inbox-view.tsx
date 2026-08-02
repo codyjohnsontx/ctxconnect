@@ -84,9 +84,9 @@ export function InboxView({
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
 
   return (
-    <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
-      <section className={cn("min-h-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation && "hidden lg:block")}>
-        <div className="relative z-10 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
+      <section className={cn("min-h-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation ? "hidden lg:flex" : "flex")}>
+        <div className="relative z-10 shrink-0 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
@@ -149,7 +149,7 @@ export function InboxView({
           </form>
         </div>
 
-        <div className="h-[calc(100dvh-220px)] overflow-y-auto lg:h-[calc(100dvh)] lg:pt-[221px] lg:-mt-[221px]">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           {conversations.length === 0 ? (
             <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">No conversations match these filters.</div>
           ) : (

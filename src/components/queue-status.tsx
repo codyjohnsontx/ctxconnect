@@ -32,7 +32,14 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
   function runPass() {
     setMessage(null);
     startTransition(async () => {
-      setMessage(await runAiBriefPass());
+      try {
+        setMessage(await runAiBriefPass());
+      } catch {
+        // A rejected action leaves no result line at all, so the button looks
+        // like it did nothing. Session expiry, a dropped connection and a server
+        // error all land here and all deserve to be visible.
+        setMessage("The pass could not be started. Check your connection, then try again.");
+      }
     });
   }
 

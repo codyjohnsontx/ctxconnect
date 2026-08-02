@@ -17,8 +17,10 @@ Cody Johnson
 CTX Chat's pitch is "it reads every conversation a service advisor has and tells her
 what to do next." Until now the AI read one conversation, when a human clicked a
 button on it. This makes the first half of that sentence true: a background pass
-briefs every conversation that has new activity, and the advisor's inbox is ordered
-by what the AI flagged instead of by recency.
+briefs every eligible conversation with new activity, and the advisor's inbox is
+ordered by what the AI flagged instead of by recency. Eligible is defined in v1 Scope
+below: still open, a customer has said something, and no brief newer than the
+thread's last activity.
 
 ## Problem
 
