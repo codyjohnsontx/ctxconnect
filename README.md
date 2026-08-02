@@ -14,11 +14,11 @@ product decisions behind the current framing are in
 
 ## Screenshots
 
-Screens below show the local demo UI.
+Screens below show the local demo UI, signed in as the service advisor.
 
-| Login | Inbox | Tasks |
+| Login | Ranked inbox | Tasks |
 | --- | --- | --- |
-| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox and conversation view](public/screenshots/inbox.png) | ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
+| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox ranked by AI risk, with a conversation open and its AI ops brief](public/screenshots/inbox.png) | ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
 
 ## Stack
 
