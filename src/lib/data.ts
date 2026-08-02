@@ -12,6 +12,8 @@ import {
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
+import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
+import { rankConversationQueue } from "@/lib/ai/queue-rank";
 import { getIntegrationHealth } from "@/lib/env";
 import { notificationHref, syncOperationalNotifications } from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
@@ -158,6 +160,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
           orderBy: { createdAt: "desc" },
           take: 1,
         },
+        aiInsights: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
     }),
     selectedId
@@ -205,7 +211,32 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     getOrCreateDealershipSettings(),
   ]);
 
-  return { conversations, selectedConversation, users, tags, templates, dealershipSettings };
+  // The list query orders by recency; the AI pass decides what actually matters,
+  // so the queue the advisor sees is ranked by its output. See queue-rank.ts.
+  const rankedConversations = rankConversationQueue(conversations);
+  const lastBriefAt = conversations.reduce<Date | null>((latest, conversation) => {
+    const briefedAt = conversation.aiInsights[0]?.createdAt;
+
+    if (!briefedAt) {
+      return latest;
+    }
+
+    return !latest || briefedAt > latest ? briefedAt : latest;
+  }, null);
+
+  return {
+    conversations: rankedConversations,
+    selectedConversation,
+    users,
+    tags,
+    templates,
+    dealershipSettings,
+    queueStatus: {
+      briefed: conversations.filter((conversation) => conversation.aiInsights.length > 0).length,
+      lastBriefAt,
+      aiConfigured: isAiOpsBriefConfigured(),
+    },
+  };
 }
 
 function isCommandCenterFocus(value?: string): value is CommandCenterFocus {

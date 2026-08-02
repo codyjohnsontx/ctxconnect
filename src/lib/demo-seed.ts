@@ -91,7 +91,8 @@ async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
 
 async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   conversationId: string;
-  requestedByUserId: string;
+  // An ambient-pass brief has no requesting human, matching what the real pass writes.
+  requestedByUserId: string | null;
   model?: string;
   summary: string;
   customerNeed: string;
@@ -108,7 +109,7 @@ async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   dismissedAt?: Date | null;
   events: Array<{
     type: ProductEventType;
-    userId: string;
+    userId: string | null;
     createdAt?: Date;
     metadata?: Prisma.InputJsonValue;
   }>;
@@ -355,6 +356,84 @@ export async function seedDemoData(prisma: PrismaClient) {
       task: "Confirm pickup time",
       dueDate: hoursFromNow(1),
     },
+    // The service advisor is the primary user, so her lane carries enough
+    // volume and enough spread of risk for the AI pass to have something to
+    // rank. Without that, the ranked queue has nothing to prove.
+    {
+      name: "Renee Whitlock",
+      phone: "+15125550110",
+      email: "renee.whitlock@example.com",
+      vehicle: [2023, "BMW", "R 1250 GS", "WB10J0304P6G12345", "S23117", 21750, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.URGENT,
+      status: ConversationStatus.WAITING_ON_STAFF,
+      tagNames: ["Needs approval"],
+      subject: "RO 48257 warranty claim",
+      messages: [
+        [MessageDirection.INBOUND, "This is the third time I have asked about the warranty claim on my GS. It has been in your shop for nine days.", DeliveryStatus.RECEIVED],
+        [MessageDirection.INTERNAL, "Warranty claim submitted 9 days ago, still unpaid. Regional rep has not replied to two emails.", DeliveryStatus.INTERNAL],
+        [MessageDirection.OUTBOUND, "I am chasing the warranty approval today and will call you the moment it clears.", DeliveryStatus.DELIVERED],
+        [MessageDirection.INBOUND, "I need a real answer or I want the bike back unrepaired. Who is your service manager?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Escalate GS warranty claim to service manager",
+      dueDate: hoursFromNow(-5),
+    },
+    {
+      name: "Ruben Ortega",
+      phone: "+15125550111",
+      email: "ruben.ortega@example.com",
+      vehicle: [2020, "Yamaha", "Tenere 700", "JYARM31E0LA001988", "S20044", 34110, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.HIGH,
+      status: ConversationStatus.WAITING_ON_STAFF,
+      tagNames: [],
+      subject: "RO 48261 intermittent stall",
+      messages: [
+        [MessageDirection.INBOUND, "Any word from the tech on the stalling? I dropped it off Thursday.", DeliveryStatus.RECEIVED],
+        [MessageDirection.INTERNAL, "Tech could not reproduce the stall on the first road test. Needs a longer cold-start test.", DeliveryStatus.INTERNAL],
+        [MessageDirection.INBOUND, "I am supposed to ride to Big Bend on Saturday. Should I make other plans?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Give Ruben a diagnostic answer before Saturday",
+      dueDate: hoursFromNow(2),
+    },
+    {
+      name: "Grant Delaney",
+      phone: "+15125550112",
+      email: "grant.delaney@example.com",
+      vehicle: [2021, "Honda", "Africa Twin", "JH2SD0417MK100562", "S21079", 27400, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.HIGH,
+      status: ConversationStatus.FOLLOW_UP_NEEDED,
+      tagNames: [],
+      subject: "RO 48244 repeat repair",
+      messages: [
+        [MessageDirection.INBOUND, "The fork seal you replaced last month is weeping again.", DeliveryStatus.RECEIVED],
+        [MessageDirection.OUTBOUND, "Sorry about that. Bring it in and we will look at it under our workmanship warranty.", DeliveryStatus.DELIVERED],
+        [MessageDirection.INTERNAL, "Comeback on RO 48244. Same tech, same fork. Check the seal supplier lot.", DeliveryStatus.INTERNAL],
+      ] as const,
+      task: "Book Grant's comeback and pull the original RO",
+      dueDate: hoursFromNow(6),
+    },
+    {
+      name: "Kelsey Nakamura",
+      phone: "+15125550113",
+      email: "kelsey.nakamura@example.com",
+      vehicle: [2024, "Kawasaki", "Ninja 500", "JKAEXMF10RA004417", "S24132", 2610, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.LOW,
+      status: ConversationStatus.OPEN,
+      tagNames: [],
+      subject: "First service scheduling",
+      messages: [
+        [MessageDirection.INBOUND, "My Ninja is coming up on its 600 mile service. What days do you have open next week?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Offer Kelsey two first-service slots",
+      dueDate: daysFromNow(2),
+    },
     {
       name: "Owen Price",
       phone: "+15125550106",
@@ -593,6 +672,18 @@ export async function seedDemoData(prisma: PrismaClient) {
   );
   const smsOptOutConversation = seededConversations.find((conversation) =>
     conversation.customer.name === "Lena Ortiz",
+  );
+  const warrantyService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48257"),
+  );
+  const stallService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48261"),
+  );
+  const comebackService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48244"),
+  );
+  const firstService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("First service"),
   );
 
   if (panigaleLead) {
@@ -918,6 +1009,139 @@ export async function seedDemoData(prisma: PrismaClient) {
             riskLevel: Priority.NORMAL,
             escalationRecommended: false,
             source: "seed",
+          },
+        },
+      ],
+    });
+  }
+
+  if (warrantyService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: warrantyService.id,
+      requestedByUserId: null,
+      summary: "Ninth day on an unpaid warranty claim, and the customer has now asked for the service manager.",
+      customerNeed: "Wants a firm answer on the warranty claim or the bike back unrepaired.",
+      riskLevel: Priority.URGENT,
+      riskReasons: [
+        "Customer asked the same question three times.",
+        "Customer asked to speak to the service manager.",
+        "Follow-up task is overdue and the claim is unresolved after nine days.",
+      ],
+      escalationRecommended: true,
+      escalationReason: "The claim is stalled with the regional rep, which is above what the advisor can resolve alone.",
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Get the service manager on the warranty claim today and give the customer a dated commitment.",
+      suggestedReply: "Renee, I have escalated your warranty claim to our service manager this morning. I will call you before 4pm today with a firm answer either way.",
+      suggestedTaskTitle: "Escalate GS warranty claim to service manager",
+      confidence: 91,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.URGENT,
+            escalationRecommended: true,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (stallService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: stallService.id,
+      requestedByUserId: null,
+      summary: "Diagnosis is incomplete and the customer has a Saturday ride that depends on the answer.",
+      customerNeed: "Needs to know whether the bike will be ready for Saturday, or to make other plans.",
+      riskLevel: Priority.HIGH,
+      riskReasons: [
+        "Technician could not reproduce the fault on the first road test.",
+        "Customer has a dated trip dependency.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Confirm the cold-start test is scheduled, then tell the customer today whether Saturday is realistic.",
+      suggestedReply: "Ruben, the tech could not reproduce the stall on the first road test, so we are running a cold-start test in the morning. I will confirm by tomorrow afternoon whether Saturday is realistic.",
+      suggestedTaskTitle: "Give Ruben a diagnostic answer before Saturday",
+      confidence: 84,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.HIGH,
+            escalationRecommended: false,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (comebackService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: comebackService.id,
+      requestedByUserId: null,
+      summary: "Repeat failure of a fork seal replaced last month, already accepted as a workmanship comeback.",
+      customerNeed: "Wants the same repair done again without paying for it twice.",
+      riskLevel: Priority.HIGH,
+      riskReasons: [
+        "Second failure of the same component within a month.",
+        "Comeback work is unbilled labor until the cause is found.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Book the comeback and pull the original repair order before the bike arrives.",
+      suggestedReply: "Grant, I have you down for the fork seal comeback. Bring it by any morning this week and we will have the original repair order pulled before you get here.",
+      suggestedTaskTitle: "Book Grant's comeback and pull the original RO",
+      confidence: 86,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.HIGH,
+            escalationRecommended: false,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (firstService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: firstService.id,
+      requestedByUserId: null,
+      summary: "Routine first-service scheduling request on a new bike, with no time pressure stated.",
+      customerNeed: "Wants two or three appointment options for the 600 mile service.",
+      riskLevel: Priority.LOW,
+      riskReasons: [
+        "No deadline, complaint, or unresolved work in the thread.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Send two open first-service slots for next week.",
+      suggestedReply: "Kelsey, we have Tuesday morning and Thursday afternoon open next week for the 600 mile service. Either one work?",
+      suggestedTaskTitle: "Offer Kelsey two first-service slots",
+      confidence: 90,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.LOW,
+            escalationRecommended: false,
+            source: "ambient_pass",
           },
         },
       ],

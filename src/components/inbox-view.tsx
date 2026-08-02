@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, updateConversation } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { MessageComposer } from "@/components/message-composer";
+import { QueueStatus } from "@/components/queue-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
@@ -29,6 +30,13 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
   WAITING_ON_STAFF: "red",
   FOLLOW_UP_NEEDED: "amber",
   CLOSED: "green",
+};
+
+const aiRiskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
+  LOW: "green",
+  NORMAL: "blue",
+  HIGH: "amber",
+  URGENT: "red",
 };
 
 type InboxViewProps = InboxData & {
@@ -64,6 +72,7 @@ export function InboxView({
   tags,
   templates,
   dealershipSettings,
+  queueStatus,
   searchParams,
   isDemo,
 }: InboxViewProps) {
@@ -78,13 +87,16 @@ export function InboxView({
     <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
       <section className={cn("min-h-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation && "hidden lg:block")}>
         <div className="relative z-10 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">{conversations.length} visible conversations</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {conversations.length} conversations, ranked by what the AI flagged
+              </p>
             </div>
             <Badge variant="blue">Shared</Badge>
           </div>
+          <QueueStatus status={queueStatus} />
           <form className="grid grid-cols-2 gap-2" action="/inbox">
             <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
               <option value="">All departments</option>
@@ -146,6 +158,7 @@ export function InboxView({
                 const lastMessage = conversation.messages[0];
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
+                const insight = conversation.aiInsights[0];
 
                 return (
                   <Link
@@ -171,10 +184,34 @@ export function InboxView({
                     <p className="line-clamp-2 text-sm text-zinc-600 dark:text-zinc-300">
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
+                    {insight && !insight.dismissedAt ? (
+                      <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
+                        <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span className="line-clamp-2">{insight.suggestedNextAction}</span>
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      {insight ? (
+                        insight.dismissedAt ? (
+                          <Badge>Dismissed</Badge>
+                        ) : (
+                          <Badge variant={aiRiskTone[insight.riskLevel]}>
+                            <Sparkles className="mr-1 h-3 w-3" />
+                            {labelize(insight.riskLevel)}
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge>Not briefed</Badge>
+                      )}
+                      {insight?.escalationRecommended && !insight.dismissedAt ? (
+                        <Badge variant="red">Escalate</Badge>
+                      ) : null}
                       <Badge>{labelize(conversation.department)}</Badge>
                       <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>
-                      {conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT ? (
+                      {/* The staff-set priority is only worth a badge where the AI has
+                          not rated the thread; otherwise the two say the same word twice. */}
+                      {!insight &&
+                      (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
                         <Badge variant="red">
                           <AlertTriangle className="mr-1 h-3 w-3" />
                           {labelize(conversation.priority)}

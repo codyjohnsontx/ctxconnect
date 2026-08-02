@@ -57,6 +57,7 @@ AI env:
 
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL` defaults to `gpt-4.1-mini` when unset
+- `AI_PASS_MAX_BRIEFS` caps how many conversations one ambient pass will brief, defaults to `12`
 
 ## Local Setup
 
@@ -100,6 +101,29 @@ pnpm dev
 The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
 
 The seed uses fictional customer data and prebuilt AI insights so local and demo environments render useful Command Center analytics without making OpenAI calls during setup.
+
+## The Ambient AI Pass
+
+The AI ops brief does not wait to be asked. A background pass briefs every
+conversation that needs one, so the inbox is ranked before an advisor opens it.
+
+A conversation is eligible when it is not closed, a customer has sent at least one
+message in it, and no brief exists that is newer than its last activity. That last
+clause is what keeps the pass affordable: an unchanged thread is never re-briefed, so
+re-running the pass costs nothing until something actually happens.
+
+Entry points:
+
+- `GET /api/ai/sweep`, authorized with `CRON_SECRET`. Scheduled daily in
+  `vercel.json`, after the demo reseed.
+- `Run pass` in the inbox header, which runs the same pass scoped to the
+  conversations the signed-in user can see, and reports what it did.
+
+Each brief is a paid model call. `AI_PASS_MAX_BRIEFS` bounds a single run, and the
+shared demo account is additionally bounded by `DEMO_AI_DAILY_LIMIT`.
+
+Without `OPENAI_API_KEY` the pass writes nothing, the inbox says AI is not
+configured, and no brief is ever fabricated.
 
 ## Demo Mode
 

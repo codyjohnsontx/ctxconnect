@@ -4,6 +4,8 @@ import { hash } from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
+import { runAmbientBriefPass } from "@/lib/ai/ambient-pass";
+import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
 import {
   ConversationStatus,
@@ -24,6 +26,7 @@ import {
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
+import { scopedConversationWhere } from "@/lib/data";
 import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
 
 async function requireSessionUser() {
@@ -506,4 +509,50 @@ export async function updateDealershipSettings(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/inbox");
+}
+
+/**
+ * Runs the ambient AI pass on demand, from the inbox.
+ *
+ * The pass normally runs on a schedule, before staff arrive. This is the same
+ * pass with a button on it, so the work is visible rather than magic: it briefs
+ * every conversation with new activity since its last brief, and skips the rest.
+ *
+ * Returns a plain-language result so the button reports what it actually did,
+ * including doing nothing and failing.
+ */
+export async function runAiBriefPass(): Promise<string> {
+  const user = await requireSessionUser();
+
+  const maxBriefs = user.isDemo ? (await remainingDemoBriefQuota(user.id)).remaining : undefined;
+
+  // Scoped to what this user can see: an advisor's button should not spend
+  // briefs on the sales lane she cannot open.
+  const result = await runAmbientBriefPass({
+    userId: user.id,
+    maxBriefs,
+    scope: scopedConversationWhere(user),
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+
+  if (result.status === "not_configured") {
+    return "AI is not configured, so nothing was briefed.";
+  }
+
+  if (result.eligible === 0) {
+    return "Nothing to brief. Every conversation already has a brief newer than its last message.";
+  }
+
+  if (result.briefed === 0) {
+    return `The AI provider failed on ${result.failed} conversation${result.failed === 1 ? "" : "s"}. No briefs were written.`;
+  }
+
+  const extra = [
+    result.failed > 0 ? `${result.failed} failed` : null,
+    result.deferred > 0 ? `${result.deferred} left for the next pass` : null,
+  ].filter(Boolean);
+
+  return `Briefed ${result.briefed} conversation${result.briefed === 1 ? "" : "s"}.${extra.length ? ` ${extra.join(", ")}.` : ""}`;
 }
