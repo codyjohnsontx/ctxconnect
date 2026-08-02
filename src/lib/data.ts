@@ -12,6 +12,7 @@ import {
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
+import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
 import { rankConversationQueue } from "@/lib/ai/queue-rank";
 import { getIntegrationHealth } from "@/lib/env";
@@ -232,7 +233,9 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     templates,
     dealershipSettings,
     queueStatus: {
-      briefed: conversations.filter((conversation) => conversation.aiInsights.length > 0).length,
+      // Counts a thread as briefed only when the pass would leave it alone, so
+      // "briefed" never covers a thread the pass still has queued.
+      briefed: conversations.filter(hasCurrentBrief).length,
       queueSize: conversations.length,
       lastBriefAt,
       aiConfigured: isAiOpsBriefConfigured(),

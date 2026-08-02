@@ -143,6 +143,15 @@ Entry points:
 Each brief is a paid model call. `AI_PASS_MAX_BRIEFS` bounds a single run, and the
 shared demo account is additionally bounded by `DEMO_AI_DAILY_LIMIT`.
 
+Known limit: `DEMO_AI_DAILY_LIMIT` is read and then spent, with no reservation in
+between, so two people who click `Run pass` on the shared demo account at the same
+moment both see the full remaining quota and both run a full pass. Before the ambient
+pass existed the same race could overspend by one brief; a pass can now overspend by
+up to `AI_PASS_MAX_BRIEFS` briefs, which at the default of 12 is roughly a quarter of
+a dollar. It is accepted rather than fixed: the alternative is capping the pass below
+what it needs to read every conversation. Not mitigated, and it needs simultaneous
+clicks to happen at all.
+
 Known limit: the staleness check runs in application code, so every pass loads every
 non-closed conversation that has an inbound message before it selects which ones to
 brief. That candidate scan is unbounded. It is fine at dealership volume and would
@@ -159,6 +168,12 @@ advisor is the product's primary user - the demo has to land inside her work, no
 a manager's dashboard. The demo session lands on `/inbox`.
 
 Leaving `DEMO_USER_EMAIL` unset hides the button and disables the demo provider.
+
+Required on deploy: `.env.example` is a template, not configuration. An environment
+deployed before this value changed keeps whatever `DEMO_USER_EMAIL` it was given,
+which for earlier deploys is the manager account `gm@ctxchat.local`. Set
+`DEMO_USER_EMAIL=service@ctxchat.local` in the deployed environment and redeploy, or
+the demo still opens on a manager.
 
 ## Production Bootstrap
 

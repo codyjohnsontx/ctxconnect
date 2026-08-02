@@ -25,6 +25,23 @@ export function maxBriefsPerPass() {
 }
 
 /**
+ * Whether a conversation's newest brief still describes its newest activity.
+ *
+ * The single definition of "briefed": the pass selects the conversations this
+ * returns false for, and the inbox counts the ones it returns true for, so the
+ * number on screen cannot claim work the pass still has queued.
+ */
+export function hasCurrentBrief(conversation: {
+  lastMessageAt: Date;
+  /** Newest first, so only the first entry decides freshness. */
+  aiInsights: Array<{ createdAt: Date }>;
+}) {
+  const latestBriefAt = conversation.aiInsights[0]?.createdAt;
+
+  return Boolean(latestBriefAt && latestBriefAt >= conversation.lastMessageAt);
+}
+
+/**
  * A conversation needs a brief when it is still live, a customer has said
  * something in it, and nothing has been briefed since its last activity.
  *
@@ -66,10 +83,7 @@ export async function findConversationsNeedingBrief(
     },
   });
 
-  const stale = candidates.filter((conversation) => {
-    const latestBriefAt = conversation.aiInsights[0]?.createdAt;
-    return !latestBriefAt || latestBriefAt < conversation.lastMessageAt;
-  });
+  const stale = candidates.filter((conversation) => !hasCurrentBrief(conversation));
 
   return { eligible: stale, selected: stale.slice(0, limit) };
 }

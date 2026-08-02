@@ -246,23 +246,44 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
 
       // createdAt is deliberately left alone: the seeded timestamps are what make
       // the demo read as "the pass already ran before you got here".
-      await prisma.conversationAiInsight.update({
-        where: { id: insight.id },
-        data: {
-          model,
-          summary: brief.summary,
-          customerNeed: brief.customerNeed,
-          riskLevel: brief.riskLevel,
-          riskReasons: brief.riskReasons,
-          escalationRecommended: brief.escalationRecommended,
-          escalationReason: brief.escalationReason,
-          suggestedDepartment: brief.suggestedDepartment,
-          suggestedNextAction: brief.suggestedNextAction,
-          suggestedReply: brief.suggestedReply,
-          suggestedTaskTitle: brief.suggestedTaskTitle,
-          confidence: brief.confidence,
-        },
-      });
+      await prisma.$transaction([
+        prisma.conversationAiInsight.update({
+          where: { id: insight.id },
+          data: {
+            model,
+            summary: brief.summary,
+            customerNeed: brief.customerNeed,
+            riskLevel: brief.riskLevel,
+            riskReasons: brief.riskReasons,
+            escalationRecommended: brief.escalationRecommended,
+            escalationReason: brief.escalationReason,
+            suggestedDepartment: brief.suggestedDepartment,
+            suggestedNextAction: brief.suggestedNextAction,
+            suggestedReply: brief.suggestedReply,
+            suggestedTaskTitle: brief.suggestedTaskTitle,
+            confidence: brief.confidence,
+          },
+        }),
+        // The event keeps source "seed", which is what the demo quota excludes
+        // on, and picks up the regenerated row's model and risk so the two
+        // records never disagree about what produced the brief.
+        prisma.productEvent.update({
+          where: {
+            type_aiInsightId: {
+              type: ProductEventType.AI_INSIGHT_GENERATED,
+              aiInsightId: insight.id,
+            },
+          },
+          data: {
+            metadata: {
+              source: "seed",
+              model,
+              riskLevel: brief.riskLevel,
+              escalationRecommended: brief.escalationRecommended,
+            },
+          },
+        }),
+      ]);
 
       regenerated += 1;
     } catch (error) {
