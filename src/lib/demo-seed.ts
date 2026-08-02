@@ -175,6 +175,14 @@ async function createAiInsightWithEvents(prisma: PrismaClient, input: {
 
 const SEEDED_FALLBACK_MODEL = "seeded-demo";
 
+/**
+ * The seeded event's own metadata, so regenerating a brief keeps every key the
+ * seed chose for it rather than replacing them with a fresh object.
+ */
+function seededEventMetadata(metadata: Prisma.JsonValue | null | undefined) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+}
+
 function seedAiBriefsEnabled() {
   return process.env.SEED_AI_BRIEFS?.trim().toLowerCase() !== "false";
 }
@@ -199,6 +207,7 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
   const fallbackInsights = await prisma.conversationAiInsight.findMany({
     where: { model: SEEDED_FALLBACK_MODEL },
     include: {
+      events: { where: { type: ProductEventType.AI_INSIGHT_GENERATED } },
       conversation: {
         include: {
           customer: true,
@@ -264,9 +273,10 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
             confidence: brief.confidence,
           },
         }),
-        // The event keeps source "seed", which is what the demo quota excludes
-        // on, and picks up the regenerated row's model and risk so the two
-        // records never disagree about what produced the brief.
+        // The event picks up the regenerated row's model and risk so the two
+        // records never disagree about what produced the brief. Its seeded
+        // source is preserved: the demo quota excludes on it, and the advisor
+        // lane deliberately reads as ambient_pass rather than as seed.
         prisma.productEvent.update({
           where: {
             type_aiInsightId: {
@@ -276,7 +286,7 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient) {
           },
           data: {
             metadata: {
-              source: "seed",
+              ...seededEventMetadata(insight.events[0]?.metadata),
               model,
               riskLevel: brief.riskLevel,
               escalationRecommended: brief.escalationRecommended,

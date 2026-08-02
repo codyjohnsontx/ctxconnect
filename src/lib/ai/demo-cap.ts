@@ -8,8 +8,8 @@ const DEFAULT_DEMO_AI_DAILY_LIMIT = 20;
  * The event source the seed stamps on the briefs it writes.
  *
  * Deliberately not the insight's `model`: the seed regenerates those rows
- * through the real provider and overwrites that column, while the event it
- * wrote alongside them is left alone.
+ * through the real provider and overwrites that column. The event is rewritten
+ * too, but its source is carried across, so this marker survives a reseed.
  */
 const SEEDED_BRIEF_SOURCE: BriefSource = "seed";
 

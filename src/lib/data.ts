@@ -12,7 +12,7 @@ import {
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
-import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
+import { getQueueBriefCoverage } from "@/lib/ai/ambient-pass";
 import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
 import { rankConversationQueue } from "@/lib/ai/queue-rank";
 import { getIntegrationHealth } from "@/lib/env";
@@ -148,7 +148,15 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     AND: [scopedConversationWhere(user), filterWhere(filters)],
   } satisfies Prisma.ConversationWhereInput;
 
-  const [conversations, selectedConversation, users, tags, templates, dealershipSettings] = await Promise.all([
+  const [
+    conversations,
+    selectedConversation,
+    users,
+    tags,
+    templates,
+    dealershipSettings,
+    briefCoverage,
+  ] = await Promise.all([
     prisma.conversation.findMany({
       where,
       orderBy: [{ unread: "desc" }, { lastMessageAt: "desc" }],
@@ -210,20 +218,14 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     getOrCreateDealershipSettings(),
+    // Scoped like the pass itself rather than by the active filters, because
+    // `Run pass` briefs everything this user can see, not just the rows in view.
+    getQueueBriefCoverage(scopedConversationWhere(user)),
   ]);
 
   // The list query orders by recency; the AI pass decides what actually matters,
   // so the queue the advisor sees is ranked by its output. See queue-rank.ts.
   const rankedConversations = rankConversationQueue(conversations);
-  const lastBriefAt = conversations.reduce<Date | null>((latest, conversation) => {
-    const briefedAt = conversation.aiInsights[0]?.createdAt;
-
-    if (!briefedAt) {
-      return latest;
-    }
-
-    return !latest || briefedAt > latest ? briefedAt : latest;
-  }, null);
 
   return {
     conversations: rankedConversations,
@@ -233,11 +235,7 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     templates,
     dealershipSettings,
     queueStatus: {
-      // Counts a thread as briefed only when the pass would leave it alone, so
-      // "briefed" never covers a thread the pass still has queued.
-      briefed: conversations.filter(hasCurrentBrief).length,
-      queueSize: conversations.length,
-      lastBriefAt,
+      ...briefCoverage,
       aiConfigured: isAiOpsBriefConfigured(),
     },
   };

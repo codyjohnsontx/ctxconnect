@@ -27,9 +27,9 @@ export function maxBriefsPerPass() {
 /**
  * Whether a conversation's newest brief still describes its newest activity.
  *
- * The single definition of "briefed": the pass selects the conversations this
- * returns false for, and the inbox counts the ones it returns true for, so the
- * number on screen cannot claim work the pass still has queued.
+ * Half of what "needs a brief" means. The other half is eligibility, which
+ * `loadPassCandidates` decides, and both halves are read from here by everything
+ * that reports on the pass.
  */
 export function hasCurrentBrief(conversation: {
   lastMessageAt: Date;
@@ -42,26 +42,20 @@ export function hasCurrentBrief(conversation: {
 }
 
 /**
- * A conversation needs a brief when it is still live, a customer has said
- * something in it, and nothing has been briefed since its last activity.
+ * Every conversation the pass will consider: still live, and a customer has said
+ * something in it. A thread outside this set is never briefed, so it is not part
+ * of any count of what the pass has covered either.
  *
- * That last clause is what keeps the pass cheap: an unchanged thread is never
- * re-briefed, no matter how many times the pass runs. A thread re-enters the
- * queue only when a new message or note lands in it.
+ * The one place this population is defined. The pass selects from it and the
+ * inbox counts it, so the number on screen and the work the button does cannot
+ * describe different sets of conversations.
  *
- * The staleness clause compares two columns on different tables (the latest
- * insight's createdAt against the conversation's lastMessageAt), which Prisma
- * cannot express in a `where`, so it runs in JS over every candidate row. The
- * candidate scan is therefore unbounded by design: every non-closed conversation
- * with an inbound message is loaded on each pass, so no thread is ever out of
- * reach. That is a known performance limit, not a solved one. It would need
- * bounding if conversation volume grew materially.
+ * The scan is unbounded by design: every eligible conversation is loaded on each
+ * pass, so no thread is ever out of reach. That is a known performance limit,
+ * not a solved one, and it would need bounding if volume grew materially.
  */
-export async function findConversationsNeedingBrief(
-  limit: number,
-  scope: Prisma.ConversationWhereInput = {},
-) {
-  const candidates = await prisma.conversation.findMany({
+async function loadPassCandidates(scope: Prisma.ConversationWhereInput = {}) {
+  return prisma.conversation.findMany({
     where: {
       AND: [
         scope,
@@ -82,10 +76,66 @@ export async function findConversationsNeedingBrief(
       },
     },
   });
+}
 
+/**
+ * A conversation needs a brief when the pass would consider it at all and
+ * nothing has been briefed since its last activity.
+ *
+ * That second clause is what keeps the pass cheap: an unchanged thread is never
+ * re-briefed, no matter how many times the pass runs. A thread re-enters the
+ * queue only when a new message or note lands in it.
+ *
+ * The staleness clause compares two columns on different tables (the latest
+ * insight's createdAt against the conversation's lastMessageAt), which Prisma
+ * cannot express in a `where`, so it runs in JS over every candidate row.
+ */
+export async function findConversationsNeedingBrief(
+  limit: number,
+  scope: Prisma.ConversationWhereInput = {},
+) {
+  const candidates = await loadPassCandidates(scope);
   const stale = candidates.filter((conversation) => !hasCurrentBrief(conversation));
 
   return { eligible: stale, selected: stale.slice(0, limit) };
+}
+
+export type QueueBriefCoverage = {
+  /** Conversations the pass will consider, which is what `briefed` is out of. */
+  queueSize: number;
+  briefed: number;
+  lastBriefAt: Date | null;
+};
+
+/**
+ * How much of a queue the pass has covered, counted over exactly the
+ * conversations it would act on.
+ *
+ * A thread the pass will never brief, closed or with no inbound customer
+ * message, is in neither number rather than counted as briefed, so the line this
+ * feeds can always reach completion.
+ */
+export async function getQueueBriefCoverage(
+  scope: Prisma.ConversationWhereInput = {},
+): Promise<QueueBriefCoverage> {
+  const candidates = await loadPassCandidates(scope);
+
+  let briefed = 0;
+  let lastBriefAt: Date | null = null;
+
+  for (const conversation of candidates) {
+    if (hasCurrentBrief(conversation)) {
+      briefed += 1;
+    }
+
+    const briefedAt = conversation.aiInsights[0]?.createdAt;
+
+    if (briefedAt && (!lastBriefAt || briefedAt > lastBriefAt)) {
+      lastBriefAt = briefedAt;
+    }
+  }
+
+  return { queueSize: candidates.length, briefed, lastBriefAt };
 }
 
 /**

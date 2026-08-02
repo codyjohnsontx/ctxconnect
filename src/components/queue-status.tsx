@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button";
 
 export type QueueStatusData = {
   briefed: number;
-  /** Conversations visible in this queue, so "briefed" has something to be out of. */
+  /**
+   * Conversations the pass will consider, so "briefed" has something to be out
+   * of. Smaller than the rows on screen when some of them are closed or have no
+   * inbound message, because the pass never briefs those.
+   */
   queueSize: number;
   lastBriefAt: Date | null;
   aiConfigured: boolean;

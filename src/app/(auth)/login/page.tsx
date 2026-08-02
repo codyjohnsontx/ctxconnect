@@ -29,7 +29,7 @@ export default async function LoginPage() {
         <div className="max-w-xl">
           <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-500">For the service advisor</p>
           <h1 className="text-5xl font-semibold tracking-tight">
-            Reads every conversation you have and tells you what to do next.
+            CTX Chat reads every conversation a service advisor has and tells her what to do next.
           </h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-zinc-300">
             Every thread arrives already read, ranked by risk, with the next action on it. The rest
