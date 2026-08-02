@@ -39,6 +39,14 @@ type AiOpsBriefInsight = {
 type AiOpsBriefProps = {
   conversationId: string;
   initialInsight?: AiOpsBriefInsight | null;
+  /**
+   * Whether `initialInsight` still describes the thread's newest activity. The
+   * verdict is threaded as a value rather than computed here: it comes from the
+   * same `hasCurrentBrief` predicate the inbox row and the queue counter use,
+   * and that predicate sits beside the ambient pass, which imports prisma and
+   * must not be pulled into the client bundle.
+   */
+  briefIsCurrent?: boolean;
 };
 
 const riskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
@@ -52,12 +60,20 @@ function riskReasons(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBriefProps) {
+export function AiOpsBrief({
+  conversationId,
+  initialInsight = null,
+  briefIsCurrent = true,
+}: AiOpsBriefProps) {
   const router = useRouter();
   const [insight, setInsight] = useState<AiOpsBriefInsight | null>(initialInsight);
   const [error, setError] = useState<{ message: string; status?: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // The verdict describes the brief the server rendered. A brief generated here
+  // has just read the whole thread, so it is current until the next server
+  // render says otherwise.
+  const showsEarlierBrief = insight?.id === initialInsight?.id && !briefIsCurrent;
 
   async function generateBrief() {
     setError(null);
@@ -230,7 +246,13 @@ export function AiOpsBrief({ conversationId, initialInsight = null }: AiOpsBrief
             Summarize risk and next action for this thread.
           </p>
         </div>
-        {insight ? <Badge variant={riskTone[insight.riskLevel]}>{labelize(insight.riskLevel)}</Badge> : null}
+        {insight ? (
+          <Badge variant={showsEarlierBrief ? "neutral" : riskTone[insight.riskLevel]} className="shrink-0">
+            {showsEarlierBrief
+              ? `${labelize(insight.riskLevel)} · earlier brief`
+              : labelize(insight.riskLevel)}
+          </Badge>
+        ) : null}
       </div>
 
       {isPending && !insight ? (

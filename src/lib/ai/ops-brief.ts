@@ -149,17 +149,17 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
  * ids are kept: they are how a failure is traced back to the provider, and they
  * are not credentials.
  *
- * The first two patterns are anchored so they cannot fire inside ordinary words.
- * A key starts a word, so `risk-level` and `task-id` are not keys, and what
- * follows `Bearer` in prose is a word rather than a credential. Scrubbing the
- * diagnostic text this function exists to preserve is a failure of it, not a
- * conservative success.
+ * The `sk-` pattern is anchored at a word boundary so it cannot fire inside an
+ * ordinary word: a key starts a word, so `risk-level` and `task-id` are not
+ * keys. It redacts every match, because how innocent a value looks says nothing
+ * about whether it is a credential. What follows `Bearer` is kept only when it
+ * is one of the prose words below, and redacted otherwise, for the same reason.
  */
 export function redactProviderSecrets(message: string) {
   return message
     .replace(/\bsk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
-    .replace(/(Bearer\s+)(\S+)/gi, (match, scheme: string, token: string) =>
-      isOrdinaryWord(token) ? match : `${scheme}[redacted]`,
+    .replace(/(Bearer\s+)(\S+)/gi, (match, scheme: string, value: string) =>
+      BEARER_PROSE_WORDS.has(value.toLowerCase()) ? match : `${scheme}[redacted]`,
     )
     .replace(
       /\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g,
@@ -169,14 +169,20 @@ export function redactProviderSecrets(message: string) {
 }
 
 /**
- * A single short run of letters, optionally closing a sentence. This is what
- * follows `Bearer` in prose ("Bearer token missing"), and it is what a credential
- * never is: real tokens carry digits, symbols, or capitals inside them. Anything
- * else after the scheme is redacted, so the conservative direction is kept.
+ * Every value that may follow `Bearer` and survive. The list is closed and
+ * matched exactly: an unrecognised value is redacted, so a credential that reads
+ * like ordinary prose is still treated as one. A token that is literally the
+ * word `token` was never a secret.
  */
-function isOrdinaryWord(token: string) {
-  return /^[A-Za-z][a-z]{0,15}[.,;:!?]?$/.test(token);
-}
+const BEARER_PROSE_WORDS = new Set([
+  "token",
+  "header",
+  "auth",
+  "missing",
+  "required",
+  "invalid",
+  "expired",
+]);
 
 function isRequestId(token: string, precedingText: string) {
   return /^req(uest)?[-_]/i.test(token) || /request[-_ ]?id["']?\s*[:=]\s*$/i.test(precedingText);

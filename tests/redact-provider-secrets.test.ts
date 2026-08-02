@@ -52,6 +52,22 @@ describe("redactProviderSecrets", () => {
         "Bearer token rejected: Bearer [redacted]",
       );
     });
+
+    // The reason the prose rule is a closed list rather than a judgement about
+    // how a value looks. A credential does not have to look like one.
+    it("masks a Bearer value that reads like an ordinary word", () => {
+      assert.equal(
+        redactProviderSecrets("Authorization: Bearer abcdefghijklmnop"),
+        "Authorization: Bearer [redacted]",
+      );
+      assert.equal(redactProviderSecrets("bearer sessionkey"), "bearer [redacted]");
+    });
+
+    it("masks a realistic long Bearer token", () => {
+      const jwt =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N92pXvKPjKjqNvBnhTHfXY";
+      assert.equal(redactProviderSecrets(`Authorization: Bearer ${jwt}`), "Authorization: Bearer [redacted]");
+    });
   });
 
   describe("request id preservation", () => {
@@ -148,11 +164,11 @@ describe("redactProviderSecrets", () => {
       }
     });
 
-    it("keeps prose that follows the Bearer scheme", () => {
+    it("keeps the prose words that follow the Bearer scheme", () => {
       for (const message of [
         "Bearer token missing from the request",
-        "bearer credential rejected",
-        "Bearer authentication failed.",
+        "bearer auth invalid for this deployment",
+        "Bearer header required on every call",
       ]) {
         assert.equal(redactProviderSecrets(message), message);
       }

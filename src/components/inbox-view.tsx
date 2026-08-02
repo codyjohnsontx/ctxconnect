@@ -82,6 +82,7 @@ export function InboxView({
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "unit";
   const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
+  const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
 
   return (
@@ -351,6 +352,7 @@ export function InboxView({
                 key={selectedConversation.id}
                 conversationId={selectedConversation.id}
                 initialInsight={selectedConversation.aiInsights[0] ?? null}
+                briefIsCurrent={selectedBriefIsCurrent}
               />
 
               <section>
