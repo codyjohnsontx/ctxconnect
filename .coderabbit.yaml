@@ -13,8 +13,10 @@ reviews:
   # setting is ASSERTIVE, and a repo config silently overrides it: repos with no
   # config report `profile: ASSERTIVE` (verified on DiazMartialArts pull
   # requests #15, #16, and #17), while DiazOnDemand, which sets `chill`, reports
-  # CHILL. So omitting this line is not neutral - it would hand the profile to
-  # whatever this file says, and an earlier draft of this file said `chill`.
+  # CHILL. That proves an explicit repo-level `chill` beats the assertive
+  # organization setting; what an omitted `profile` key does here is untested.
+  # So the risk this line guards against is this file naming the WRONG profile -
+  # an earlier draft of it said `chill`, copied from DiazOnDemand.
   # The point of this config is to cut the NUMBER of reviews, not the DEPTH of
   # each one. Making the review shallower while making it cheaper is the
   # opposite of what is wanted. Do not lower this to `chill` to reduce noise;
@@ -63,7 +65,7 @@ reviews:
     - '!next-env.d.ts'
     # Prisma writes this, and the generated client under src/generated/prisma.
     - '!**/prisma/migrations/migration_lock.toml'
-    - '!src/generated/**'
+    - '!src/generated/prisma/**'
     # Build and tool output. Gitignored today, so these guard against a stray
     # `git add -f` rather than a live problem.
     - '!**/.next/**'
