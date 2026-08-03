@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Terms and Conditions | CTX Chat",
-  description: "Terms and conditions for CTX Chat SMS and dealership communication workflows.",
+  title: "Terms and Conditions | Attend",
+  description: "Terms and conditions for Attend SMS and dealership communication workflows.",
 };
 
 export default function TermsAndConditionsPage() {
@@ -18,13 +18,13 @@ export default function TermsAndConditionsPage() {
         <div className="mt-10 space-y-8 text-sm leading-7 text-zinc-300">
           <section>
             <h2 className="text-lg font-semibold text-white">Program Name</h2>
-            <p className="mt-2">CTX Chat dealership messaging program.</p>
+            <p className="mt-2">Attend dealership messaging program.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-white">Program Description</h2>
             <p className="mt-2">
-              CTX Chat is used by dealership staff to send and receive customer service SMS messages, service lane
+              Attend is used by dealership staff to send and receive customer service SMS messages, service lane
               updates, replies, reminders, and operational follow-up communications.
             </p>
           </section>
@@ -67,7 +67,7 @@ export default function TermsAndConditionsPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">Privacy Policy</h2>
             <p className="mt-2">
-              Review the CTX Chat privacy policy at{" "}
+              Review the Attend privacy policy at{" "}
               <Link href="/privacy-policy" className="text-white underline underline-offset-4">
                 /privacy-policy
               </Link>

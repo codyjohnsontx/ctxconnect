@@ -1238,17 +1238,25 @@ Keep the final response concise, honest, and specific.
 Settled, and it governs product decisions in this repo. The primary user is the
 **service advisor**, and the pitch is:
 
-> CTX Chat reads every conversation a service advisor has and tells her what to do next.
+> Attend reads every conversation a service advisor has and tells her what to do next.
 
 The app is an internal staff workspace only - there is no public website. Staff-to-staff
 messaging does not exist beyond internal notes on customer threads, and it stays a
 roadmap line rather than a pitch line.
+
+The product is **Attend**, renamed from `CTX Chat` on 2026-08-03. The repository, its
+directory, its git remote, and every URL stay `ctxconnect`; renaming any of them is not
+authorised. Seeded logins at `ctxchat.local`, the seeded demo password, and the demo
+dealership `CTX MotoWorks` are identifiers and demo data rather than the product name,
+so they keep their old strings. Dated records in `content/decisions/` and
+`content/prds/` keep the name they were written with and say so at the top.
 
 Before proposing product-facing work, ask whether a service advisor's day gets visibly
 better. Additions that widen the product back toward "everyone at the dealership" are
 the answer that already failed once.
 
 Background: [content/decisions/2026-08-02-service-advisor-is-the-primary-user.md](./content/decisions/2026-08-02-service-advisor-is-the-primary-user.md),
+name: [content/decisions/2026-08-03-product-renamed-to-attend.md](./content/decisions/2026-08-03-product-renamed-to-attend.md),
 demo path: [docs/demo-script.md](./docs/demo-script.md).
 
 ## Maintaining this file

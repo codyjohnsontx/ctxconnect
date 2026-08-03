@@ -18,18 +18,18 @@ export default async function LoginPage() {
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
       <section className="hidden min-h-dvh flex-col justify-between border-r border-white/10 p-10 lg:flex">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-sm font-semibold text-zinc-950">
-            CTX
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-lg font-semibold text-zinc-950">
+            A
           </div>
           <div>
-            <div className="text-sm font-semibold">CTX Chat</div>
+            <div className="text-sm font-semibold">Attend</div>
             <div className="text-xs text-zinc-400">Single-store dealership communication</div>
           </div>
         </div>
         <div className="max-w-xl">
           <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-500">For the service advisor</p>
           <h1 className="text-5xl font-semibold tracking-tight">
-            CTX Chat reads every conversation a service advisor has and tells her what to do next.
+            Attend reads every conversation a service advisor has and tells her what to do next.
           </h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-zinc-300">
             Every thread arrives already read, ranked by risk, with the next action on it. The rest
@@ -41,10 +41,10 @@ export default async function LoginPage() {
       <section className="flex min-h-dvh items-center justify-center bg-zinc-50 p-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
         <div className="w-full max-w-sm">
           <div className="mb-8 lg:hidden">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zinc-950 text-sm font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
-              CTX
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zinc-950 text-lg font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
+              A
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight">CTX Chat</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Attend</h1>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

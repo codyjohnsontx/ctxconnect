@@ -1,10 +1,10 @@
-# CTX Connect
+# Attend
 
 An AI-powered shared inbox for dealership service teams.
 
 A service advisor can be juggling 40 conversations at once: sales questions,
 repair updates, parts arrivals, and customers who stopped responding days
-ago. **CTX Connect turns that noise into a prioritized workflow.**
+ago. **Attend turns that noise into a prioritized workflow.**
 
 An ambient AI layer summarizes conversations as they evolve, identifies the
 next action, and ranks the inbox by what actually needs attention, not
@@ -24,7 +24,7 @@ Screens below show the local demo UI, signed in as the service advisor.
 
 | Login | Ranked inbox | Tasks |
 | --- | --- | --- |
-| ![CTX Chat login screen](public/screenshots/login.png) | ![CTX Chat inbox ranked by AI risk, with a conversation open and its AI ops brief](public/screenshots/inbox.png) | ![CTX Chat follow-up task queue](public/screenshots/tasks.png) |
+| ![Attend login screen](public/screenshots/login.png) | ![Attend inbox ranked by AI risk, with a conversation open and its AI ops brief](public/screenshots/inbox.png) | ![Attend follow-up task queue](public/screenshots/tasks.png) |
 
 ## Stack
 
@@ -118,6 +118,12 @@ pnpm dev
 - `sales@ctxchat.local`
 - `service@ctxchat.local`
 - `parts@ctxchat.local`
+
+Those addresses keep the `ctxchat.local` domain on purpose. They are login
+identifiers, not the product name: they exist as rows in every already-seeded
+database and one of them is the value of the deployed `DEMO_USER_EMAIL`, so
+renaming them is a data migration rather than part of the rename to Attend. See
+[content/decisions/2026-08-03-product-renamed-to-attend.md](content/decisions/2026-08-03-product-renamed-to-attend.md).
 
 The local seed creates a portfolio-ready demo state with staff users, demo customers, conversations, tasks, notifications, tags, templates, AI Ops Brief insights, and product analytics events. Do not use it for production initialization.
 

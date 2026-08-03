@@ -1,9 +1,9 @@
 ---
 name: verify
-description: How to run and drive ctxChat locally to verify changes end-to-end (dev server, auth flows via curl, DB checks via tsx).
+description: How to run and drive Attend locally to verify changes end-to-end (dev server, auth flows via curl, DB checks via tsx).
 ---
 
-# Verifying ctxChat changes
+# Verifying Attend changes
 
 ## Build / launch
 

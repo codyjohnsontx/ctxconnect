@@ -1,10 +1,10 @@
-# CTX Chat: the ninety-second demo
+# Attend: the ninety-second demo
 
 ## The sentence
 
 Say this before you touch anything, and do not add to it:
 
-> **CTX Chat reads every conversation a service advisor has and tells her what to do next.**
+> **Attend reads every conversation a service advisor has and tells her what to do next.**
 
 One user. One verb. One outcome. Everything below exists to make that sentence
 land; if a section of the demo does not support it, cut the section.
@@ -145,7 +145,7 @@ ranking is right. See [experiment-plan.md](./experiment-plan.md).
 
 ## Roadmap note: staff-to-staff messaging
 
-Today CTX Chat has one staff-to-staff primitive: an internal note on a customer
+Today Attend has one staff-to-staff primitive: an internal note on a customer
 thread. There is no direct message, no channel, no `@mention`. Two staff members
 cannot talk unless a customer conversation exists to talk inside of.
 

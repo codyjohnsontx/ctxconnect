@@ -1,8 +1,8 @@
-# CTX Chat Architecture
+# Attend Architecture
 
 ## Operating Model
 
-CTX Chat runs as one `Next.js` application deployed as one `Vercel` project.
+Attend runs as one `Next.js` application deployed as one `Vercel` project.
 
 That deployment serves one thing: the internal staff workspace. There is no public
 marketing or customer-facing website in this codebase.

@@ -1,5 +1,9 @@
 # Decision: The service advisor is the primary user
 
+> Historical record. Written before the product was renamed to **Attend** on
+> 2026-08-03, and left with the name it used at the time. `CTX Chat` below means
+> Attend. See [the rename decision](2026-08-03-product-renamed-to-attend.md).
+
 ## Date
 
 2026-08-02
