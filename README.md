@@ -2,7 +2,7 @@
 
 An AI-powered shared inbox for dealership service teams.
 
-A service advisor can be juggling 40 conversations at once: sales questions,
+A service advisor can be juggling dozens of conversations at once: sales questions,
 repair updates, parts arrivals, and customers who stopped responding days
 ago. **CTX Connect turns that noise into a prioritized workflow.**
 
@@ -17,8 +17,6 @@ simply by which message arrived last.
 - Prioritized inbox for service advisors
 - Follow-up tasks and team assignments
 - Built-in SMS compliance and opt-out handling
-
-**Built with:** Next.js · TypeScript · Twilio · Prisma · Neon Postgres
 
 ## Screenshots
 
