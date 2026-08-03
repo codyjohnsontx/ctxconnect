@@ -1,22 +1,24 @@
-# CTX Chat
+# CTX Connect
 
-CTX Chat reads every conversation a service advisor has and tells her what to do next.
+An AI-powered shared inbox for dealership service teams.
 
-It is an internal staff workspace for one motorcycle dealership: a shared SMS inbox
-ranked by an AI pass that briefs each thread and flags the ones that need a human.
-The primary user is the **service advisor**. There is no public or customer-facing
-website in this app. Every UI page requires a staff session except `/login`,
-`/privacy-policy`, and `/terms-and-conditions`.
+A service advisor can be juggling 40 conversations at once: sales questions,
+repair updates, parts arrivals, and customers who stopped responding days
+ago. **CTX Connect turns that noise into a prioritized workflow.**
 
-Some API routes are not staff-session-gated and never were: `/api/auth/*` issues
-sessions, `GET /api/ai/sweep` and `GET /api/demo/reseed` are cron entry points
-authorized by a `CRON_SECRET` bearer token, and the Twilio webhooks are authorized
-by signature verification. The rest do require a staff session.
-[ARCHITECTURE.md](ARCHITECTURE.md) names each contract.
+An ambient AI layer summarizes conversations as they evolve, identifies the
+next action, and ranks the inbox by what actually needs attention, not
+simply by which message arrived last.
 
-The ninety-second demo path is in [docs/demo-script.md](docs/demo-script.md). The
-product decisions behind the current framing are in
-[content/decisions/2026-08-02-service-advisor-is-the-primary-user.md](content/decisions/2026-08-02-service-advisor-is-the-primary-user.md).
+### What it includes
+
+- Shared customer texting across the dealership
+- AI-generated conversation summaries and next steps
+- Prioritized inbox for service advisors
+- Follow-up tasks and team assignments
+- Built-in SMS compliance and opt-out handling
+
+**Built with:** Next.js · TypeScript · Twilio · Prisma · Neon Postgres
 
 ## Screenshots
 
