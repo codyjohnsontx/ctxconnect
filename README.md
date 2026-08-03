@@ -2,7 +2,7 @@
 
 An AI-powered shared inbox for dealership service teams.
 
-A service advisor can be juggling dozens of conversations at once: sales questions,
+A service advisor can be juggling 40 conversations at once: sales questions,
 repair updates, parts arrivals, and customers who stopped responding days
 ago. **CTX Connect turns that noise into a prioritized workflow.**
 
@@ -10,7 +10,7 @@ An ambient AI layer summarizes conversations as they evolve, identifies the
 next action, and ranks the inbox by what actually needs attention, not
 simply by which message arrived last.
 
-### What it includes
+## What it includes
 
 - Shared customer texting across the dealership
 - AI-generated conversation summaries and next steps
@@ -36,6 +36,8 @@ Screens below show the local demo UI, signed in as the service advisor.
 - `Auth.js` credentials login
 - `Twilio` SMS/MMS route structure
 - `Vercel` for local/preview/production deployment targets
+
+Route-by-route auth and API contracts are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Environment Contract
 
