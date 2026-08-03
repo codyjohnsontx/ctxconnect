@@ -70,8 +70,10 @@ product records that quietly lie about their own dates.
 
 **Identifiers keep the old name.** Seeded login addresses at `ctxchat.local`,
 the seeded demo password, and the demo dealership `CTX MotoWorks` are data and
-identifiers rather than product names. They are listed in the rename report.
-Changing them is a data migration with a production blast radius, not a rebrand.
+identifiers rather than product names. They are listed in the `Product Framing`
+section of [`AGENTS.md`](../../AGENTS.md), and the seeded logins carry the reason
+in [`README.md`](../../README.md). Changing them is a data migration with a
+production blast radius, not a rebrand.
 
 **The repository and the product now have different names.** That is a real
 papercut for anyone cloning the repo. It is accepted because link stability
