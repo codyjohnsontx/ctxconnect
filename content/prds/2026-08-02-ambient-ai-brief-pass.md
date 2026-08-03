@@ -20,7 +20,8 @@ button on it. This makes the first half of that sentence true: a background pass
 briefs every eligible conversation with new activity, and the advisor's inbox is
 ordered by what the AI flagged instead of by recency. Eligible is defined in v1 Scope
 below: still open, a customer has said something, and no brief newer than the
-thread's last activity.
+thread's last activity, except for the one curated demo fixture the scheduled route
+excludes (see the README's `The Ambient AI Pass` section).
 
 ## Problem
 
@@ -54,7 +55,9 @@ needs: `riskLevel`, `escalationRecommended`, `confidence`, `dismissedAt`.
 
 - A pass that briefs every eligible conversation, invoked on a schedule and on demand.
 - Eligibility that is cheap and explainable: still open, has at least one inbound
-  customer message, and has no brief newer than its last activity.
+  customer message, and has no brief newer than its last activity, except for the one
+  curated demo fixture the scheduled route excludes (see the README's
+  `The Ambient AI Pass` section).
 - An inbox ordered by the AI's output, with the reason shown on the row.
 - Honest degradation: no key or a failing provider leaves threads unbriefed and says
   so, and never writes a brief.
@@ -68,7 +71,9 @@ needs: `riskLevel`, `escalationRecommended`, `confidence`, `dismissedAt`.
 
 ## User Flow
 
-1. Overnight, the scheduled pass briefs every conversation with new activity.
+1. Overnight, the scheduled pass briefs every conversation with new activity, except
+   for the one curated demo fixture it leaves alone (see the README's
+   `The Ambient AI Pass` section).
 2. Alyssa opens `/inbox`. The queue is ordered: escalations first, then by risk.
 3. Each row shows a risk badge and the single next action the model recommends.
 4. She opens the top thread and gets the full brief, with accept / dismiss / copy
@@ -90,7 +95,9 @@ needs: `riskLevel`, `escalationRecommended`, `confidence`, `dismissedAt`.
 ## Acceptance Criteria
 
 - Given a conversation with an inbound message and no brief, when the pass runs,
-  then a brief is written and the conversation is ranked by it.
+  then a brief is written and the conversation is ranked by it, except for the one
+  curated demo fixture the scheduled route excludes (see the README's
+  `The Ambient AI Pass` section).
 - Given a conversation whose brief is newer than its last message, when the pass
   runs, then no model call is made for it.
 - Given a conversation with no inbound customer message, when the pass runs, then it
