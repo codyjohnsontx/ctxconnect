@@ -73,8 +73,8 @@ reviews:
     - '!build/**'
     - '!**/coverage/**'
     - '!.vercel/**'
-    # Raster images and icons. Tracked today under public/screenshots; there is
-    # nothing to review in a binary image diff.
+    # Raster images and icons. Tracked today under public/screenshots, plus
+    # src/app/favicon.ico; there is nothing to review in a binary image diff.
     # SVG is absent on purpose: `**/*.svg` is already on CodeRabbit's built-in
     # skip list, so the six tracked SVGs under public/ are unreviewed whatever
     # this group says. That is a real gap - an inlined SVG can carry executable
