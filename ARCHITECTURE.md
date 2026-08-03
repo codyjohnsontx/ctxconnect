@@ -4,10 +4,24 @@
 
 CTX Chat runs as one `Next.js` application deployed as one `Vercel` project.
 
-That single deployment serves:
+That deployment serves one thing: the internal staff workspace. There is no public
+marketing or customer-facing website in this codebase.
 
-- the public-facing website
-- the internal staff application
+Every UI page requires an authenticated staff session, except `/login`,
+`/privacy-policy`, and `/terms-and-conditions`.
+
+The API routes are not UI pages and do not share one contract. Most of them still
+run on a staff session: `POST /api/messages/send`, `POST /api/ai/ops-brief`, and
+`POST /api/ai/ops-brief/[insightId]/action` each require a session and then check
+that the caller may see the conversation. The rest authorize on something else
+entirely:
+
+- `/api/auth/*` are the NextAuth endpoints that issue a session in the first place,
+  so they are reachable before one exists.
+- `GET /api/ai/sweep` and `GET /api/demo/reseed` are cron entry points, authorized
+  by a `CRON_SECRET` bearer token and never by a staff session.
+- `POST /api/twilio/inbound` and `POST /api/twilio/status` are carrier webhooks,
+  authorized by `X-Twilio-Signature` verification against `TWILIO_AUTH_TOKEN`.
 
 The database model is explicit:
 

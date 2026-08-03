@@ -2,7 +2,17 @@
 
 ## Status
 
-Built
+Built, with the seed's AI behavior superseded on 2026-08-02.
+
+Two things below no longer describe the seed. `Seed deterministic AI Ops Brief
+insights without calling OpenAI` and the `Do not call OpenAI during seed` non-goal
+held until the seed gained a regeneration step: it still writes a hand-written
+brief for every demo conversation, and then, when `OPENAI_API_KEY` is set,
+regenerates those rows through the real model. The README's seed section owns that
+behavior and its cost, and
+[the event taxonomy](./2026-07-09-ai-ops-brief-event-taxonomy.md) owns what the
+seeded events carry. The target user also moved to the service advisor, per
+[the service advisor decision](../decisions/2026-08-02-service-advisor-is-the-primary-user.md).
 
 ## Date
 

@@ -21,6 +21,15 @@ import {
   defaultTagData,
   defaultTemplateData,
 } from "../../prisma/baseline-data";
+import {
+  type AiOpsBriefResult,
+  type BriefBudget,
+  generateAiOpsBrief,
+  getAiOpsBriefModel,
+  isAiOpsBriefConfigured,
+  redactProviderSecrets,
+} from "./ai/ops-brief";
+import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
 
 const dealershipName = defaultDealershipSettings.dealershipName;
 
@@ -91,7 +100,8 @@ async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
 
 async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   conversationId: string;
-  requestedByUserId: string;
+  // An ambient-pass brief has no requesting human, matching what the real pass writes.
+  requestedByUserId: string | null;
   model?: string;
   summary: string;
   customerNeed: string;
@@ -108,7 +118,7 @@ async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   dismissedAt?: Date | null;
   events: Array<{
     type: ProductEventType;
-    userId: string;
+    userId: string | null;
     createdAt?: Date;
     metadata?: Prisma.InputJsonValue;
   }>;
@@ -165,7 +175,205 @@ async function createAiInsightWithEvents(prisma: PrismaClient, input: {
   return insight;
 }
 
-export async function seedDemoData(prisma: PrismaClient) {
+
+const SEEDED_FALLBACK_MODEL = "seeded-demo";
+
+/**
+ * The seeded event's own metadata, so regenerating a brief keeps every key the
+ * seed chose for it rather than replacing them with a fresh object.
+ */
+function seededEventMetadata(metadata: Prisma.JsonValue | null | undefined) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+}
+
+function seedAiBriefsEnabled() {
+  return process.env.SEED_AI_BRIEFS?.trim().toLowerCase() !== "false";
+}
+
+/**
+ * Insight fields the demo script asserts by value, keyed by conversation subject.
+ *
+ * docs/demo-script.md reads Renee Whitlock's suggested next action out loud word
+ * for word, names her risk and escalation, leans on her sitting at the top of the
+ * ranked queue, and calls Kelsey Nakamura's thread low risk to make the contrast.
+ * Regeneration applies real model output to every other field, but these are held
+ * so a reseed cannot leave the script describing a screen that says something else.
+ *
+ * Keep this list as short as the script requires. Every entry is a field a viewer
+ * with a key sees that is written rather than inferred, which is a cost, so it is
+ * disclosed in the README's seed section.
+ */
+const demoScriptPinnedFields: Record<string, Partial<AiOpsBriefResult>> = {
+  "RO 48257 warranty claim": {
+    riskLevel: Priority.URGENT,
+    escalationRecommended: true,
+    escalationReason:
+      "The claim is stalled with the regional rep, which is above what the advisor can resolve alone.",
+    suggestedNextAction:
+      "Get the service manager on the warranty claim today and give the customer a dated commitment.",
+  },
+  "First service scheduling": {
+    riskLevel: Priority.LOW,
+  },
+};
+
+/**
+ * Replaces the written fallback briefs with real model output.
+ *
+ * The seed always writes a hand-written brief for each demo conversation so the
+ * app is never empty. When a key is configured, this regenerates those same rows
+ * through the real inference path, so a viewer sees genuine output rather than
+ * text someone typed. A conversation whose call fails keeps its fallback, which
+ * is why the demo cannot break on a provider outage.
+ *
+ * Every regenerated brief is a paid call, made one after another. The budget
+ * belongs to the caller and has been running since the seed began, so the
+ * destructive recreate that precedes this draws it down too: an invocation with
+ * nothing left regenerates nothing rather than starting a call it cannot finish,
+ * and says so on the line below. Set SEED_AI_BRIEFS=false to skip.
+ */
+async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient, hasBudget: BriefBudget) {
+  if (!isAiOpsBriefConfigured() || !seedAiBriefsEnabled()) {
+    return;
+  }
+
+  const model = getAiOpsBriefModel();
+  const fallbackInsights = await prisma.conversationAiInsight.findMany({
+    where: { model: SEEDED_FALLBACK_MODEL },
+    include: {
+      events: { where: { type: ProductEventType.AI_INSIGHT_GENERATED } },
+      conversation: {
+        include: {
+          customer: true,
+          messages: { orderBy: { createdAt: "asc" }, include: { sender: true } },
+          tasks: true,
+        },
+      },
+    },
+  });
+
+  let regenerated = 0;
+  let attempted = 0;
+
+  for (const insight of fallbackInsights) {
+    if (!hasBudget()) {
+      break;
+    }
+
+    attempted += 1;
+
+    const { conversation } = insight;
+
+    try {
+      const generated = await generateAiOpsBrief({
+        dealershipName,
+        conversation: {
+          id: conversation.id,
+          department: conversation.department,
+          status: conversation.status,
+          priority: conversation.priority,
+          subject: conversation.subject,
+          customer: {
+            name: conversation.customer.name,
+            smsOptedOut: conversation.customer.smsOptedOut,
+            notes: conversation.customer.notes,
+          },
+          messages: conversation.messages.map((message) => ({
+            direction: message.direction,
+            body: message.body,
+            deliveryStatus: message.deliveryStatus,
+            createdAt: message.createdAt,
+            senderName: message.sender?.name ?? null,
+          })),
+          tasks: conversation.tasks.map((task) => ({
+            title: task.title,
+            dueDate: task.dueDate,
+            status: task.status,
+            priority: task.priority,
+          })),
+        },
+      });
+
+      // The demo script quotes a few of these values verbatim, so regeneration is
+      // not allowed to replace them. Everything else on the row is model output.
+      const brief: AiOpsBriefResult = {
+        ...generated,
+        ...(conversation.subject ? demoScriptPinnedFields[conversation.subject] ?? {} : {}),
+      };
+
+      // createdAt is deliberately left alone: the seeded timestamps are what make
+      // the demo read as "the pass already ran before you got here".
+      await prisma.$transaction([
+        prisma.conversationAiInsight.update({
+          where: { id: insight.id },
+          data: {
+            model,
+            summary: brief.summary,
+            customerNeed: brief.customerNeed,
+            riskLevel: brief.riskLevel,
+            riskReasons: brief.riskReasons,
+            escalationRecommended: brief.escalationRecommended,
+            escalationReason: brief.escalationReason,
+            suggestedDepartment: brief.suggestedDepartment,
+            suggestedNextAction: brief.suggestedNextAction,
+            suggestedReply: brief.suggestedReply,
+            suggestedTaskTitle: brief.suggestedTaskTitle,
+            confidence: brief.confidence,
+          },
+        }),
+        // The event picks up the regenerated row's model and risk so the two
+        // records never disagree about what produced the brief. Its seeded
+        // source is preserved: the demo quota excludes on it, and the advisor
+        // lane deliberately reads as ambient_pass rather than as seed.
+        prisma.productEvent.update({
+          where: {
+            type_aiInsightId: {
+              type: ProductEventType.AI_INSIGHT_GENERATED,
+              aiInsightId: insight.id,
+            },
+          },
+          data: {
+            metadata: {
+              ...seededEventMetadata(insight.events[0]?.metadata),
+              model,
+              riskLevel: brief.riskLevel,
+              escalationRecommended: brief.escalationRecommended,
+            },
+          },
+        }),
+      ]);
+
+      regenerated += 1;
+    } catch (error) {
+      console.warn(
+        `Kept the written fallback brief for ${conversation.customer.name}: ${redactProviderSecrets(
+          error instanceof Error ? error.message : "AI provider failed.",
+        )}`,
+      );
+    }
+  }
+
+  const unattempted = fallbackInsights.length - attempted;
+
+  console.log(
+    `Regenerated ${regenerated} of ${fallbackInsights.length} seeded AI briefs with ${model}.${
+      unattempted > 0
+        ? ` The invocation budget ran out, so ${unattempted} kept their written fallback untried.`
+        : ""
+    }`,
+  );
+}
+
+/**
+ * Rebuilds the demo dataset from scratch.
+ *
+ * `hasBudget` belongs to whoever owns the invocation. /api/demo/reseed starts
+ * one with the request, so the recreate below and the brief regeneration at the
+ * end draw down the same clock. The CLI seed passes none and runs unbounded: a
+ * terminal has no invocation to fit inside, and skipping regeneration there
+ * would be a worse answer than taking the time.
+ */
+export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget = () => true) {
   const seedPassword = process.env.SEED_PASSWORD?.trim();
 
   if (!seedPassword && process.env.NODE_ENV === "production") {
@@ -283,7 +491,7 @@ export async function seedDemoData(prisma: PrismaClient) {
     },
     {
       name: "Nina Caldwell",
-      phone: "+15125550102",
+      phone: demoStaleBriefCustomerPhone,
       email: "nina.caldwell@example.com",
       vehicle: [2023, "Triumph", "Tiger 900", "SMTDAD85HPT001234", "U24088", 8420, VehicleRelationship.SERVICE_UNIT] as const,
       department: Department.SERVICE,
@@ -354,6 +562,84 @@ export async function seedDemoData(prisma: PrismaClient) {
       ] as const,
       task: "Confirm pickup time",
       dueDate: hoursFromNow(1),
+    },
+    // The service advisor is the primary user, so her lane carries enough
+    // volume and enough spread of risk for the AI pass to have something to
+    // rank. Without that, the ranked queue has nothing to prove.
+    {
+      name: "Renee Whitlock",
+      phone: "+15125550110",
+      email: "renee.whitlock@example.com",
+      vehicle: [2023, "BMW", "R 1250 GS", "WB10J0304P6G12345", "S23117", 21750, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.URGENT,
+      status: ConversationStatus.WAITING_ON_STAFF,
+      tagNames: ["Needs approval"],
+      subject: "RO 48257 warranty claim",
+      messages: [
+        [MessageDirection.INBOUND, "This is the third time I have asked about the warranty claim on my GS. It has been in your shop for nine days.", DeliveryStatus.RECEIVED],
+        [MessageDirection.INTERNAL, "Warranty claim submitted 9 days ago, still unpaid. Regional rep has not replied to two emails.", DeliveryStatus.INTERNAL],
+        [MessageDirection.OUTBOUND, "I am chasing the warranty approval today and will call you the moment it clears.", DeliveryStatus.DELIVERED],
+        [MessageDirection.INBOUND, "I need a real answer or I want the bike back unrepaired. Who is your service manager?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Escalate GS warranty claim to service manager",
+      dueDate: hoursFromNow(-5),
+    },
+    {
+      name: "Ruben Ortega",
+      phone: "+15125550111",
+      email: "ruben.ortega@example.com",
+      vehicle: [2020, "Yamaha", "Tenere 700", "JYARM31E0LA001988", "S20044", 34110, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.HIGH,
+      status: ConversationStatus.WAITING_ON_STAFF,
+      tagNames: [],
+      subject: "RO 48261 intermittent stall",
+      messages: [
+        [MessageDirection.INBOUND, "Any word from the tech on the stalling? I dropped it off Thursday.", DeliveryStatus.RECEIVED],
+        [MessageDirection.INTERNAL, "Tech could not reproduce the stall on the first road test. Needs a longer cold-start test.", DeliveryStatus.INTERNAL],
+        [MessageDirection.INBOUND, "I am supposed to ride to Big Bend on Saturday. Should I make other plans?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Give Ruben a diagnostic answer before Saturday",
+      dueDate: hoursFromNow(2),
+    },
+    {
+      name: "Grant Delaney",
+      phone: "+15125550112",
+      email: "grant.delaney@example.com",
+      vehicle: [2021, "Honda", "Africa Twin", "JH2SD0417MK100562", "S21079", 27400, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.HIGH,
+      status: ConversationStatus.FOLLOW_UP_NEEDED,
+      tagNames: [],
+      subject: "RO 48244 repeat repair",
+      messages: [
+        [MessageDirection.INBOUND, "The fork seal you replaced last month is weeping again.", DeliveryStatus.RECEIVED],
+        [MessageDirection.OUTBOUND, "Sorry about that. Bring it in and we will look at it under our workmanship warranty.", DeliveryStatus.DELIVERED],
+        [MessageDirection.INTERNAL, "Comeback on RO 48244. Same tech, same fork. Check the seal supplier lot.", DeliveryStatus.INTERNAL],
+      ] as const,
+      task: "Book Grant's comeback and pull the original RO",
+      dueDate: hoursFromNow(6),
+    },
+    {
+      name: "Kelsey Nakamura",
+      phone: "+15125550113",
+      email: "kelsey.nakamura@example.com",
+      vehicle: [2024, "Kawasaki", "Ninja 500", "JKAEXMF10RA004417", "S24132", 2610, VehicleRelationship.SERVICE_UNIT] as const,
+      department: Department.SERVICE,
+      assignedUserId: service.id,
+      priority: Priority.LOW,
+      status: ConversationStatus.OPEN,
+      tagNames: [],
+      subject: "First service scheduling",
+      messages: [
+        [MessageDirection.INBOUND, "My Ninja is coming up on its 600 mile service. What days do you have open next week?", DeliveryStatus.RECEIVED],
+      ] as const,
+      task: "Offer Kelsey two first-service slots",
+      dueDate: daysFromNow(2),
     },
     {
       name: "Owen Price",
@@ -594,6 +880,18 @@ export async function seedDemoData(prisma: PrismaClient) {
   const smsOptOutConversation = seededConversations.find((conversation) =>
     conversation.customer.name === "Lena Ortiz",
   );
+  const warrantyService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48257"),
+  );
+  const stallService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48261"),
+  );
+  const comebackService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("RO 48244"),
+  );
+  const firstService = seededConversations.find((conversation) =>
+    conversation.subject?.includes("First service"),
+  );
 
   if (panigaleLead) {
     await prisma.notification.createMany({
@@ -658,14 +956,14 @@ export async function seedDemoData(prisma: PrismaClient) {
       where: { id: tiresParts.messages[1].id },
       data: {
         deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: "Carrier rejected message during demo seed.",
+        errorMessage: "Carrier rejected message: unreachable destination.",
       },
     });
     await prisma.notification.create({
       data: {
         type: NotificationType.MESSAGE_FAILED,
         title: "Message failed",
-        body: `${tiresParts.customer.name}: Carrier rejected message during demo seed.`,
+        body: `${tiresParts.customer.name}: Carrier rejected message: unreachable destination.`,
         recipientUserId: manager.id,
         conversationId: tiresParts.id,
         messageId: tiresParts.messages[1].id,
@@ -923,6 +1221,141 @@ export async function seedDemoData(prisma: PrismaClient) {
       ],
     });
   }
+
+  if (warrantyService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: warrantyService.id,
+      requestedByUserId: null,
+      summary: "Ninth day on an unpaid warranty claim, and the customer has now asked for the service manager.",
+      customerNeed: "Wants a firm answer on the warranty claim or the bike back unrepaired.",
+      riskLevel: Priority.URGENT,
+      riskReasons: [
+        "Customer asked the same question three times.",
+        "Customer asked to speak to the service manager.",
+        "Follow-up task is overdue and the claim is unresolved after nine days.",
+      ],
+      escalationRecommended: true,
+      escalationReason: "The claim is stalled with the regional rep, which is above what the advisor can resolve alone.",
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Get the service manager on the warranty claim today and give the customer a dated commitment.",
+      suggestedReply: "Renee, I have escalated your warranty claim to our service manager this morning. I will call you before 4pm today with a firm answer either way.",
+      suggestedTaskTitle: "Escalate GS warranty claim to service manager",
+      confidence: 91,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.URGENT,
+            escalationRecommended: true,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (stallService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: stallService.id,
+      requestedByUserId: null,
+      summary: "Diagnosis is incomplete and the customer has a Saturday ride that depends on the answer.",
+      customerNeed: "Needs to know whether the bike will be ready for Saturday, or to make other plans.",
+      riskLevel: Priority.HIGH,
+      riskReasons: [
+        "Technician could not reproduce the fault on the first road test.",
+        "Customer has a dated trip dependency.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Confirm the cold-start test is scheduled, then tell the customer today whether Saturday is realistic.",
+      suggestedReply: "Ruben, the tech could not reproduce the stall on the first road test, so we are running a cold-start test in the morning. I will confirm by tomorrow afternoon whether Saturday is realistic.",
+      suggestedTaskTitle: "Give Ruben a diagnostic answer before Saturday",
+      confidence: 84,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.HIGH,
+            escalationRecommended: false,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (comebackService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: comebackService.id,
+      requestedByUserId: null,
+      summary: "Repeat failure of a fork seal replaced last month, already accepted as a workmanship comeback.",
+      customerNeed: "Wants the same repair done again without paying for it twice.",
+      riskLevel: Priority.HIGH,
+      riskReasons: [
+        "Second failure of the same component within a month.",
+        "Comeback work is unbilled labor until the cause is found.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Book the comeback and pull the original repair order before the bike arrives.",
+      suggestedReply: "Grant, I have you down for the fork seal comeback. Bring it by any morning this week and we will have the original repair order pulled before you get here.",
+      suggestedTaskTitle: "Book Grant's comeback and pull the original RO",
+      confidence: 86,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.HIGH,
+            escalationRecommended: false,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  if (firstService) {
+    await createAiInsightWithEvents(prisma, {
+      conversationId: firstService.id,
+      requestedByUserId: null,
+      summary: "Routine first-service scheduling request on a new bike, with no time pressure stated.",
+      customerNeed: "Wants two or three appointment options for the 600 mile service.",
+      riskLevel: Priority.LOW,
+      riskReasons: [
+        "No deadline, complaint, or unresolved work in the thread.",
+      ],
+      escalationRecommended: false,
+      suggestedDepartment: Department.SERVICE,
+      suggestedNextAction: "Send two open first-service slots for next week.",
+      suggestedReply: "Kelsey, we have Tuesday morning and Thursday afternoon open next week for the 600 mile service. Either one work?",
+      suggestedTaskTitle: "Offer Kelsey two first-service slots",
+      confidence: 90,
+      events: [
+        {
+          type: ProductEventType.AI_INSIGHT_GENERATED,
+          userId: null,
+          createdAt: minutesFromNow(-20),
+          metadata: {
+            model: "seeded-demo",
+            riskLevel: Priority.LOW,
+            escalationRecommended: false,
+            source: "ambient_pass",
+          },
+        },
+      ],
+    });
+  }
+
+  await upgradeSeededBriefsWithRealAi(prisma, hasBudget);
 
   console.log(`Seeded ${dealershipName}.`);
 }

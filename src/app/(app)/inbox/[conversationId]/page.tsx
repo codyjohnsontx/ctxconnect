@@ -5,6 +5,10 @@ import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
+// `Run pass` is a Server Action hosted by this route too, so it carries the same
+// budget as /inbox. See the ambient pass notes in the README.
+export const maxDuration = 300;
+
 type PageProps = {
   params: Promise<{ conversationId: string }>;
   searchParams: Promise<Record<string, string | undefined>>;

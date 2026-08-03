@@ -2,7 +2,26 @@
 
 ## Status
 
-Built
+Built, with the target user superseded on 2026-08-02.
+
+**Read the rest of this document as a historical record of the 2026-07-09 slice.**
+Everywhere below that says the GM, it meant the GM at the time. The primary user is
+now the service advisor, per
+[the service advisor decision](../decisions/2026-08-02-service-advisor-is-the-primary-user.md),
+and the same brief now serves her in `/inbox`.
+
+Specifically superseded:
+
+- **Target user, goal, user flow, user stories, acceptance criteria**: written for
+  the GM. The mechanism they describe is unchanged; only the person is.
+- **Click-only generation**: briefs are no longer produced only by a click. See
+  [Ambient AI Brief Pass and Ranked Advisor Queue](./2026-08-02-ambient-ai-brief-pass.md).
+- **The Command Center experiment-readiness panel**: removed from the UI, so the
+  acceptance criterion that asserts it no longer holds. Its content is now owned by
+  [docs/experiment-plan.md](../../docs/experiment-plan.md).
+
+Still accurate: the AI contract, the structured output and validation, the product
+event taxonomy, and the AI Ops Analytics panel on Command Center.
 
 ## Date
 

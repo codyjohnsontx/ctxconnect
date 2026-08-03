@@ -6,7 +6,6 @@ import {
   Bike,
   BrainCircuit,
   Clock3,
-  FlaskConical,
   Inbox,
   MessageSquare,
   Send,
@@ -65,16 +64,6 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
             ? "Dealership operations view of what needs attention now."
             : "Your scoped operations view of what needs attention now."}
         </p>
-        {user.isDemo ? (
-          <div className="mt-4 border-l-2 border-blue-600 pl-3 dark:border-blue-400">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
-              Recommended demo path
-            </p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-              Choose an operational signal, open a conversation, then review its AI brief and turn the recommendation into a human-approved action.
-            </p>
-          </div>
-        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -137,7 +126,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
         </section>
       ) : null}
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+      <div className="mt-6">
         <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
             <div className="flex items-center gap-2">
@@ -191,34 +180,6 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
             )}
           </div>
         </section>
-
-        <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-zinc-500" />
-            <h2 className="font-semibold">Experiment Readiness</h2>
-          </div>
-          <div className="mt-4 space-y-4 text-sm">
-            <ExperimentItem
-              label="Hypothesis"
-              value="AI-suggested replies reduce time from inbound customer message to staff response."
-            />
-            <ExperimentItem label="Primary metric" value="Average response time after AI brief generation." />
-            <ExperimentItem
-              label="Guardrail metric"
-              value="Failed outbound messages or dismissed AI recommendations."
-            />
-            <ExperimentItem
-              label="Test idea"
-              value="Compare conversations where the GM accepts an AI suggestion against conversations where AI is ignored."
-            />
-            <div className="pt-1">
-              <Badge variant="amber">Not running</Badge>
-              <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                Instrumentation is ready, but no live randomization or experiment results are claimed.
-              </p>
-            </div>
-          </div>
-        </section>
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
@@ -261,7 +222,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
         <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
             <h2 className="font-semibold">Latest notifications</h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Newest updates the GM should know about.</p>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Newest updates in your scope.</p>
           </div>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {latestNotifications.length === 0 ? (
@@ -379,15 +340,6 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           </div>
         </section>
       </div>
-    </div>
-  );
-}
-
-function ExperimentItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-1 leading-5 text-zinc-700 dark:text-zinc-300">{value}</div>
     </div>
   );
 }

@@ -2,7 +2,10 @@
 
 ## Status
 
-Built
+Deprecated on 2026-08-02. The demo no longer leads with Command Center; see
+[the service advisor decision](../decisions/2026-08-02-service-advisor-is-the-primary-user.md)
+and [docs/demo-script.md](../../docs/demo-script.md). The scope and acceptance
+criteria below describe the superseded demo entry point.
 
 ## Date
 

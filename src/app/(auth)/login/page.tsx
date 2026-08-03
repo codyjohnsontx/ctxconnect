@@ -27,13 +27,13 @@ export default async function LoginPage() {
           </div>
         </div>
         <div className="max-w-xl">
-          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-500">Command center</p>
+          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-500">For the service advisor</p>
           <h1 className="text-5xl font-semibold tracking-tight">
-            Shared texting, follow-ups, and service lane status in one place.
+            CTX Chat reads every conversation a service advisor has and tells her what to do next.
           </h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-zinc-300">
-            Built for busy motorcycle dealership teams that need customers, units, RO context,
-            assignments, and next actions visible without chasing five systems.
+            Every thread arrives already read, ranked by risk, with the next action on it. The rest
+            of the store works the same threads, so nothing has to be handed over twice.
           </p>
         </div>
         <div />

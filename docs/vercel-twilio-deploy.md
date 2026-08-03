@@ -12,24 +12,13 @@ Preview URLs work technically, but every deploy can change the hostname. Because
 
 ## Required Vercel Environment Variables
 
-Set these in the Vercel project before deploying:
+The variable list lives in the README's [Environment Contract](../README.md#environment-contract). Set every variable it lists in the Vercel project before deploying.
 
-### Runtime app env
+Vercel-specific notes:
 
-- `DATABASE_URL`
-- `NEXTAUTH_SECRET`
-- `NEXTAUTH_URL`
-- `NEXT_PUBLIC_APP_URL`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_PHONE_NUMBER` or `TWILIO_MESSAGING_SERVICE_SID`
-
-### CLI / admin env
-
-- `DIRECT_URL`
-- `BOOTSTRAP_ADMIN_NAME`
-- `BOOTSTRAP_ADMIN_EMAIL`
-- `BOOTSTRAP_ADMIN_PASSWORD`
+- `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` must match the deployed hostname exactly. See `URL Values` below.
+- `DATABASE_URL` and `DIRECT_URL` differ per Vercel environment. See `Neon Database Mapping` below.
+- `CRON_SECRET` must be set for the scheduled routes in `vercel.json` to run. Without it they reject every request.
 
 ## URL Values
 

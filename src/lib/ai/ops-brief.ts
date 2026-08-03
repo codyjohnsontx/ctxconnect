@@ -137,12 +137,126 @@ function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): Ai
   };
 }
 
+/**
+ * Strips anything shaped like an API key out of provider error text before it is
+ * logged or persisted. Providers echo a masked key in 401 bodies; nothing that
+ * looks like a credential should reach a log line or a database row.
+ *
+ * Covers the three shapes that actually appear: an OpenAI `sk-` key, a Bearer
+ * fragment from a gateway or proxy, and a long opaque token from an Azure or
+ * OpenAI-compatible deployment. The opaque pattern is deliberately long and
+ * mixed-case-or-digit so ordinary error prose survives unredacted, and request
+ * ids are kept: they are how a failure is traced back to the provider, and they
+ * are not credentials.
+ *
+ * The `sk-` pattern is anchored at a word boundary so it cannot fire inside an
+ * ordinary word: a key starts a word, so `risk-level` and `task-id` are not
+ * keys. It redacts every match, because how innocent a value looks says nothing
+ * about whether it is a credential. What follows `Bearer` is kept only when it
+ * is one of the prose words below, and redacted otherwise, for the same reason.
+ */
+export function redactProviderSecrets(message: string) {
+  return message
+    .replace(/\bsk-[A-Za-z0-9_*-]+/g, "sk-[redacted]")
+    .replace(/(Bearer\s+)(\S+)/gi, (match, scheme: string, value: string) =>
+      BEARER_PROSE_WORDS.has(value.toLowerCase()) ? match : `${scheme}[redacted]`,
+    )
+    .replace(
+      /\b(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g,
+      (token, offset: number, full: string) =>
+        isRequestId(token, full.slice(0, offset)) ? token : "[redacted]",
+    );
+}
+
+/**
+ * Every value that may follow `Bearer` and survive. The list is closed and
+ * matched exactly: an unrecognised value is redacted, so a credential that reads
+ * like ordinary prose is still treated as one. A token that is literally the
+ * word `token` was never a secret.
+ */
+const BEARER_PROSE_WORDS = new Set([
+  "token",
+  "header",
+  "auth",
+  "missing",
+  "required",
+  "invalid",
+  "expired",
+]);
+
+function isRequestId(token: string, precedingText: string) {
+  return /^req(uest)?[-_]/i.test(token) || /request[-_ ]?id["']?\s*[:=]\s*$/i.test(precedingText);
+}
+
 export function getAiOpsBriefModel() {
   return process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 }
 
 export function isAiOpsBriefConfigured() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
+}
+
+/**
+ * Per-call ceiling on the provider request.
+ *
+ * The longest a single brief can hold an invocation, which is why
+ * BRIEF_BUDGET_DEADLINE_MS below subtracts a whole one. That derivation is not
+ * the ambient pass's own: it is shared through startBriefBudget by both loops
+ * that call this module in sequence, so raising this shortens every one of them.
+ * Read it before changing this.
+ */
+export const AI_BRIEF_TIMEOUT_MS = 30_000;
+
+/**
+ * The `maxDuration` every route that hosts a loop of these calls declares:
+ * /api/ai/sweep, /api/demo/reseed, /inbox and /inbox/[conversationId]. Changing
+ * it there means changing it here.
+ *
+ * Those four have to be static literals, because Next.js reads `maxDuration` at
+ * build time and will not honour one computed from this constant. Exported so
+ * tests/invocation-budget.test.ts can hold all four to it, which is the only
+ * thing that actually keeps them in step.
+ */
+export const INVOCATION_BUDGET_MS = 300_000;
+
+/** Left for the database writes and the response after the last call returns. */
+const RESPONSE_MARGIN_MS = 30_000;
+
+/**
+ * A whole provider timeout is subtracted because the last call a loop starts may
+ * still run for one, so the deadline is derived rather than typed and stays
+ * correct when either number moves.
+ */
+const BRIEF_BUDGET_DEADLINE_MS = INVOCATION_BUDGET_MS - AI_BRIEF_TIMEOUT_MS - RESPONSE_MARGIN_MS;
+
+/** Whether an invocation still has room to start another brief. */
+export type BriefBudget = () => boolean;
+
+/**
+ * Starts the clock for one invocation.
+ *
+ * Call it where the invocation begins rather than where the loop does, and pass
+ * the predicate down: work that runs before the first brief spends the same
+ * budget the briefs draw down, so a loop that started its own clock would
+ * believe it had a whole invocation left. Only whoever owns the invocation
+ * starts one, which is also what keeps a budget from being started twice on a
+ * path that has an outer caller.
+ *
+ * The predicate is asked before a call rather than after, so a loop that runs
+ * out stops cleanly and reports what it managed instead of being killed.
+ *
+ * Two loops call generateAiOpsBrief one conversation at a time, and neither
+ * count fits the invocation on its own: the ambient pass runs
+ * AI_PASS_MAX_BRIEFS calls, 360 seconds at the defaults of 12 and 30, and the
+ * seed regenerates its own written briefs, 270 seconds for nine of them on top
+ * of the reseed's database work. Both share this rather than bounding their own
+ * count against the budget separately, which would have to be redone every time
+ * a count or a timeout changed.
+ */
+export function startBriefBudget(): BriefBudget {
+  const startedAt = Date.now();
+
+  return () => Date.now() - startedAt < BRIEF_BUDGET_DEADLINE_MS;
 }
 
 export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsBriefResult> {
@@ -163,7 +277,7 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
             {
               type: "input_text",
               text: [
-                "You are an operations assistant for a motorcycle dealership GM.",
+                "You are an operations assistant for a motorcycle dealership service advisor.",
                 "Use only facts present in the supplied conversation context.",
                 "Do not invent facts, promised actions, staff contact, customer contact, or outcomes.",
                 "Do not claim the customer was contacted unless a message shows it.",
@@ -194,7 +308,7 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
         },
       },
     },
-    { timeout: 30_000 },
+    { timeout: AI_BRIEF_TIMEOUT_MS },
   );
 
   const outputText = response.output_text;

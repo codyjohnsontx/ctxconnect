@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, updateConversation } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { MessageComposer } from "@/components/message-composer";
+import { QueueStatus } from "@/components/queue-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
@@ -14,6 +15,7 @@ import {
   MessageDirection,
   Priority,
 } from "@/generated/prisma/client";
+import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import type { getInboxData } from "@/lib/data";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
@@ -29,6 +31,13 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
   WAITING_ON_STAFF: "red",
   FOLLOW_UP_NEEDED: "amber",
   CLOSED: "green",
+};
+
+const aiRiskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
+  LOW: "green",
+  NORMAL: "blue",
+  HIGH: "amber",
+  URGENT: "red",
 };
 
 type InboxViewProps = InboxData & {
@@ -64,6 +73,7 @@ export function InboxView({
   tags,
   templates,
   dealershipSettings,
+  queueStatus,
   searchParams,
   isDemo,
 }: InboxViewProps) {
@@ -72,19 +82,23 @@ export function InboxView({
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "unit";
   const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
+  const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
 
   return (
-    <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
-      <section className={cn("min-h-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation && "hidden lg:block")}>
-        <div className="relative z-10 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
+      <section className={cn("min-h-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation ? "hidden lg:flex" : "flex")}>
+        <div className="relative z-10 shrink-0 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">{conversations.length} visible conversations</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {conversations.length} conversations, ranked by what the AI flagged
+              </p>
             </div>
             <Badge variant="blue">Shared</Badge>
           </div>
+          <QueueStatus status={queueStatus} />
           <form className="grid grid-cols-2 gap-2" action="/inbox">
             <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
               <option value="">All departments</option>
@@ -137,7 +151,7 @@ export function InboxView({
           </form>
         </div>
 
-        <div className="h-[calc(100dvh-220px)] overflow-y-auto lg:h-[calc(100dvh)] lg:pt-[221px] lg:-mt-[221px]">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           {conversations.length === 0 ? (
             <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">No conversations match these filters.</div>
           ) : (
@@ -146,6 +160,12 @@ export function InboxView({
                 const lastMessage = conversation.messages[0];
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
+                const insight = conversation.aiInsights[0];
+                // The freshness rule the header counter uses, read from the one
+                // place that defines it. A row that presented a brief older than
+                // the thread's newest message as the current read would contradict
+                // the counter that already excluded it.
+                const briefIsCurrent = hasCurrentBrief(conversation);
 
                 return (
                   <Link
@@ -171,10 +191,44 @@ export function InboxView({
                     <p className="line-clamp-2 text-sm text-zinc-600 dark:text-zinc-300">
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
+                    {insight && !insight.dismissedAt ? (
+                      <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
+                        <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span className="line-clamp-2">
+                          {briefIsCurrent
+                            ? insight.suggestedNextAction
+                            : `Earlier brief: ${insight.suggestedNextAction}`}
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      {insight ? (
+                        insight.dismissedAt ? (
+                          <Badge>Dismissed</Badge>
+                        ) : (
+                          <Badge variant={briefIsCurrent ? aiRiskTone[insight.riskLevel] : "neutral"}>
+                            <Sparkles className="mr-1 h-3 w-3" />
+                            {briefIsCurrent
+                              ? labelize(insight.riskLevel)
+                              : `${labelize(insight.riskLevel)} · earlier brief`}
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge>Not briefed</Badge>
+                      )}
+                      {insight?.escalationRecommended && !insight.dismissedAt ? (
+                        <Badge variant={briefIsCurrent ? "red" : "neutral"}>
+                          {briefIsCurrent ? "Escalate" : "Escalate · earlier brief"}
+                        </Badge>
+                      ) : null}
                       <Badge>{labelize(conversation.department)}</Badge>
                       <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>
-                      {conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT ? (
+                      {/* The staff-set priority is only worth a badge where the AI is not
+                          currently rating the thread; otherwise the two say the same word
+                          twice. A dismissed brief counts as not rating it: dismissing the
+                          AI's opinion must not erase the human's. */}
+                      {(!insight || insight.dismissedAt) &&
+                      (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
                         <Badge variant="red">
                           <AlertTriangle className="mr-1 h-3 w-3" />
                           {labelize(conversation.priority)}
@@ -203,9 +257,9 @@ export function InboxView({
       </section>
 
       {selectedConversation ? (
-        <section className="grid min-h-0 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="flex min-h-0 flex-col">
-            <header className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <section className="flex min-h-0 flex-col overflow-y-auto pb-20 lg:grid lg:pb-0 lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
+          <div className="flex min-h-0 shrink-0 flex-col">
+            <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 lg:static dark:border-zinc-800 dark:bg-zinc-950">
               <div className="min-w-0">
                 {backTarget ? (
                   <Link
@@ -236,7 +290,7 @@ export function InboxView({
               </Badge>
             </header>
 
-            <div className="flex-1 space-y-4 overflow-y-auto bg-zinc-50 p-5 dark:bg-zinc-950">
+            <div className="max-h-[34dvh] flex-none space-y-4 overflow-y-auto bg-zinc-50 p-5 lg:max-h-none lg:flex-1 dark:bg-zinc-950">
               {selectedConversation.messages.map((message) => {
                 const internal = message.direction === MessageDirection.INTERNAL;
                 const outbound = message.direction === MessageDirection.OUTBOUND;
@@ -292,12 +346,13 @@ export function InboxView({
             />
           </div>
 
-          <aside className="hidden min-h-0 overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:block">
+          <aside className="min-h-0 shrink-0 border-t border-zinc-200 bg-white lg:overflow-y-auto lg:border-l lg:border-t-0 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="space-y-6 p-5">
               <AiOpsBrief
                 key={selectedConversation.id}
                 conversationId={selectedConversation.id}
                 initialInsight={selectedConversation.aiInsights[0] ?? null}
+                briefIsCurrent={selectedBriefIsCurrent}
               />
 
               <section>

@@ -12,6 +12,9 @@ import {
   Role,
   TaskStatus,
 } from "@/generated/prisma/client";
+import { getQueueBriefCoverage } from "@/lib/ai/ambient-pass";
+import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
+import { rankConversationQueue } from "@/lib/ai/queue-rank";
 import { getIntegrationHealth } from "@/lib/env";
 import { notificationHref, syncOperationalNotifications } from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
@@ -145,7 +148,15 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     AND: [scopedConversationWhere(user), filterWhere(filters)],
   } satisfies Prisma.ConversationWhereInput;
 
-  const [conversations, selectedConversation, users, tags, templates, dealershipSettings] = await Promise.all([
+  const [
+    conversations,
+    selectedConversation,
+    users,
+    tags,
+    templates,
+    dealershipSettings,
+    briefCoverage,
+  ] = await Promise.all([
     prisma.conversation.findMany({
       where,
       orderBy: [{ unread: "desc" }, { lastMessageAt: "desc" }],
@@ -155,6 +166,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         tags: { include: { tag: true } },
         tasks: { where: activeTaskWhere, orderBy: { dueDate: "asc" } },
         messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+        aiInsights: {
           orderBy: { createdAt: "desc" },
           take: 1,
         },
@@ -203,9 +218,27 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     getOrCreateDealershipSettings(),
+    // Scoped like the pass itself rather than by the active filters, because
+    // `Run pass` briefs everything this user can see, not just the rows in view.
+    getQueueBriefCoverage(scopedConversationWhere(user)),
   ]);
 
-  return { conversations, selectedConversation, users, tags, templates, dealershipSettings };
+  // The list query orders by recency; the AI pass decides what actually matters,
+  // so the queue the advisor sees is ranked by its output. See queue-rank.ts.
+  const rankedConversations = rankConversationQueue(conversations);
+
+  return {
+    conversations: rankedConversations,
+    selectedConversation,
+    users,
+    tags,
+    templates,
+    dealershipSettings,
+    queueStatus: {
+      ...briefCoverage,
+      aiConfigured: isAiOpsBriefConfigured(),
+    },
+  };
 }
 
 function isCommandCenterFocus(value?: string): value is CommandCenterFocus {

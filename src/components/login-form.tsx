@@ -40,7 +40,9 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
 
   const requestedCallbackUrl = searchParams.get("callbackUrl");
   const staffCallbackUrl = requestedCallbackUrl ?? "/inbox";
-  const demoCallbackUrl = requestedCallbackUrl ?? "/command-center";
+  // The demo signs in as the service advisor and lands in her inbox, because
+  // the service advisor is the product's primary user.
+  const demoCallbackUrl = requestedCallbackUrl ?? "/inbox";
   const turnstileActive = demoEnabled && Boolean(turnstileSiteKey);
   const demoReady = !turnstileActive || Boolean(turnstileToken);
 
@@ -158,7 +160,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
             {demoLoading ? "Opening demo..." : "View demo"}
           </Button>
           <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-            Start in Command Center, then open a flagged conversation to explore the AI-assisted workflow. Seeded data; no account needed.
+            Signs you in as a service advisor and opens her ranked inbox. Seeded data; no account needed.
           </p>
           {turnstileActive ? (
             <>
