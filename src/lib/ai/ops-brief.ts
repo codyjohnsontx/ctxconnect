@@ -211,8 +211,13 @@ export const AI_BRIEF_TIMEOUT_MS = 30_000;
  * The `maxDuration` every route that hosts a loop of these calls declares:
  * /api/ai/sweep, /api/demo/reseed, /inbox and /inbox/[conversationId]. Changing
  * it there means changing it here.
+ *
+ * Those four have to be static literals, because Next.js reads `maxDuration` at
+ * build time and will not honour one computed from this constant. Exported so
+ * tests/invocation-budget.test.ts can hold all four to it, which is the only
+ * thing that actually keeps them in step.
  */
-const INVOCATION_BUDGET_MS = 300_000;
+export const INVOCATION_BUDGET_MS = 300_000;
 
 /** Left for the database writes and the response after the last call returns. */
 const RESPONSE_MARGIN_MS = 30_000;
