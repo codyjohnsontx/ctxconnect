@@ -174,7 +174,7 @@ There are two loops: the ambient pass, behind `/api/ai/sweep`, `/inbox` and
 `/inbox/[conversationId]`, which counts the rest as left for the next pass; and the
 seed's regeneration of its own written briefs, behind `/api/demo/reseed`, where the
 destructive recreate spends the budget first and the rest stay on their hand-written
-fallback. `npm run prisma:seed` passes no budget and regenerates all of them,
+fallback. `pnpm prisma:seed` passes no budget and regenerates all of them,
 because a terminal has no invocation to fit inside. The deadline is derived from the
 invocation budget and the provider timeout rather than typed, so raising
 `AI_PASS_MAX_BRIEFS` or adding seeded conversations cannot reopen the overrun.
