@@ -1,0 +1,96 @@
+# CodeRabbit configuration
+#
+# Goal: one review per pull request, on the final code, instead of a fresh
+# review after every pipeline fix commit. The review quality stays; the number
+# of review runs drops.
+#
+# Adapted for this repository: a single Next.js App Router app with Prisma,
+# pnpm, and Vercel. No monorepo, no Expo, no Turborepo here.
+
+reviews:
+  # MUST STAY EXPLICIT, AND MUST STAY `assertive`.
+  # This is not the CodeRabbit default being written down. The organization
+  # setting is ASSERTIVE, and a repo config silently overrides it: repos with no
+  # config report `profile: ASSERTIVE` (verified on DiazMartialArts pull
+  # requests #15, #16, and #17), while DiazOnDemand, which sets `chill`, reports
+  # CHILL. That proves an explicit repo-level `chill` beats the assertive
+  # organization setting; what an omitted `profile` key does here is untested.
+  # So the risk this line guards against is this file naming the WRONG profile -
+  # an earlier draft of it said `chill`, copied from DiazOnDemand.
+  # The point of this config is to cut the NUMBER of reviews, not the DEPTH of
+  # each one. Making the review shallower while making it cheaper is the
+  # opposite of what is wanted. Do not lower this to `chill` to reduce noise;
+  # reduce noise with path_filters below instead.
+  profile: assertive
+
+  auto_review:
+    enabled: true
+
+    # THE ONE THAT MATTERS.
+    # Default is true: CodeRabbit re-reviews as new commits land, so every
+    # lint/test fix round after the first review spends another review on a
+    # branch we are still working on. With this off, CodeRabbit reviews once,
+    # and re-reviews only when asked with `@coderabbitai review`.
+    auto_incremental_review: false
+
+    # Already the default. Draft pull requests are not reviewed, which is what
+    # makes "open as a draft, publish when ready" safe.
+    drafts: false
+
+  # Skip what nobody should be reviewing: generated, vendored, or binary.
+  #
+  # THE RULE FOR THIS LIST: every entry must begin with `!`.
+  # An entry without `!` is an INCLUDE, and a single include NARROWS the entire
+  # review to only what it matches. Everything else is then skipped as
+  # "excluded by none and included by none". That is not a guess - it silently
+  # switched review off for nearly all of DiazOnDemand for most of a day. If you
+  # think you need a force-include, you do not; raise it instead of adding one.
+  #
+  # Absence from this list is not exclusion. CodeRabbit ships its own built-in
+  # skip list (published under "Default ignored paths" in the CodeRabbit docs),
+  # and `pnpm-lock.yaml` and `**/*.svg` are on it, so both are unreviewed here
+  # whatever this file says. Do not try to buy them back with an include; the
+  # price is every other file in the repository.
+  #
+  # Prisma migrations under `prisma/migrations/**/*.sql` and
+  # `prisma/schema.prisma` are deliberately NOT listed. They are not on the
+  # built-in skip list, they are the highest-risk change in this repo, and they
+  # are reviewed by default. Leave them that way.
+  path_filters:
+    # DO NOT ADD AN ENTRY WITHOUT A LEADING `!`. Read the note above first.
+    #
+    # TypeScript incremental build cache. Gitignored, listed as insurance.
+    - '!**/*.tsbuildinfo'
+    # Next.js writes this; it is not hand-edited.
+    - '!next-env.d.ts'
+    # Prisma writes this, and the generated client under src/generated/prisma.
+    - '!**/prisma/migrations/migration_lock.toml'
+    - '!src/generated/prisma/**'
+    # Build and tool output. Gitignored today, so these guard against a stray
+    # `git add -f` rather than a live problem.
+    - '!**/.next/**'
+    - '!out/**'
+    - '!build/**'
+    - '!**/coverage/**'
+    - '!.vercel/**'
+    # Raster images and icons. Tracked today under public/screenshots, plus
+    # src/app/favicon.ico; there is nothing to review in a binary image diff.
+    # SVG is absent on purpose: `**/*.svg` is already on CodeRabbit's built-in
+    # skip list, so the six tracked SVGs under public/ are unreviewed whatever
+    # this group says. That is a real gap - an inlined SVG can carry executable
+    # content - and the fix is human eyes on the next SVG that lands, not an
+    # include here.
+    - '!**/*.png'
+    - '!**/*.jpg'
+    - '!**/*.jpeg'
+    - '!**/*.gif'
+    - '!**/*.webp'
+    - '!**/*.ico'
+
+  # Keep. This is the summary that actually gets read.
+  high_level_summary: true
+
+  # Keep. The status line is how we tell a finished review from a running one.
+  review_status: true
+
+  poem: false
