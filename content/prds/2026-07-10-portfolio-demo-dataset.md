@@ -1,5 +1,9 @@
 # PRD: Portfolio Demo Dataset
 
+> Historical record. Written before the product was renamed to **Attend** on
+> 2026-08-03, and left with the name it used at the time. `CTX Chat` below means
+> Attend. See [the rename decision](../decisions/2026-08-03-product-renamed-to-attend.md).
+
 ## Status
 
 Built, with the seed's AI behavior superseded on 2026-08-02.

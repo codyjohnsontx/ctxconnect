@@ -13,12 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CTX Chat",
+  title: "Attend",
   description: "Internal dealership communication command center",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "CTX Chat",
+    title: "Attend",
     statusBarStyle: "default",
   },
 };

@@ -1,6 +1,6 @@
 {
-  "name": "CTX Chat",
-  "short_name": "CTX Chat",
+  "name": "Attend",
+  "short_name": "Attend",
   "description": "Internal dealership communication command center",
   "start_url": "/inbox",
   "scope": "/",

@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Privacy Policy | CTX Chat",
-  description: "Privacy policy for CTX Chat SMS and dealership communication workflows.",
+  title: "Privacy Policy | Attend",
+  description: "Privacy policy for Attend SMS and dealership communication workflows.",
 };
 
 export default function PrivacyPolicyPage() {
@@ -19,7 +19,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">Overview</h2>
             <p className="mt-2">
-              CTX Chat is a dealership communication workspace used to manage customer service conversations,
+              Attend is a dealership communication workspace used to manage customer service conversations,
               follow-ups, and SMS updates. This privacy policy explains what information we collect, how we use
               it, and how SMS consent information is handled.
             </p>
@@ -63,7 +63,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">Data Sharing</h2>
             <p className="mt-2">
-              We may share information with service providers that support the operation of CTX Chat, such as
+              We may share information with service providers that support the operation of Attend, such as
               hosting, authentication, database, and messaging providers, strictly to operate the service. We do
               not sell customer personal information or SMS opt-in data.
             </p>
@@ -80,7 +80,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">Contact</h2>
             <p className="mt-2">
-              For questions about this policy or dealership messaging practices, contact CTX Chat support through
+              For questions about this policy or dealership messaging practices, contact Attend support through
               the dealership contact channels listed in your service communications.
             </p>
           </section>

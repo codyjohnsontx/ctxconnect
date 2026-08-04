@@ -1,4 +1,4 @@
-# CTX Chat experiment plan
+# Attend experiment plan
 
 ## Why this lives in a doc and not on a screen
 

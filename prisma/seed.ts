@@ -6,7 +6,7 @@ import { seedDemoData } from "../src/lib/demo-seed";
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 
 if (!connectionString) {
-  throw new Error("DIRECT_URL or DATABASE_URL is required to seed CTX Chat.");
+  throw new Error("DIRECT_URL or DATABASE_URL is required to seed Attend.");
 }
 
 const seedConnectionString = connectionString;
@@ -15,7 +15,7 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: seedConnectionString }),
 });
 
-const demoSeedAllowFlag = "CTX_ALLOW_DEMO_SEED";
+const demoSeedAllowFlag = "ATTEND_ALLOW_DEMO_SEED";
 
 function isAllowedDemoSeedTarget(urlString: string) {
   let url: URL;
@@ -50,7 +50,7 @@ function assertSafeSeedTarget() {
   }
 
   throw new Error(
-    `Refusing to seed CTX Chat because DIRECT_URL/DATABASE_URL does not look local or non-production. Set ${demoSeedAllowFlag}=true only for intentional local/demo seeding.`,
+    `Refusing to seed Attend because DIRECT_URL/DATABASE_URL does not look local or non-production. Set ${demoSeedAllowFlag}=true only for intentional local/demo seeding.`,
   );
 }
 

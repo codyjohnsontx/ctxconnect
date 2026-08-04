@@ -51,11 +51,11 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:flex lg:flex-col">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <Link href="/inbox" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zinc-950 text-sm font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
-              CTX
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zinc-950 text-lg font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
+              A
             </div>
             <div>
-              <div className="text-sm font-semibold">CTX Chat</div>
+              <div className="text-sm font-semibold">Attend</div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400">Dealership inbox</div>
             </div>
           </Link>
