@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { AiInsightActionType, ProductEventType } from "@/generated/prisma/client";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireConversationAccess } from "@/lib/permissions";
 import { conversationAccessErrorResponse } from "@/lib/route-errors";
+import { getActiveSessionUser } from "@/lib/session";
 
 const actionSchema = z.object({
   action: z.enum([
@@ -31,9 +30,9 @@ type RouteContext = {
 };
 
 export async function POST(request: Request, context: RouteContext) {
-  const session = await getServerSession(authOptions);
+  const user = await getActiveSessionUser();
 
-  if (!session?.user?.id) {
+  if (!user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
@@ -59,7 +58,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    await requireConversationAccess(session.user, insight.conversationId);
+    await requireConversationAccess(user, insight.conversationId);
   } catch (error) {
     const response = conversationAccessErrorResponse(error);
 
@@ -69,7 +68,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     console.error("Failed to authorize AI insight action.", {
       insightId,
-      userId: session.user.id,
+      userId: user.id,
       error,
     });
     return NextResponse.json({ error: "Failed to load AI insight." }, { status: 500 });
@@ -115,7 +114,7 @@ export async function POST(request: Request, context: RouteContext) {
       update: {},
       create: {
         type: eventByAction[action],
-        userId: session.user.id,
+        userId: user.id,
         conversationId: insight.conversationId,
         aiInsightId: insight.id,
         metadata: {

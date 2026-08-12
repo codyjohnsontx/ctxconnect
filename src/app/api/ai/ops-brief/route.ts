@@ -1,22 +1,21 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { ProductEventType } from "@/generated/prisma/client";
-import { authOptions } from "@/lib/auth";
 import { generateAndSaveBrief } from "@/lib/ai/brief-runner";
 import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
 import { requireConversationAccess } from "@/lib/permissions";
 import { conversationAccessErrorResponse } from "@/lib/route-errors";
+import { getActiveSessionUser } from "@/lib/session";
 
 const requestSchema = z.object({
   conversationId: z.string().min(1),
 });
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+  const user = await getActiveSessionUser();
 
-  if (!session?.user?.id) {
+  if (!user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
@@ -27,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await requireConversationAccess(session.user, parsed.data.conversationId);
+    await requireConversationAccess(user, parsed.data.conversationId);
   } catch (error) {
     const response = conversationAccessErrorResponse(error);
 
@@ -37,20 +36,20 @@ export async function POST(request: Request) {
 
     console.error("Failed to authorize AI ops brief.", {
       conversationId: parsed.data.conversationId,
-      userId: session.user.id,
+      userId: user.id,
       error,
     });
     return NextResponse.json({ error: "Failed to load conversation." }, { status: 500 });
   }
 
-  if (session.user.isDemo) {
-    const { limit, remaining } = await remainingDemoBriefQuota(session.user.id);
+  if (user.isDemo) {
+    const { limit, remaining } = await remainingDemoBriefQuota(user.id);
 
     if (remaining <= 0) {
       await prisma.productEvent.create({
         data: {
           type: ProductEventType.AI_INSIGHT_FAILED,
-          userId: session.user.id,
+          userId: user.id,
           conversationId: parsed.data.conversationId,
           metadata: {
             source: "inbox",
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
 
   const result = await generateAndSaveBrief({
     conversationId: parsed.data.conversationId,
-    userId: session.user.id,
+    userId: user.id,
     source: "inbox",
   });
 

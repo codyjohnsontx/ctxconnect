@@ -1,18 +1,28 @@
 import { Suspense } from "react";
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
-import { authOptions } from "@/lib/auth";
+import { getActiveSessionUser, INACTIVE_ACCOUNT_REASON } from "@/lib/session";
 
-export default async function LoginPage() {
-  const session = await getServerSession(authOptions);
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>;
+}) {
+  // Resolved against the database, not the token: a deactivated account still
+  // carries a session cookie, and bouncing it back to the inbox that just
+  // rejected it would trap the person in a redirect loop.
+  const user = await getActiveSessionUser();
 
-  if (session?.user) {
+  if (user) {
     redirect("/inbox");
   }
 
   const demoEnabled = Boolean(process.env.DEMO_USER_EMAIL);
+  // Someone whose account was switched off mid-shift lands here without having
+  // done anything. Signing in again would only tell them their password is
+  // invalid, so name the real reason and who can undo it.
+  const accountInactive = (await searchParams).reason === INACTIVE_ACCOUNT_REASON;
 
   return (
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
@@ -47,6 +57,12 @@ export default async function LoginPage() {
             <h1 className="text-3xl font-semibold tracking-tight">Attend</h1>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
           </div>
+          {accountInactive ? (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              Your account is no longer active, so you have been signed out. Ask an administrator at
+              your store to turn it back on.
+            </p>
+          ) : null}
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-xl font-semibold">Sign in</h2>
             <p className="mb-6 mt-1 text-sm text-zinc-500 dark:text-zinc-400">

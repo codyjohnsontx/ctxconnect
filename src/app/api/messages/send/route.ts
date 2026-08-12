@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import twilio from "twilio";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
 import { getTwilioConfig } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, Priority } from "@/generated/prisma/client";
 import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
+import { getActiveSessionUser } from "@/lib/session";
 
 const sendSchema = z.object({
   conversationId: z.string().min(1),
@@ -15,13 +14,13 @@ const sendSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+  const user = await getActiveSessionUser();
 
-  if (!session?.user?.id) {
+  if (!user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (session.user.isDemo) {
+  if (user.isDemo) {
     return NextResponse.json(
       { error: "Demo mode: outbound SMS is disabled. Everything else is live." },
       { status: 403 },
@@ -37,7 +36,7 @@ export async function POST(request: Request) {
   let conversation;
 
   try {
-    conversation = await requireConversationAccess(session.user, parsed.data.conversationId);
+    conversation = await requireConversationAccess(user, parsed.data.conversationId);
   } catch (error) {
     if (error instanceof Error && error.message === "Conversation not found.") {
       return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
@@ -49,7 +48,7 @@ export async function POST(request: Request) {
 
     console.error("Failed to authorize message send.", {
       conversationId: parsed.data.conversationId,
-      userId: session.user.id,
+      userId: user.id,
       error,
     });
     return NextResponse.json({ error: "Failed to load conversation." }, { status: 500 });
@@ -62,7 +61,7 @@ export async function POST(request: Request) {
   const message = await prisma.message.create({
     data: {
       conversationId: conversation.id,
-      senderUserId: session.user.id,
+      senderUserId: user.id,
       direction: MessageDirection.OUTBOUND,
       kind: MessageKind.SMS,
       body: parsed.data.body,
