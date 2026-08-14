@@ -338,6 +338,8 @@ both halves of that measure to the admin directly.
   implication. **The remedy an admin has today** is Deactivate then Reactivate,
   which stamps the cutoff and costs that person one sign-in. Carried to
   [Password Reset Ends the Session](./2026-08-14-password-reset-ends-sessions.md).
+  Closed on 2026-08-14 by that slice: a reset now stamps the cutoff itself, and
+  the Deactivate-Reactivate remedy is no longer needed.
 - A future entry point could authenticate on its own and reintroduce the gap.
   A test pins `src/lib/session.ts` as the only module allowed to read the
   session. It matches source text rather than parsing it, so it catches the
