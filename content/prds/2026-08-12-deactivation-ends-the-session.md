@@ -202,7 +202,7 @@ the same auth check.
 ## Validation
 
 - `npx tsc --noEmit`, `npm run lint`, `npm test` (57 tests) all clean.
-- Verified end to end against local seeded data, driving one session cookie
+- Verified end-to-end against local seeded data, driving one session cookie
   through deactivation without re-minting it. A deactivated account gets a 307 to
   `/login?reason=inactive` on `/inbox` and on `/templates`, and 401 from all
   three session-backed route handlers: `POST /api/messages/send`,

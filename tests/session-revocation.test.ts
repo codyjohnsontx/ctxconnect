@@ -45,7 +45,14 @@ describe("session revocation", () => {
     // Both supported server-side ways to read a NextAuth session: getServerSession
     // and getToken from next-auth/jwt. Pinning only the first would let a route
     // handler reach for the second and trust a 30-day token unchallenged.
-    const readsTheSession = /getServerSession|getToken\(/;
+    //
+    // This is a best-effort textual guard, not a proof. It matches whole
+    // identifiers, and `\s*` covers `getToken ({ ... })`, but an aliased import
+    // such as `import { getToken as gt }` still defeats it - catching that would
+    // mean parsing TypeScript rather than matching text, which is not worth it
+    // here. The real contract is the one this test is named for: only
+    // src/lib/session.ts reads the session.
+    const readsTheSession = /\bgetServerSession\b|\bgetToken\s*\(/;
     const callers = relativeSourceFiles().filter((path) => readsTheSession.test(read(path)));
 
     assert.deepEqual(callers, [sessionResolver]);
