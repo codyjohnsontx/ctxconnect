@@ -15,7 +15,7 @@ session. Their sign-in token stays valid for 30 days and nothing re-checked the
 account behind it, so a deactivated advisor kept full read and write access to
 the dealership inbox until the token expired on its own. Every authenticated
 request now resolves the account from the database, so deactivation takes effect
-on the next click and the person is told why they were signed out.
+on the next click and the person is told why the account can no longer be used.
 
 ## Problem
 
@@ -93,8 +93,8 @@ one is not necessary: the account row already carries `active`.
 3. Her next click - any page, any form, any AI action - resolves the account,
    finds it inactive, and ends the session.
 4. She lands on the login page above an amber notice: her account is no longer
-   active, she has been signed out, and an administrator at her store can turn
-   it back on.
+   active, so it cannot be used right now, and an administrator at her store can
+   turn it back on.
 5. Signing in again fails at the credentials check, which already refuses
    inactive accounts.
 6. When the admin reactivates her, she signs in normally and resumes.

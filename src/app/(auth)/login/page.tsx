@@ -59,8 +59,8 @@ export default async function LoginPage({
           </div>
           {accountInactive ? (
             <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              Your account is no longer active, so you have been signed out. Ask an administrator at
-              your store to turn it back on.
+              Your account is no longer active, so it cannot be used right now. Ask an administrator
+              at your store to turn it back on.
             </p>
           ) : null}
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
