@@ -214,6 +214,14 @@ firing:
 - **Database unavailable.** The resolver's read fails like every other query on
   the page. It is not treated as a sign-out, so an outage does not sign the
   store out.
+- **The last-seen write fails on its own.** A read-only replica after a
+  failover, a statement timeout, an exhausted pool. The account read that
+  decides access has already succeeded, so the failure is logged and the request
+  continues; `Last request` just stays where it was until a later request
+  records it.
+- **A store in a different timezone from the server.** The two times are
+  formatted in the browser, so the admin reads them on their own clock rather
+  than the server's UTC.
 - **Ordinary sign-out and expired tokens.** Land on a plain login page with no
   notice, because nothing went wrong.
 
@@ -227,7 +235,9 @@ Two nullable columns on `User`:
 - `accessEndedAt` - set when an admin deactivates the account, never cleared.
   Sessions older than it are refused, and Settings shows it as "Access ended".
 - `lastSeenAt` - written at most once a minute, and only on a request that was
-  granted, so it stays behind `accessEndedAt` by construction.
+  granted, so it stays behind `accessEndedAt` by construction. The write is
+  bookkeeping, so a failure is logged and ignored rather than refusing the
+  request that has already been granted.
 
 Nothing is backfilled: existing rows start null on both.
 
@@ -280,7 +290,18 @@ cutoff and keep the access it just lost. The comparison itself lives in
 tested without a database.
 
 Settings renders the access record from the same `getSettingsData` query; no new
-query, and no new page.
+query, and no new page. The two times render through `LocalTimestamp`, a small
+client component, because a deployed server has no idea what clock the admin is
+reading against - Node defaults to UTC. It renders a placeholder on the server
+pass rather than a UTC time the browser would then swap, so there is no flash
+and no hydration mismatch. No dealership timezone setting was added: the reader
+is standing in the store, so their own clock is the store's clock until the
+product has more than one location.
+
+The `lastSeenAt` write is wrapped so a failure is logged and swallowed. It runs
+on the path every page, action and route handler takes, after the read that
+decides access has already succeeded, and a bookkeeping timestamp must not be
+able to turn a granted request into a 500.
 
 ## Validation
 

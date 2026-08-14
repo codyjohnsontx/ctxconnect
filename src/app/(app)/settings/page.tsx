@@ -5,6 +5,7 @@ import {
   updateDealershipSettings,
   updateStaffUserStatus,
 } from "@/app/actions";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
@@ -13,7 +14,7 @@ import { getSettingsData } from "@/lib/data";
 import { getRequiredEnvironmentNames } from "@/lib/env";
 import { isAdmin, isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
-import { formatTimestamp, labelize } from "@/lib/utils";
+import { labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -245,13 +246,13 @@ function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | nul
         <dt>Access ended</dt>
         {/* Null for accounts switched off before the cutoff was recorded. */}
         <dd className="text-zinc-700 dark:text-zinc-300">
-          {accessEndedAt ? formatTimestamp(accessEndedAt) : "Not recorded"}
+          {accessEndedAt ? <LocalTimestamp value={accessEndedAt} /> : "Not recorded"}
         </dd>
       </div>
       <div className="flex flex-wrap gap-x-1.5">
         <dt>Last request</dt>
         <dd className="text-zinc-700 dark:text-zinc-300">
-          {lastSeenAt ? formatTimestamp(lastSeenAt) : "None seen"}
+          {lastSeenAt ? <LocalTimestamp value={lastSeenAt} /> : "None seen"}
         </dd>
       </div>
     </dl>

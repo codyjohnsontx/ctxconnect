@@ -34,12 +34,16 @@ async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
     return;
   }
 
-  // updateMany rather than update: the row can be deleted between the read and
-  // this write, and a bookkeeping timestamp must not turn that into a crash.
-  await prisma.user.updateMany({
-    where: { id: userId },
-    data: { lastSeenAt: new Date(now) },
-  });
+  try {
+    // updateMany rather than update: the row can be deleted between the read and
+    // this write, and a bookkeeping timestamp must not turn that into a crash.
+    await prisma.user.updateMany({
+      where: { id: userId },
+      data: { lastSeenAt: new Date(now) },
+    });
+  } catch (error) {
+    console.error("Failed to record when an account was last seen.", { userId, error });
+  }
 }
 
 /**
