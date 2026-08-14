@@ -305,6 +305,7 @@ Local and preview webhook setup:
 - `/settings` is available to `ADMIN` and `MANAGER`.
 - `ADMIN` can create staff users, deactivate/reactivate them, reset passwords, and update dealership defaults.
 - Deactivating records a cutoff on the account (`User.accessEndedAt`). Existing sign-in cookies are not destroyed - they stay in the browser and stop resolving, so every session minted at or before that moment is refused from its next request on, on every device. A session that carries no sign-in timestamp is refused too, whether or not its account has a cutoff, because it cannot show when it began - so the deploy that ships this signs everyone out once, on purpose. The cutoff is never cleared, so a reactivated staff member signs in again. A deactivated account's row on `/settings` shows when access ended and when the account was last granted a request; refused requests are not recorded.
+- Resetting a password stamps the same cutoff without deactivating the account, so every session that existed before the reset is refused on every device while the account stays usable - the person signs in once with the new password. Every reset moves the cutoff, including a repeat one. An admin may reset their own password and is signed out by it; that request lands on the login page with a notice saying so, while their other devices, and everyone else, get the plain login page.
 - Integration health on `/settings` reports database, auth, app URL, and Twilio readiness plus recent outbound delivery failures.
 
 ## Out Of Scope In This Slice

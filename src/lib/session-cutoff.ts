@@ -1,17 +1,23 @@
 /**
- * The rule that decides whether a session survives a deactivation, kept apart
- * from src/lib/session.ts so it can be tested without a database.
+ * The rule that decides whether a session survives a deactivation or a password
+ * reset, kept apart from src/lib/session.ts so it can be tested without a
+ * database.
  */
 
 /**
  * True when this session cannot be shown to have been minted after the moment
- * the account last lost access.
+ * the account's existing sessions were last ended.
  *
- * Deactivation has to reach the phone as well as the laptop, and a server
- * render cannot clear a cookie on a device that is not currently asking for
- * anything. So the cutoff lives on the account and every device is measured
- * against it: a session older than the cutoff is refused wherever it turns up,
- * including after the account is switched back on.
+ * Ending them has to reach the phone as well as the laptop, and a server render
+ * cannot clear a cookie on a device that is not currently asking for anything.
+ * So the cutoff lives on the account and every device is measured against it: a
+ * session older than the cutoff is refused wherever it turns up, including after
+ * the account is switched back on.
+ *
+ * Two things stamp it, and they differ only in what else they change.
+ * Deactivation sets `active = false` alongside it, so the account is refused
+ * outright. A password reset leaves `active` alone, so the account stays fully
+ * usable and only the sessions minted at or before the reset are gone.
  *
  * `signedInAt` is stamped once, at sign-in, rather than read from the token's
  * own `iat`, which moves forward as NextAuth re-encodes the cookie.
@@ -28,11 +34,13 @@
  * The comparison is `<=`, so a session minted at exactly the cutoff instant is
  * refused rather than kept. The two values reach this function through
  * different roundings - epoch milliseconds on one side, a `TIMESTAMP(3)` column
- * on the other - so a sign-in and a deactivation inside the same millisecond
- * can tie, and a tie in a check like this one resolves against access.
+ * on the other - so a sign-in and whatever stamped the cutoff, inside the same
+ * millisecond, can tie, and a tie in a check like this one resolves against
+ * access.
  *
  * The design that would not need any of this is a generation counter on the
- * account, stamped into the token at sign-in and incremented on deactivation:
+ * account, stamped into the token at sign-in and incremented whenever the
+ * account's sessions are ended:
  * integer equality has no clock, no skew and no rounding. See the PRD - it is
  * recorded there as the thing to build if this ever genuinely matters, rather
  * than built now for a sub-millisecond artefact.

@@ -14,6 +14,18 @@ export type SessionUser = Session["user"];
 export const INACTIVE_ACCOUNT_REASON = "inactive";
 
 /**
+ * The third way to arrive here: an admin who has just reset their own password
+ * and, by doing so, ended the session they were holding.
+ *
+ * Only the request that performed the reset knows this, so only that request
+ * sets it - see resetStaffPassword in src/app/actions.ts. The cutoff itself
+ * records when access ended, not what stamped it, so a session refused on a
+ * later request cannot be traced back to a reset and lands on the plain login
+ * page instead.
+ */
+export const PASSWORD_CHANGED_REASON = "password-changed";
+
+/**
  * How stale `lastSeenAt` is allowed to get. Every authenticated request would
  * otherwise write to the row it just read; a minute is precise enough to tell
  * an admin whether someone was working when access ended.
@@ -159,9 +171,12 @@ export async function getActiveSessionUser(): Promise<SessionUser | null> {
  *
  * Only an account that really is switched off gets that sentence. A session
  * refused for being older than a cutoff on a live account - the advisor
- * deactivated by mistake at 01:00 and put back at 01:10 - lands on a plain
- * login page instead, because telling her the account is inactive would be
- * telling her something untrue.
+ * deactivated by mistake at 01:00 and put back at 01:10, or the one whose
+ * password an admin has just reset - lands on a plain login page instead,
+ * because telling her the account is inactive would be telling her something
+ * untrue. The one exception is the admin who reset their own password:
+ * resetStaffPassword redirects that request itself, with a reason, because it
+ * is the only place that knows why the session it just ended is gone.
  */
 export async function requireUser() {
   // No separate signed-out guard: resolveAccount reports a visitor with no

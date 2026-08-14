@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
-import { getActiveSessionUser, INACTIVE_ACCOUNT_REASON } from "@/lib/session";
+import { getActiveSessionUser, INACTIVE_ACCOUNT_REASON, PASSWORD_CHANGED_REASON } from "@/lib/session";
 
 export default async function LoginPage({
   searchParams,
@@ -24,7 +24,13 @@ export default async function LoginPage({
   // invalid. So the reason is named - and nothing more. Deactivation is usually
   // a firing: the person knows why, and "ask an administrator" reads as either
   // cruel or as false hope.
-  const accountInactive = (await searchParams).reason === INACTIVE_ACCOUNT_REASON;
+  const { reason } = await searchParams;
+  const accountInactive = reason === INACTIVE_ACCOUNT_REASON;
+  // An admin who has just reset their own password. Resetting ends every
+  // session on the account, including the one that pressed the button, so they
+  // are signed out by their own successful action and need the two halves
+  // joined up: what changed, and that signing in again is the whole of it.
+  const passwordChanged = reason === PASSWORD_CHANGED_REASON;
 
   return (
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
@@ -59,9 +65,11 @@ export default async function LoginPage({
             <h1 className="text-3xl font-semibold tracking-tight">Attend</h1>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
           </div>
-          {accountInactive ? (
+          {accountInactive || passwordChanged ? (
             <p className="mb-4 rounded-lg border border-zinc-200 bg-zinc-100 p-3 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-              This account is no longer active.
+              {accountInactive
+                ? "This account is no longer active."
+                : "Your password was changed, which signed this account out everywhere. Sign in with the new password."}
             </p>
           ) : null}
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
