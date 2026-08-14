@@ -23,32 +23,40 @@ const LAST_SEEN_INTERVAL_MS = 60_000;
 /**
  * Marks the account as having been granted a request.
  *
- * Only granted requests count, and the write carries `active: true` in its own
- * WHERE rather than trusting the read that happened a moment ago. An admin can
- * deactivate the account in the gap between that read and this write, and a
- * plain write by id would then stamp a timestamp *later* than the cutoff - the
- * access record would show the person working after their access ended, which
- * is the one number Part 3 exists to make trustworthy. Deactivation sets
- * `active: false` and `accessEndedAt` in a single update, so the two statements
- * serialize: either this one lands first, or it matches no rows and is skipped.
+ * Two things keep this from ever reading later than the cutoff, and both are
+ * needed. `active = true` in the WHERE means a deactivation that commits first
+ * leaves this statement matching no rows at all. And the timestamp is computed
+ * by the database inside the statement rather than in JavaScript beforehand,
+ * because a value picked before the statement is sent can be stale by the time
+ * the row lock is granted: the deactivation could pick 2:03, queue on a busy
+ * pool, and commit after a request that picked 2:04, leaving an access record
+ * that says the person worked a minute after losing access.
+ *
+ * Under the row lock those two collapse into one ordering. Whichever statement
+ * takes the lock first computes its own clock reading and commits; the other
+ * waits, re-reads the row, and either finds `active` already false and skips,
+ * or stamps a strictly later time. This is the moment the feature exists for -
+ * an admin switching off someone who is using the app right now - so it is
+ * exactly the moment that must not produce a record a manager cannot trust.
  *
  * Skipping is the correct outcome, not a failure, and neither a skip nor a
  * database error may break a request whose access was already decided.
  */
 async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
-  const now = Date.now();
-
-  if (lastSeenAt && now - lastSeenAt.getTime() < LAST_SEEN_INTERVAL_MS) {
+  if (lastSeenAt && Date.now() - lastSeenAt.getTime() < LAST_SEEN_INTERVAL_MS) {
     return;
   }
 
   try {
-    // updateMany rather than update: this deliberately matches no rows when the
-    // account has just been switched off or deleted, and update would throw.
-    await prisma.user.updateMany({
-      where: { id: userId, active: true },
-      data: { lastSeenAt: new Date(now) },
-    });
+    // `AT TIME ZONE 'UTC'` because the column is `timestamp` without a zone and
+    // Prisma reads it back as UTC; without it the value would follow whatever
+    // the session's TimeZone happens to be. `updatedAt` is deliberately left
+    // alone: being granted a request is not an edit to the account.
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET "lastSeenAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+      WHERE "id" = ${userId} AND "active" = true
+    `;
   } catch (error) {
     console.error("Failed to record a granted request against an account.", { userId, error });
   }
@@ -149,13 +157,10 @@ export async function getActiveSessionUser(): Promise<SessionUser | null> {
  * telling her something untrue.
  */
 export async function requireUser() {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user?.id) {
-    redirect("/login");
-  }
-
-  const { user, accountInactive } = await resolveAccount(session);
+  // No separate signed-out guard: resolveAccount reports a visitor with no
+  // session as a refusal that is not about the account, which is the same plain
+  // login page a signed-out person should get.
+  const { user, accountInactive } = await resolveAccount(await getServerSession(authOptions));
 
   if (!user) {
     redirect(accountInactive ? `/login?reason=${INACTIVE_ACCOUNT_REASON}` : "/login");

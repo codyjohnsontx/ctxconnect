@@ -237,7 +237,8 @@ a firing:
   deactivated in the same instant, which makes the conditional write match no
   rows. The account read that decides access has already succeeded, so either
   outcome is logged and the request continues; `Last granted request` stays
-  where it was.
+  where it was. Raw SQL did not change that: the write is still wrapped, and a
+  failed bookkeeping statement still cannot fail an authenticated request.
 - **A store in a different timezone from the server.** The two times are
   formatted in the browser, so the admin reads them on their own clock rather
   than the server's UTC.
@@ -259,15 +260,24 @@ Two nullable columns on `User`:
 - `accessEndedAt` - set when an admin deactivates the account, never cleared.
   Sessions older than it are refused, and Settings shows it as "Access ended".
 - `lastSeenAt` - written at most once a minute, and only on a request that was
-  granted. The write is a single conditional statement (`where: { id, active:
-  true }`) rather than a read followed by a write, so a deactivation landing in
-  between skips it instead of stamping a time past the cutoff. The write is
-  bookkeeping, so a skip or a failure is logged and ignored rather than refusing
-  a request whose access has already been decided.
+  granted. The write is bookkeeping, so a skip or a failure is logged and
+  ignored rather than refusing a request whose access has already been decided.
 
-Writing `lastSeenAt` also moves Prisma's `@updatedAt` on the same row, so an
-active account's `User.updatedAt` now changes with traffic rather than only when
-someone edits the account. Nothing in the product reads that field today.
+Both timestamps are written by the same two-part rule, and both parts are
+needed. Each write carries `active = true` in its own WHERE, so whichever
+statement takes the row lock second finds the row already switched off and
+matches nothing. And each takes its clock reading from the database inside the
+statement (`clock_timestamp() AT TIME ZONE 'UTC'`) rather than from JavaScript
+before it, so the value is read once the lock is held. Choosing a time before
+the statement is sent is what allows "Access ended 2:03, Last granted request
+2:04": the deactivation picks 2:03, queues on a busy pool, and commits after a
+request that picked 2:04. That contention is not a remote possibility here - the
+moment an admin switches off someone who is using the app is the busiest instant
+that account ever has, and it is the exact moment this record has to be right.
+
+Being granted a request is not an edit to the account, so `lastSeenAt` is
+written with raw SQL that leaves `User.updatedAt` alone; traffic does not move
+it.
 
 Nothing is backfilled: existing rows start null on both, and no migration
 invents a cutoff for accounts deactivated before this shipped. Those accounts
@@ -364,7 +374,8 @@ able to turn a granted request into a 500.
 
 2026-08-14, this slice:
 
-- `npx tsc --noEmit`, `npm run lint`, `npm test` (60 tests) all clean.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (64 tests, 12 of them in
+  `tests/session-revocation.test.ts`) all clean.
 - Driven end-to-end in Chrome against a freshly migrated and seeded local
   database. Signed in as the admin, pressed Deactivate on the service advisor,
   and her row immediately read `Inactive`, `Access ended Aug 14, 2026, 1:17 AM`,
@@ -380,6 +391,17 @@ able to turn a granted request into a 500.
   customer thread, deactivated her mid-session, then pressed Save note. The tab
   landed on `/login?reason=inactive` reading only "This account is no longer
   active." No note reached the database (`Message` count for that text: 0).
+
+Later rounds, after review. Each acceptance criterion added above was driven
+against a fresh migrated and seeded database rather than reasoned about:
+
+- A deactivated account's live cookie redirects to `/login?reason=inactive`.
+  After the account is reactivated, that same cookie redirects to a plain
+  `/login`, and the notice string is absent from that page's HTML - the account
+  is active, so saying otherwise would be false. A fresh sign-in returns 200.
+- A second Deactivate on an already-inactive account reports 0 rows updated and
+  leaves `accessEndedAt` byte-for-byte unchanged.
+- `/login` renders no notice; `/login?reason=inactive` renders exactly one.
 
 ## Portfolio Notes
 

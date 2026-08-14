@@ -129,20 +129,22 @@ describe("session revocation", () => {
     // would wake every session the person still had open on their old devices.
     const actions = read(serverActions);
 
-    assert.match(actions, /accessEndedAt: new Date\(\)/);
-    assert.doesNotMatch(actions, /accessEndedAt: null/);
+    assert.match(actions, /"accessEndedAt" = \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/);
+    assert.doesNotMatch(actions, /accessEndedAt.*null/i);
     assert.match(read(sessionResolver), /accessEndedAt: true/);
   });
 
   it("records a granted request without letting it outrun the cutoff", () => {
-    // The bookkeeping write carries `active: true` in its own WHERE rather than
-    // trusting the account read that happened a moment earlier. Writing by id
-    // alone would let a deactivation committing in that gap be followed by a
-    // timestamp later than the cutoff, and an access record showing the person
-    // working after their access ended is the one thing Part 3 must never show.
+    // Two guards, both required. The WHERE means a deactivation that commits
+    // first leaves this matching no rows. The timestamp comes from the database
+    // inside the statement, so it is read once the row lock is held rather than
+    // picked in JavaScript beforehand - a value chosen before the statement is
+    // sent can be older than one chosen by a request that commits first, which
+    // is how "access ended 2:03, last request 2:04" reaches a manager's screen.
     const resolver = read(sessionResolver);
 
-    assert.match(resolver, /where: \{ id: userId, active: true \}/);
+    assert.match(resolver, /WHERE "id" = \$\{userId\} AND "active" = true/);
+    assert.match(resolver, /"lastSeenAt" = \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/);
     // Skipping and failing are both non-events for a request whose access has
     // already been decided; neither may propagate out of the resolver.
     assert.match(resolver, /catch \(error\)/);
@@ -191,6 +193,6 @@ describe("session revocation", () => {
   it("stamps the cutoff only on the transition out of active", () => {
     // A second Deactivate press - two admins, or one stale tab - must not move
     // the recorded cutoff later than the moment access actually ended.
-    assert.match(read(serverActions), /where: \{ id: targetUserId, active: true \}/);
+    assert.match(read(serverActions), /WHERE "id" = \$\{targetUserId\} AND "active" = true/);
   });
 });

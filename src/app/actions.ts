@@ -414,16 +414,26 @@ export async function updateStaffUserStatus(formData: FormData) {
     });
   } else {
     // Deactivating stamps the cutoff every session is measured against, which is
-    // also the "Access ended" time Settings shows. `active: true` in the WHERE
-    // makes only the real transition stamp it: two admins with the screen open,
-    // or one stale tab submitted five minutes late, would otherwise overwrite
-    // the cutoff with a later time and move the one number this record exists to
-    // make trustworthy. A second press on an already-inactive account matches no
-    // rows and changes nothing, which is the honest outcome.
-    await prisma.user.updateMany({
-      where: { id: targetUserId, active: true },
-      data: { active: false, accessEndedAt: new Date() },
-    });
+    // also the "Access ended" time Settings shows.
+    //
+    // `active = true` in the WHERE makes only the real transition stamp it: two
+    // admins with the screen open, or one stale tab submitted five minutes late,
+    // would otherwise overwrite the cutoff with a later time and move the one
+    // number this record exists to make trustworthy. A second press on an
+    // already-inactive account matches no rows and changes nothing.
+    //
+    // The clock reading comes from the database inside the statement, not from
+    // JavaScript before it, so it is taken once the row lock is held. A value
+    // picked out here could be older than one picked by a request that commits
+    // first, which is how "access ended 2:03, last request 2:04" gets written.
+    // See recordLastSeen in src/lib/session.ts for the other half of the pair.
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET "active" = false,
+          "accessEndedAt" = (clock_timestamp() AT TIME ZONE 'UTC'),
+          "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+      WHERE "id" = ${targetUserId} AND "active" = true
+    `;
   }
 
   await prisma.auditLog.create({
