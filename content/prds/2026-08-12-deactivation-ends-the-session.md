@@ -58,9 +58,9 @@ changes roles, and the advisor whose account is switched off mid-shift.
 ## Goal
 
 Deactivation means what it says: the next request from that person fails rather
-than succeeding for up to 30 days. A page request lands on the login screen with
-an explanation instead of a blank form or a crash; a server action or API call is
-refused outright.
+than succeeding for up to 30 days. A page load and a form submit both land on the
+login screen with one plain sentence instead of a blank form or a crash; an API
+call is refused outright.
 
 ## Background
 
