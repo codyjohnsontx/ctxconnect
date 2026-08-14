@@ -90,14 +90,19 @@ one is not necessary: the account row already carries `active`.
 
 1. An advisor is working her inbox with a valid session.
 2. An admin opens Settings and deactivates her account.
-3. Her next click - any page, any form, any AI action - resolves the account,
-   finds it inactive, and ends the session.
-4. She lands on the login page above an amber notice: her account is no longer
-   active, so it cannot be used right now, and an administrator at her store can
-   turn it back on.
-5. Signing in again fails at the credentials check, which already refuses
+3. Her next request - any page, any form, any AI action - resolves the account,
+   finds it inactive, and refuses it. Nothing she submits is written.
+4. On a page load she lands on the login page above an amber notice: her account
+   is no longer active, so it cannot be used right now, and an administrator at
+   her store can turn it back on.
+5. A form submitted from a tab she already had open does not reach that notice.
+   The server action throws rather than redirecting, and there is no error
+   boundary under `src/app`, so that path ends on Next's generic error screen.
+   The write is refused either way, and her next page load reaches the notice.
+   Carrying the form path to the notice as well is follow-up work.
+6. Signing in again fails at the credentials check, which already refuses
    inactive accounts.
-6. When the admin reactivates her, she signs in normally and resumes.
+7. When the admin reactivates her, she signs in normally and resumes.
 
 ## Requirements
 
@@ -128,7 +133,10 @@ one is not necessary: the account row already carries `active`.
   cookie still present, then the login page renders rather than redirecting back
   to the inbox.
 - Given a session whose account row no longer exists, when a follow-up is
-  submitted, then the person is signed out rather than shown a server error.
+  submitted, then the write is refused before it reaches the database rather
+  than failing on a foreign key. The server action throws, so that tab shows an
+  error screen rather than the login notice, and the next page load reaches the
+  notice.
 - Given an active account, when any page, form or AI action is used, then
   behaviour is unchanged.
 

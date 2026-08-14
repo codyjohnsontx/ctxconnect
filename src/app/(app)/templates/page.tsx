@@ -1,10 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { getTemplates } from "@/lib/data";
+import { requireUser } from "@/lib/session";
 import { labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function TemplatesPage() {
+  await requireUser();
   const templates = await getTemplates();
 
   return (

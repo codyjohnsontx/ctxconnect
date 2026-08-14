@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 
 // Sessions are 30-day JWTs, so the token keeps asserting an account, a role and
 // a department long after an admin deactivates or removes it. An entry point
-// that reads `getServerSession` and trusts what comes back therefore lets a
+// that reads the token directly and trusts what comes back therefore lets a
 // deactivated staff member keep reading customer threads and writing to them
 // for a month. src/lib/session.ts re-reads the account from the database, and
 // these pin it as the only place allowed to resolve who is signed in, so a new
@@ -42,7 +42,11 @@ function read(path: string) {
 
 describe("session revocation", () => {
   it("resolves the signed-in account in exactly one module", () => {
-    const callers = relativeSourceFiles().filter((path) => read(path).includes("getServerSession"));
+    // Both supported server-side ways to read a NextAuth session: getServerSession
+    // and getToken from next-auth/jwt. Pinning only the first would let a route
+    // handler reach for the second and trust a 30-day token unchallenged.
+    const readsTheSession = /getServerSession|getToken\(/;
+    const callers = relativeSourceFiles().filter((path) => readsTheSession.test(read(path)));
 
     assert.deepEqual(callers, [sessionResolver]);
   });
