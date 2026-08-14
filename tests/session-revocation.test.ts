@@ -162,6 +162,23 @@ describe("session revocation", () => {
     assert.equal(sessionCannotBeProvenCurrent(before, null), false);
   });
 
+  it("reads every timestamp the cutoff compares from one clock", () => {
+    // signedInAt is compared against accessEndedAt, and lastSeenAt is read
+    // beside it. All three come from the database clock: a second clock means a
+    // session minted just before a deactivation can carry a time after the
+    // cutoff and survive it, and an access record whose two lines were written
+    // by different clocks can print them out of order.
+    const auth = read(authConfig);
+
+    assert.match(auth, /token\.signedInAt = await databaseNow\(\)/);
+    assert.doesNotMatch(auth, /signedInAt = Date\.now\(\)/);
+    // As a number, not a timestamp. Selecting clock_timestamp() directly came
+    // back through the driver with its zone already lost - five hours early on
+    // a America/Chicago host - which would have made every session look older
+    // than every cutoff. Caught by running it, not by reading it.
+    assert.match(auth, /EXTRACT\(EPOCH FROM clock_timestamp\(\)\) \* 1000/);
+  });
+
   it("refuses a session that carries no sign-in time, cutoff or not", () => {
     // Sessions minted before this claim existed hold no evidence of when they
     // began. The alternative - backfilling a cutoff onto every already-inactive

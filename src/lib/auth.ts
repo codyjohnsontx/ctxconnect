@@ -8,6 +8,28 @@ function getDemoUserEmail() {
   return process.env.DEMO_USER_EMAIL?.toLowerCase() || null;
 }
 
+/**
+ * The current instant on the database's clock, in epoch milliseconds.
+ *
+ * Every timestamp the deactivation cutoff compares - when a session began, when
+ * an account lost access, when it was last granted a request - is read from
+ * this one clock, so none of them can disagree with another. `clock_timestamp()`
+ * rather than `now()` because the latter is the transaction's start time.
+ *
+ * Selected as epoch milliseconds rather than as a timestamp, deliberately. A
+ * `SELECT clock_timestamp()` comes back through the driver as a date whose zone
+ * has already been lost: on a host set to America/Chicago it read exactly five
+ * hours early, which would have made every session look older than every cutoff.
+ * A number has no zone to lose.
+ */
+async function databaseNow(): Promise<number> {
+  const [{ now }] = await prisma.$queryRaw<
+    [{ now: bigint }]
+  >`SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS now`;
+
+  return Number(now);
+}
+
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
@@ -101,7 +123,13 @@ export const authOptions: NextAuthOptions = {
         // moves `iat` forward. A deactivated browser polling /api/auth/session
         // would walk its token past the deactivation cutoff and keep the access
         // it just lost. This claim is copied forward untouched instead.
-        token.signedInAt = Date.now();
+        //
+        // Read from the database clock, not this process's, because the value it
+        // is later compared against - `User.accessEndedAt` - is written by the
+        // database. Two clocks would mean a session minted just before a
+        // deactivation could carry a timestamp after the cutoff and survive it.
+        // One query, once per sign-in, on a path that already queries.
+        token.signedInAt = await databaseNow();
       }
 
       return token;

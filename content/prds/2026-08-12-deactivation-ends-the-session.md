@@ -259,8 +259,8 @@ Two nullable columns on `User`:
 
 - `accessEndedAt` - set when an admin deactivates the account, never cleared.
   Sessions older than it are refused, and Settings shows it as "Access ended".
-- `lastSeenAt` - written at most once a minute, and only on a request that was
-  granted. The write is bookkeeping, so a skip or a failure is logged and
+- `lastSeenAt` - written on a request that was granted, and no more than about
+  once a minute. The write is bookkeeping, so a skip or a failure is logged and
   ignored rather than refusing a request whose access has already been decided.
 
 Both timestamps are written by the same two-part rule, and both parts are
@@ -275,9 +275,21 @@ request that picked 2:04. That contention is not a remote possibility here - the
 moment an admin switches off someone who is using the app is the busiest instant
 that account ever has, and it is the exact moment this record has to be right.
 
+All three timestamps the cutoff reasons about - when a session began
+(`signedInAt`), when access ended, and when a request was last granted - are
+read from the database clock, so no two of them can disagree. The sign-in stamp
+costs one extra `SELECT clock_timestamp()`, once per sign-in.
+
 Being granted a request is not an edit to the account, so `lastSeenAt` is
 written with raw SQL that leaves `User.updatedAt` alone; traffic does not move
 it.
+
+**Accepted limit.** The once-a-minute interval is a write-reduction heuristic
+rather than a guarantee. It compares the app's clock against a database-written
+value, so under clock skew it fires a little early or late. Nothing depends on
+its precision - it only changes how often a bookkeeping row is touched - and
+moving it into the statement would mean a no-op `UPDATE` on every authenticated
+request to remove a drift nobody can observe.
 
 Nothing is backfilled: existing rows start null on both, and no migration
 invents a cutoff for accounts deactivated before this shipped. Those accounts

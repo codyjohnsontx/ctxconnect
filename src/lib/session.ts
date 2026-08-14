@@ -17,6 +17,13 @@ export const INACTIVE_ACCOUNT_REASON = "inactive";
  * How stale `lastSeenAt` is allowed to get. Every authenticated request would
  * otherwise write to the row it just read; a minute is precise enough to tell
  * an admin whether someone was working when access ended.
+ *
+ * A write-reduction heuristic, not a guarantee. It compares this process's clock
+ * against a value the database wrote, so under clock skew it fires slightly off
+ * a minute - and unlike the cutoff comparison, nothing depends on its precision:
+ * being early or late only changes how often a bookkeeping row is touched. The
+ * alternative, moving the interval into the statement's WHERE, would issue a
+ * no-op UPDATE on every authenticated request to remove a drift nobody can see.
  */
 const LAST_SEEN_INTERVAL_MS = 60_000;
 
