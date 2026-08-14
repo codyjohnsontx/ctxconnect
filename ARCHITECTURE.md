@@ -23,7 +23,7 @@ reactivated staff member signs in again.
 That last rule is the one with an operational consequence. Sessions minted
 before `signedInAt` existed carry no evidence of when they began, so they cannot
 be shown to postdate a cutoff and are refused rather than guessed at - which
-means **the deploy that shipped this signed every staff member out once**, on
+means **the deploy that ships this signs every staff member out once**, on
 purpose. The alternative, backfilling a cutoff onto already-inactive accounts,
 would have written an "Access ended" time nobody could defend onto the one
 screen built to be trusted.

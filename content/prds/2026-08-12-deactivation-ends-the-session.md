@@ -320,6 +320,20 @@ both halves of that measure to the admin directly.
 - `/api/auth/session`, NextAuth's own endpoint, still echoes the claims in a
   deactivated person's cookie back to them - their own name, email and role. It
   grants no access to store data, and nothing in the app reads it.
+- **Resetting a password does not end that account's sessions.**
+  `resetStaffPassword` writes a new hash and nothing else, and the resolver
+  checks `active` and the cutoff, neither of which a reset moves. So an admin
+  resetting the password of an account they believe is compromised does not
+  evict whoever holds the stolen cookie; it stays valid for the rest of its
+  30-day life. Found while reviewing this change, and deliberately not fixed
+  here: this slice built the primitive that would close it - stamping
+  `accessEndedAt` without setting `active` to false ends every session while
+  leaving the account usable - but whether a routine password change should
+  sign someone out of every device is a product decision, and answering it by
+  adding two lines to a change about deactivation would decide it by
+  implication. **The remedy an admin has today** is Deactivate then Reactivate,
+  which stamps the cutoff and costs that person one sign-in. Carried to
+  [Password Reset Ends the Session](./2026-08-14-password-reset-ends-sessions.md).
 - A future entry point could authenticate on its own and reintroduce the gap.
   A test pins `src/lib/session.ts` as the only module allowed to read the
   session. It matches source text rather than parsing it, so it catches the
