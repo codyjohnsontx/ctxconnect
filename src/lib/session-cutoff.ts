@@ -24,6 +24,18 @@
  * trusted. Refusing what cannot be proven costs every staff member a single
  * sign-in, once, on the deploy that ships this. Guessing would cost the record
  * its meaning permanently.
+ *
+ * The comparison is `<=`, so a session minted at exactly the cutoff instant is
+ * refused rather than kept. The two values reach this function through
+ * different roundings - epoch milliseconds on one side, a `TIMESTAMP(3)` column
+ * on the other - so a sign-in and a deactivation inside the same millisecond
+ * can tie, and a tie in a check like this one resolves against access.
+ *
+ * The design that would not need any of this is a generation counter on the
+ * account, stamped into the token at sign-in and incremented on deactivation:
+ * integer equality has no clock, no skew and no rounding. See the PRD - it is
+ * recorded there as the thing to build if this ever genuinely matters, rather
+ * than built now for a sub-millisecond artefact.
  */
 export function sessionCannotBeProvenCurrent(
   signedInAt: number | null | undefined,
@@ -37,5 +49,5 @@ export function sessionCannotBeProvenCurrent(
     return false;
   }
 
-  return signedInAt < accessEndedAt.getTime();
+  return signedInAt <= accessEndedAt.getTime();
 }

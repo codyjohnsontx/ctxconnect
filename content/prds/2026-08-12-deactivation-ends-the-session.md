@@ -325,6 +325,36 @@ both halves of that measure to the admin directly.
   session. It matches source text rather than parsing it, so it catches the
   common ways in rather than every one; an aliased import still slips past.
 
+## The Alternative Design, If This Ever Matters
+
+Enforcement should not depend on clocks, and here it does. The cutoff refuses a
+session by comparing when the session began against when access ended, which
+means it inherits every way two timestamps can disagree: which clock produced
+them, how far apart those clocks drift, and how each value is rounded. Review
+found three of those in three consecutive rounds - a value-ordering race, a
+process clock compared against a database clock, and a millisecond rounding tie.
+Each fix was correct and none of them addressed the shape of the problem.
+
+**The design that avoids all of it is a generation counter.** An integer on the
+account, stamped into the token at sign-in and incremented when the account is
+deactivated. A session survives if and only if its generation matches the
+account's. Integer equality has no clock, no skew and no rounding. It also
+separates the two jobs `accessEndedAt` is currently doing: enforcement becomes
+the counter, and `accessEndedAt` goes back to being purely the time shown to a
+manager, which is all Part 3 ever needed from it.
+
+**Not built here, deliberately.** The remaining exposure is a sign-in and a
+deactivation landing in the same millisecond on an account that is later
+reactivated - a rounding artefact rather than a risk - and it is refused anyway,
+because the comparison resolves a tie against access. Replacing the enforcement
+primitive at that price, on a change that already carries a verified set of
+fixes, would be machinery bought with real risk to pay for none.
+
+Build it if enforcement ever needs to be exact rather than good enough: if
+sessions start being minted somewhere other than this app, if the database stops
+being the single clock, or if a third thing needs to invalidate a session and
+the cutoff has to grow a second meaning.
+
 ## Open Questions
 
 - Should the sign-in form tell a deactivated employee their account is off
@@ -386,8 +416,17 @@ able to turn a granted request into a 500.
 
 2026-08-14, this slice:
 
-- `npx tsc --noEmit`, `npm run lint`, `npm test` (64 tests, 12 of them in
-  `tests/session-revocation.test.ts`) all clean.
+- `npx tsc --noEmit`, `npm run lint` and `npm test` all clean.
+  `tests/session-revocation.test.ts` covers the contract this slice rests on:
+  one module reads the session, a deactivated and a deleted account are refused
+  alike, a form submit reaches the notice rather than an error screen, the
+  cutoff is stamped only on the transition out of active and never cleared, a
+  granted request cannot outrun it, a session with no sign-in time is refused,
+  the notice names the account as inactive only when it is, and every timestamp
+  the cutoff compares comes from one clock. (An exact test count used to be
+  written here. It went stale twice, both times because someone added a test -
+  a hand-maintained number in prose is a claim that expires. If a count is ever
+  wanted, it has to come from the suite.)
 - Driven end-to-end in Chrome against a freshly migrated and seeded local
   database. Signed in as the admin, pressed Deactivate on the service advisor,
   and her row immediately read `Inactive`, `Access ended Aug 14, 2026, 1:17 AM`,
@@ -414,6 +453,27 @@ against a fresh migrated and seeded database rather than reasoned about:
 - A second Deactivate on an already-inactive account reports 0 rows updated and
   leaves `accessEndedAt` byte-for-byte unchanged.
 - `/login` renders no notice; `/login?reason=inactive` renders exactly one.
+
+Once both writes moved onto the database clock, the raw statements were driven
+rather than reasoned about:
+
+- A granted request wrote `lastSeenAt` within two seconds of wall clock and left
+  `User.updatedAt` untouched, confirming that traffic no longer churns it.
+- Pressing Deactivate in the real admin UI wrote `accessEndedAt` from the
+  database clock, moved `updatedAt`, and rendered `Access ended 3:06 AM` above
+  `Last granted request 3:05 AM` on the reader's own clock, in that order.
+- Replaying the deactivate statement as a stale tab would updated **0 rows** and
+  left the cutoff byte-identical.
+
+The sign-in stamp was verified the same way, and needed it: reading it as
+`SELECT clock_timestamp()` came back through the driver with its time zone
+already lost - exactly five hours early on an `America/Chicago` host - which
+would have made every session look older than every cutoff and refused everyone
+after any reactivation. Nothing in the type system or the unit tests could see
+that; signing in once did. Reading it as epoch milliseconds instead measured
+0.0s from wall clock, after which the whole flow was re-driven end to end:
+deactivate to `/login?reason=inactive`, reactivate to a plain `/login`, fresh
+sign-in to 200.
 
 ## Portfolio Notes
 

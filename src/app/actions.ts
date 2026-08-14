@@ -405,13 +405,20 @@ export async function updateStaffUserStatus(formData: FormData) {
     throw new Error("You cannot deactivate your own account.");
   }
 
+  // Both branches report how many rows actually moved, because an audit log that
+  // records something that did not happen misleads whoever reads it back while
+  // reconstructing an incident - which is the only reason the table exists.
+  let changed: number;
+
   if (active) {
     // Reactivating leaves the cutoff alone: the sessions the person had when
     // they were switched off must stay dead, so coming back means signing in.
-    await prisma.user.update({
-      where: { id: targetUserId },
+    const { count } = await prisma.user.updateMany({
+      where: { id: targetUserId, active: false },
       data: { active: true },
     });
+
+    changed = count;
   } else {
     // Deactivating stamps the cutoff every session is measured against, which is
     // also the "Access ended" time Settings shows.
@@ -427,7 +434,7 @@ export async function updateStaffUserStatus(formData: FormData) {
     // picked out here could be older than one picked by a request that commits
     // first, which is how "access ended 2:03, last request 2:04" gets written.
     // See recordLastSeen in src/lib/session.ts for the other half of the pair.
-    await prisma.$executeRaw`
+    changed = await prisma.$executeRaw`
       UPDATE "User"
       SET "active" = false,
           "accessEndedAt" = (clock_timestamp() AT TIME ZONE 'UTC'),
@@ -436,15 +443,17 @@ export async function updateStaffUserStatus(formData: FormData) {
     `;
   }
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "user.updateStatus",
-      entity: "User",
-      entityId: targetUserId,
-      metadata: { active },
-    },
-  });
+  if (changed > 0) {
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "user.updateStatus",
+        entity: "User",
+        entityId: targetUserId,
+        metadata: { active },
+      },
+    });
+  }
 
   revalidatePath("/settings");
 }

@@ -160,6 +160,19 @@ describe("session revocation", () => {
     assert.equal(sessionCannotBeProvenCurrent(after, switchedOff), false);
     // Never switched off, so nothing to measure against.
     assert.equal(sessionCannotBeProvenCurrent(before, null), false);
+    // A tie fails closed. The two values are rounded to the millisecond by
+    // different paths, so a sign-in and a deactivation in the same millisecond
+    // can land on the same number, and a tie here resolves against access.
+    assert.equal(sessionCannotBeProvenCurrent(switchedOff.getTime(), switchedOff), true);
+  });
+
+  it("records an account status change only when something changed", () => {
+    // A repeat Deactivate from a stale tab correctly moves nothing, but it used
+    // to append an audit row saying the account was deactivated at that later
+    // moment. Audit logs exist to be read back by someone reconstructing an
+    // incident, and a row for an event that did not happen misleads exactly
+    // that person.
+    assert.match(read(serverActions), /if \(changed > 0\) \{\s*await prisma\.auditLog\.create/);
   });
 
   it("reads every timestamp the cutoff compares from one clock", () => {
