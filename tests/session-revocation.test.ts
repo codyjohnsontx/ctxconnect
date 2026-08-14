@@ -49,20 +49,24 @@ function read(path: string) {
 
 describe("session revocation", () => {
   it("resolves the signed-in account in exactly one module", () => {
-    // The three supported server-side ways to read a NextAuth session:
+    // The server-side ways a NextAuth session is most likely to be read:
     // getServerSession, getToken from next-auth/jwt, and withAuth from
     // next-auth/middleware. Pinning only the first would let a route handler or
     // the edge middleware reach for another and trust a 30-day token unchallenged.
     //
-    // This is a best-effort textual guard, not a proof. It matches whole
-    // identifiers, tolerates whitespace and an explicit type argument before the
-    // call parens, so neither `getToken ({ ... })` nor `getToken<JWT>({ ... })`
-    // slips past, and it matches the next-auth/middleware specifier so both
-    // `import { withAuth }` and `export { default }` from it are caught. But an
-    // aliased import such as `import { getToken as gt }` still defeats it -
-    // catching that would mean parsing TypeScript rather than matching text,
-    // which is not worth it here. The real contract is the one this test is
-    // named for: only src/lib/session.ts reads the session.
+    // This is a best-effort textual guard, not a proof, and those are the common
+    // paths rather than every one. It matches whole identifiers, tolerates
+    // whitespace and an explicit type argument before the call parens, so neither
+    // `getToken ({ ... })` nor `getToken<JWT>({ ... })` slips past, and it matches
+    // the next-auth/middleware specifier so both `import { withAuth }` and
+    // `export { default }` from it are caught. But an aliased import such as
+    // `import { getToken as gt }` still defeats it - catching that would mean
+    // parsing TypeScript rather than matching text, which is not worth it here,
+    // and matching the next-auth/jwt specifier instead would not do it either,
+    // because src/types/next-auth.d.ts legitimately declares that module.
+    // Decoding the session cookie by hand with next-auth/jwt's `decode` is a
+    // second uncovered path, exotic but real. The real contract is the one this
+    // test is named for: only src/lib/session.ts reads the session.
     const readsTheSession = /\bgetServerSession\b|\bgetToken\b\s*(?:<[^>]*>\s*)?\(|next-auth\/middleware/;
     const callers = relativeSourceFiles().filter((path) => readsTheSession.test(read(path)));
 
