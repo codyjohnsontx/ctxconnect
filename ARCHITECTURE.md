@@ -14,8 +14,8 @@ A staff session is a 30-day JWT, so holding one is not enough on its own. Every
 authenticated page, server action, and route handler resolves the caller through
 `src/lib/session.ts`, which re-reads the account row on each request and refuses
 the request when the account is missing, `active` is false, the session was
-minted before the account's `accessEndedAt` cutoff, or the session carries no
-`signedInAt` claim at all. Deactivating a staff account therefore cuts off
+minted at or before the account's `accessEndedAt` cutoff, or the session carries
+no `signedInAt` claim at all. Deactivating a staff account therefore cuts off
 access on that person's next request rather than when the token expires, on
 every device it is signed in on, and the cutoff outlives reactivation: a
 reactivated staff member signs in again.

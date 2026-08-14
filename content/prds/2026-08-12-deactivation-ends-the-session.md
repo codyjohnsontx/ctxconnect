@@ -94,8 +94,8 @@ a firing:
   call to action. Someone who was just let go knows why, and "ask an
   administrator" reads as either cruel or as false hope.
 - **The session ends on the account, not on a device.** Deactivating stamps
-  `User.accessEndedAt`, and any session minted before that instant is refused
-  wherever it turns up - laptop, phone, or a tab left open at home - and stays
+  `User.accessEndedAt`, and any session minted at or before that instant is
+  refused wherever it turns up - laptop, phone, or a tab left open at home - and stays
   refused after the account is switched back on.
 - **Evidence for the admin.** A deactivated account's row in Settings shows when
   access ended and when that account was last granted a request.
@@ -146,8 +146,9 @@ a firing:
 - The notice carries no call to action, no support contact and no button.
 - Pages and server actions are refused identically. Route handlers keep
   returning 401, because their caller is code.
-- A session that predates an account's cutoff is refused even when the account
-  is active again.
+- A session that does not postdate an account's cutoff is refused even when the
+  account is active again. A tie fails closed: minted at the cutoff instant is
+  refused, not kept.
 - `lastSeenAt` moves only on a request that was granted, and the write itself
   carries `active: true`, so a deactivation committing between the account read
   and the write skips it rather than stamping a time later than the cutoff.
@@ -258,7 +259,8 @@ Reads `User.id`, `name`, `email`, `role`, `department`, `active`,
 Two nullable columns on `User`:
 
 - `accessEndedAt` - set when an admin deactivates the account, never cleared.
-  Sessions older than it are refused, and Settings shows it as "Access ended".
+  Sessions not strictly newer than it are refused, and Settings shows it as
+  "Access ended".
 - `lastSeenAt` - written on a request that was granted, and no more than about
   once a minute. The write is bookkeeping, so a skip or a failure is logged and
   ignored rather than refusing a request whose access has already been decided.
