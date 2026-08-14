@@ -2,7 +2,7 @@
 
 ## Status
 
-Built
+Draft
 
 ## Date
 
@@ -15,7 +15,10 @@ session. Their sign-in token stays valid for 30 days and nothing re-checked the
 account behind it, so a deactivated advisor kept full read and write access to
 the dealership inbox until the token expired on its own. Every authenticated
 request now resolves the account from the database, so deactivation takes effect
-on the next click and the person is told why the account can no longer be used.
+on the next request. A page request redirects to the login screen, which explains
+that the account is no longer active. Server actions and API routes reject the
+request instead: the write does not go through, but the person is not shown that
+explanation.
 
 ## Problem
 
@@ -50,8 +53,10 @@ changes roles, and the advisor whose account is switched off mid-shift.
 
 ## Goal
 
-Deactivation means what it says: the next request from that person fails, and
-they see an explanation instead of a blank login screen or a crash.
+Deactivation means what it says: the next request from that person fails rather
+than succeeding for up to 30 days. A page request lands on the login screen with
+an explanation instead of a blank form or a crash; a server action or API call is
+refused outright.
 
 ## Background
 
@@ -197,11 +202,16 @@ the same auth check.
 ## Validation
 
 - `npx tsc --noEmit`, `npm run lint`, `npm test` (57 tests) all clean.
-- Verified end to end against local seeded data: deactivated account gets a 307
-  to `/login?reason=inactive` on `/inbox` and 401 from both write routes;
-  reactivated account reads and writes normally; a session pointing at a deleted
-  account is signed out instead of crashing; sign-in, the inbox and creating a
-  follow-up all work unchanged.
+- Verified end to end against local seeded data, driving one session cookie
+  through deactivation without re-minting it. A deactivated account gets a 307 to
+  `/login?reason=inactive` on `/inbox` and on `/templates`, and 401 from all
+  three session-backed route handlers: `POST /api/messages/send`,
+  `POST /api/ai/ops-brief`, and
+  `POST /api/ai/ops-brief/[insightId]/action`. A server action refuses the write
+  by throwing, so the caller sees an error rather than the notice. Reactivating
+  the account makes the same cookie work again with no re-login, `/login` returns
+  200 for a deactivated cookie rather than looping back to `/inbox`, and a
+  session pointing at a deleted account row is refused without a Prisma crash.
 
 ## Portfolio Notes
 
