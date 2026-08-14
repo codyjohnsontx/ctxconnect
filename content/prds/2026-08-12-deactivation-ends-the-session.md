@@ -278,7 +278,9 @@ that account ever has, and it is the exact moment this record has to be right.
 All three timestamps the cutoff reasons about - when a session began
 (`signedInAt`), when access ended, and when a request was last granted - are
 read from the database clock, so no two of them can disagree. The sign-in stamp
-costs one extra `SELECT clock_timestamp()`, once per sign-in.
+costs one extra read of that clock, once per sign-in - selected as epoch
+milliseconds rather than as a timestamp, for the reason recorded under
+Validation.
 
 Being granted a request is not an edit to the account, so `lastSeenAt` is
 written with raw SQL that leaves `User.updatedAt` alone; traffic does not move
@@ -481,8 +483,8 @@ rather than reasoned about:
 - Pressing Deactivate in the real admin UI wrote `accessEndedAt` from the
   database clock, moved `updatedAt`, and rendered `Access ended 3:06 AM` above
   `Last granted request 3:05 AM` on the reader's own clock, in that order.
-- Replaying the deactivate statement as a stale tab would updated **0 rows** and
-  left the cutoff byte-identical.
+- Replaying the deactivate statement as a stale tab updated **0 rows** and left
+  the cutoff byte-identical.
 
 The sign-in stamp was verified the same way, and needed it: reading it as
 `SELECT clock_timestamp()` came back through the driver with its time zone
