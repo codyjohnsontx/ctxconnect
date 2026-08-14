@@ -22,7 +22,7 @@ on the same one-sentence notice. The session itself is ended on the account
 rather than on one device, so reactivating does not wake up a browser the person
 still has open - coming back means signing in again. And the admin who pressed
 Deactivate can see what it did: the members list shows when access ended and
-when that account was last let through a request.
+when that account was last granted a request.
 
 ## Problem
 
@@ -98,7 +98,7 @@ a firing:
   wherever it turns up - laptop, phone, or a tab left open at home - and stays
   refused after the account is switched back on.
 - **Evidence for the admin.** A deactivated account's row in Settings shows when
-  access ended and when that account was last let through a request.
+  access ended and when that account was last granted a request.
 
 ## Non-Goals
 
@@ -132,7 +132,7 @@ a firing:
 7. Signing in again fails at the credentials check, which already refuses
    inactive accounts.
 8. The admin, still on Settings, sees her row read Inactive with the time access
-   ended and the time of her last request, which is earlier.
+   ended and the time of her last granted request, which is earlier.
 9. If the admin deactivated the wrong person and switches her back on, her old
    sessions stay dead. She signs in once and resumes.
 
@@ -147,8 +147,9 @@ a firing:
   returning 401, because their caller is code.
 - A session that predates an account's cutoff is refused even when the account
   is active again.
-- `lastSeenAt` moves only on a request that was granted, so it can never be
-  later than `accessEndedAt`.
+- `lastSeenAt` moves only on a request that was granted, and the write itself
+  carries `active: true`, so a deactivation committing between the account read
+  and the write skips it rather than stamping a time later than the cutoff.
 - An active user sees no behaviour change.
 
 ## User Stories
@@ -185,8 +186,11 @@ a firing:
   submitted, then the write is refused before it reaches the database rather
   than failing on a foreign key, and the tab lands on the notice.
 - Given a deactivated account, when an admin opens Settings, then that person's
-  row shows when access ended and when their last request was, and the last
-  request is never later than the moment access ended.
+  row shows when access ended and when the account was last granted a request,
+  and the second is never later than the first.
+- Given a deactivation that commits while a request from that account is already
+  in flight, when that request's bookkeeping write runs, then it matches no rows
+  and is skipped, so the record cannot show a granted request after the cutoff.
 - Given an active account, when any page, form or AI action is used, then
   behaviour is unchanged.
 
@@ -214,11 +218,12 @@ a firing:
 - **Database unavailable.** The resolver's read fails like every other query on
   the page. It is not treated as a sign-out, so an outage does not sign the
   store out.
-- **The last-seen write fails on its own.** A read-only replica after a
-  failover, a statement timeout, an exhausted pool. The account read that
-  decides access has already succeeded, so the failure is logged and the request
-  continues; `Last request` just stays where it was until a later request
-  records it.
+- **The bookkeeping write fails or is skipped.** A read-only replica after a
+  failover, a statement timeout, an exhausted pool - or the account being
+  deactivated in the same instant, which makes the conditional write match no
+  rows. The account read that decides access has already succeeded, so either
+  outcome is logged and the request continues; `Last granted request` stays
+  where it was.
 - **A store in a different timezone from the server.** The two times are
   formatted in the browser, so the admin reads them on their own clock rather
   than the server's UTC.
@@ -235,9 +240,15 @@ Two nullable columns on `User`:
 - `accessEndedAt` - set when an admin deactivates the account, never cleared.
   Sessions older than it are refused, and Settings shows it as "Access ended".
 - `lastSeenAt` - written at most once a minute, and only on a request that was
-  granted, so it stays behind `accessEndedAt` by construction. The write is
-  bookkeeping, so a failure is logged and ignored rather than refusing the
-  request that has already been granted.
+  granted. The write is a single conditional statement (`where: { id, active:
+  true }`) rather than a read followed by a write, so a deactivation landing in
+  between skips it instead of stamping a time past the cutoff. The write is
+  bookkeeping, so a skip or a failure is logged and ignored rather than refusing
+  a request whose access has already been decided.
+
+Writing `lastSeenAt` also moves Prisma's `@updatedAt` on the same row, so an
+active account's `User.updatedAt` now changes with traffic rather than only when
+someone edits the account. Nothing in the product reads that field today.
 
 Nothing is backfilled: existing rows start null on both.
 
@@ -324,8 +335,8 @@ able to turn a granted request into a 500.
 - Driven end-to-end in Chrome against a freshly migrated and seeded local
   database. Signed in as the admin, pressed Deactivate on the service advisor,
   and her row immediately read `Inactive`, `Access ended Aug 14, 2026, 1:17 AM`,
-  `Last request Aug 14, 2026, 1:16 AM` - the last request earlier than the
-  cutoff, as designed.
+  `Last granted request Aug 14, 2026, 1:16 AM` - the granted request earlier
+  than the cutoff, as designed.
 - Her live session, held in a separate cookie jar, then got 307 to
   `/login?reason=inactive` on `/inbox` and `/templates` and 401 from
   `POST /api/ai/ops-brief`. After reactivating her from the same admin screen,

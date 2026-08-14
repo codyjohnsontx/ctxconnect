@@ -21,11 +21,19 @@ export const INACTIVE_ACCOUNT_REASON = "inactive";
 const LAST_SEEN_INTERVAL_MS = 60_000;
 
 /**
- * Marks the account as seen on a request that was granted.
+ * Marks the account as having been granted a request.
  *
- * Only granted requests count. A refused one would push the timestamp past the
- * moment access ended and make a cut-off account look like it was still
- * working, which is the opposite of what the admin reading it needs.
+ * Only granted requests count, and the write carries `active: true` in its own
+ * WHERE rather than trusting the read that happened a moment ago. An admin can
+ * deactivate the account in the gap between that read and this write, and a
+ * plain write by id would then stamp a timestamp *later* than the cutoff - the
+ * access record would show the person working after their access ended, which
+ * is the one number Part 3 exists to make trustworthy. Deactivation sets
+ * `active: false` and `accessEndedAt` in a single update, so the two statements
+ * serialize: either this one lands first, or it matches no rows and is skipped.
+ *
+ * Skipping is the correct outcome, not a failure, and neither a skip nor a
+ * database error may break a request whose access was already decided.
  */
 async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
   const now = Date.now();
@@ -35,14 +43,14 @@ async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
   }
 
   try {
-    // updateMany rather than update: the row can be deleted between the read and
-    // this write, and a bookkeeping timestamp must not turn that into a crash.
+    // updateMany rather than update: this deliberately matches no rows when the
+    // account has just been switched off or deleted, and update would throw.
     await prisma.user.updateMany({
-      where: { id: userId },
+      where: { id: userId, active: true },
       data: { lastSeenAt: new Date(now) },
     });
   } catch (error) {
-    console.error("Failed to record when an account was last seen.", { userId, error });
+    console.error("Failed to record a granted request against an account.", { userId, error });
   }
 }
 

@@ -234,10 +234,13 @@ export default async function SettingsPage() {
 
 /**
  * What deactivating an account actually did, for the admin who pressed the
- * button. Two facts, no judgement: when the account's sessions were cut off on
- * every device, and when it was last let through a request. The second is never
- * later than the first, because a refused request does not count as being seen,
- * so reading them together is how an admin confirms the person is out.
+ * button. Two facts, no judgement: when this account's sessions stopped being
+ * accepted, and when it was last granted a request.
+ *
+ * The labels say "granted" because that is all the second number knows. A
+ * refused request is not recorded, so an account that has been turned away
+ * fifty times since the cutoff reads exactly the same as one nobody has
+ * touched; an admin must not read quiet where there was only refusal.
  */
 function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | null; lastSeenAt: Date | null }) {
   return (
@@ -250,9 +253,10 @@ function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | nul
         </dd>
       </div>
       <div className="flex flex-wrap gap-x-1.5">
-        <dt>Last request</dt>
+        <dt>Last granted request</dt>
+        {/* Refused requests are not recorded, so "none" means none were let through. */}
         <dd className="text-zinc-700 dark:text-zinc-300">
-          {lastSeenAt ? <LocalTimestamp value={lastSeenAt} /> : "None seen"}
+          {lastSeenAt ? <LocalTimestamp value={lastSeenAt} /> : "None granted"}
         </dd>
       </div>
     </dl>

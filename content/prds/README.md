@@ -2,7 +2,7 @@
 
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
-| 2026-08-12 | Built | [Deactivation Ends the Session](./2026-08-12-deactivation-ends-the-session.md) | Auth / Admin | Cuts off a deactivated staff account on the next request instead of after the 30-day token expires. Pages and forms land on the same quiet notice, the cutoff reaches every device and survives reactivation, and Settings shows when access ended and when that account was last seen. |
+| 2026-08-12 | Built | [Deactivation Ends the Session](./2026-08-12-deactivation-ends-the-session.md) | Auth / Admin | Cuts off a deactivated staff account on the next request instead of after the 30-day token expires. Pages and forms land on the same quiet notice, the cutoff reaches every device and survives reactivation, and Settings shows when access ended and when that account was last granted a request. |
 | 2026-08-02 | Built | [Ambient AI Brief Pass and Ranked Advisor Queue](./2026-08-02-ambient-ai-brief-pass.md) | Inbox / AI | Briefs every eligible conversation with new activity on a schedule, and orders the service advisor's inbox by what the AI flagged. |
 | 2026-07-22 | Deprecated | [SVP Demo Readiness](./2026-07-22-svp-demo-readiness.md) | Demo / Portfolio | Led demo reviewers into Command Center; superseded by the service-advisor demo path. |
 | 2026-07-13 | Ready for Build | [Tasks Status Views + Conversation Back Link](./2026-07-13-tasks-status-views-and-back-link.md) | Tasks / Navigation | Filter tabs + grouped sections on Tasks, and a contextual back link from conversations. |

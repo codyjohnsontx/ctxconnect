@@ -134,6 +134,20 @@ describe("session revocation", () => {
     assert.match(read(sessionResolver), /accessEndedAt: true/);
   });
 
+  it("records a granted request without letting it outrun the cutoff", () => {
+    // The bookkeeping write carries `active: true` in its own WHERE rather than
+    // trusting the account read that happened a moment earlier. Writing by id
+    // alone would let a deactivation committing in that gap be followed by a
+    // timestamp later than the cutoff, and an access record showing the person
+    // working after their access ended is the one thing Part 3 must never show.
+    const resolver = read(sessionResolver);
+
+    assert.match(resolver, /where: \{ id: userId, active: true \}/);
+    // Skipping and failing are both non-events for a request whose access has
+    // already been decided; neither may propagate out of the resolver.
+    assert.match(resolver, /catch \(error\)/);
+  });
+
   it("refuses a session minted before the account was switched off", () => {
     const switchedOff = new Date("2026-08-14T12:00:00.000Z");
     const before = switchedOff.getTime() - 1;
