@@ -26,17 +26,7 @@ import {
 } from "@/lib/notifications";
 import { scopedConversationWhere } from "@/lib/data";
 import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
-import { getActiveSessionUser } from "@/lib/session";
-
-async function requireSessionUser() {
-  const user = await getActiveSessionUser();
-
-  if (!user) {
-    throw new Error("Authentication required.");
-  }
-
-  return user;
-}
+import { requireUser } from "@/lib/session";
 
 async function recordAiInsightFormEvent({
   aiInsightId,
@@ -83,7 +73,7 @@ async function recordAiInsightFormEvent({
 }
 
 export async function updateConversation(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   const conversationId = String(formData.get("conversationId") ?? "");
   const assignedUserId = String(formData.get("assignedUserId") ?? "");
   const status = String(formData.get("status") ?? "");
@@ -170,7 +160,7 @@ export async function updateConversation(formData: FormData) {
 }
 
 export async function addInternalNote(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   const conversationId = String(formData.get("conversationId") ?? "");
   const aiInsightId = String(formData.get("aiInsightId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
@@ -210,7 +200,7 @@ export async function addInternalNote(formData: FormData) {
 }
 
 export async function createTask(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   const customerId = String(formData.get("customerId") ?? "");
   const conversationId = String(formData.get("conversationId") ?? "");
   const title = String(formData.get("title") ?? "").trim();
@@ -305,7 +295,7 @@ export async function createTask(formData: FormData) {
 }
 
 export async function updateTaskStatus(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   const taskId = String(formData.get("taskId") ?? "");
   const status = String(formData.get("status") ?? "");
 
@@ -356,7 +346,7 @@ export async function updateTaskStatus(formData: FormData) {
 }
 
 export async function createStaffUser(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   requireAdmin(user);
 
   const name = String(formData.get("name") ?? "").trim();
@@ -401,7 +391,7 @@ export async function createStaffUser(formData: FormData) {
 }
 
 export async function updateStaffUserStatus(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   requireAdmin(user);
 
   const targetUserId = String(formData.get("userId") ?? "");
@@ -415,9 +405,13 @@ export async function updateStaffUserStatus(formData: FormData) {
     throw new Error("You cannot deactivate your own account.");
   }
 
+  // Deactivating stamps the cutoff every session is measured against, which is
+  // also the "access ended" time Settings shows. Reactivating leaves it alone:
+  // the sessions the person had when they were switched off must stay dead, so
+  // coming back means signing in again.
   await prisma.user.update({
     where: { id: targetUserId },
-    data: { active },
+    data: active ? { active } : { active, accessEndedAt: new Date() },
   });
 
   await prisma.auditLog.create({
@@ -434,7 +428,7 @@ export async function updateStaffUserStatus(formData: FormData) {
 }
 
 export async function resetStaffPassword(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   requireAdmin(user);
 
   const targetUserId = String(formData.get("userId") ?? "");
@@ -464,7 +458,7 @@ export async function resetStaffPassword(formData: FormData) {
 }
 
 export async function updateDealershipSettings(formData: FormData) {
-  const user = await requireSessionUser();
+  const user = await requireUser();
   requireAdmin(user);
 
   const dealershipName = String(formData.get("dealershipName") ?? "").trim();
@@ -521,7 +515,7 @@ export async function updateDealershipSettings(formData: FormData) {
  * including doing nothing and failing.
  */
 export async function runAiBriefPass(): Promise<string> {
-  const user = await requireSessionUser();
+  const user = await requireUser();
 
   let maxBriefs: number | undefined;
 

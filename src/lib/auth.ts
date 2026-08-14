@@ -96,6 +96,12 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.department = user.department;
         token.isDemo = Boolean(user.email && user.email.toLowerCase() === getDemoUserEmail());
+        // Stamped once, at sign-in, rather than read from the token's own `iat`:
+        // NextAuth re-encodes the cookie as the session is refreshed, which
+        // moves `iat` forward. A deactivated browser polling /api/auth/session
+        // would walk its token past the deactivation cutoff and keep the access
+        // it just lost. This claim is copied forward untouched instead.
+        token.signedInAt = Date.now();
       }
 
       return token;
@@ -106,6 +112,7 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as string;
         session.user.department = token.department as string | null;
         session.user.isDemo = token.isDemo === true;
+        session.user.signedInAt = typeof token.signedInAt === "number" ? token.signedInAt : null;
       }
 
       return session;

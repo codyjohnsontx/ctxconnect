@@ -304,6 +304,7 @@ Local and preview webhook setup:
 
 - `/settings` is available to `ADMIN` and `MANAGER`.
 - `ADMIN` can create staff users, deactivate/reactivate them, reset passwords, and update dealership defaults.
+- Deactivating ends that account's sessions on every device it is signed in on, and the cutoff survives reactivation: a reactivated staff member has to sign in again. A deactivated account's row on `/settings` shows when access ended and when it was last let through a request.
 - Integration health on `/settings` reports database, auth, app URL, and Twilio readiness plus recent outbound delivery failures.
 
 ## Out Of Scope In This Slice

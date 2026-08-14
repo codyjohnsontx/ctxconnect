@@ -20,8 +20,10 @@ export default async function LoginPage({
 
   const demoEnabled = Boolean(process.env.DEMO_USER_EMAIL);
   // Someone whose account was switched off mid-shift lands here without having
-  // done anything. Signing in again would only tell them their password is
-  // invalid, so name the real reason and who can undo it.
+  // done anything, and signing in again would only tell them their password is
+  // invalid. So the reason is named - and nothing more. Deactivation is usually
+  // a firing: the person knows why, and "ask an administrator" reads as either
+  // cruel or as false hope.
   const accountInactive = (await searchParams).reason === INACTIVE_ACCOUNT_REASON;
 
   return (
@@ -58,9 +60,8 @@ export default async function LoginPage({
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
           </div>
           {accountInactive ? (
-            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              Your account is no longer active, so it cannot be used right now. Ask an administrator
-              at your store to turn it back on.
+            <p className="mb-4 rounded-lg border border-zinc-200 bg-zinc-100 p-3 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              This account is no longer active.
             </p>
           ) : null}
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

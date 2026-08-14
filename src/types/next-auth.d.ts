@@ -7,6 +7,9 @@ declare module "next-auth" {
       role: string;
       department: string | null;
       isDemo: boolean;
+      // Milliseconds, stamped when this session was minted. Null for sessions
+      // that predate the claim; the resolver treats those as unverifiable.
+      signedInAt: number | null;
     } & DefaultSession["user"];
   }
 
@@ -22,5 +25,6 @@ declare module "next-auth/jwt" {
     role?: string;
     department?: string | null;
     isDemo?: boolean;
+    signedInAt?: number;
   }
 }

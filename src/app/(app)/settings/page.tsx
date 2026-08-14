@@ -13,7 +13,7 @@ import { getSettingsData } from "@/lib/data";
 import { getRequiredEnvironmentNames } from "@/lib/env";
 import { isAdmin, isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
-import { labelize } from "@/lib/utils";
+import { formatTimestamp, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +106,7 @@ export default async function SettingsPage() {
                         <Badge variant={user.active ? "green" : "red"}>{user.active ? "Active" : "Inactive"}</Badge>
                       </div>
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
+                      {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge>{labelize(user.role)}</Badge>
                         {user.department ? <Badge>{labelize(user.department)}</Badge> : null}
@@ -227,6 +228,33 @@ export default async function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What deactivating an account actually did, for the admin who pressed the
+ * button. Two facts, no judgement: when the account's sessions were cut off on
+ * every device, and when it was last let through a request. The second is never
+ * later than the first, because a refused request does not count as being seen,
+ * so reading them together is how an admin confirms the person is out.
+ */
+function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | null; lastSeenAt: Date | null }) {
+  return (
+    <dl className="mt-2 space-y-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="flex flex-wrap gap-x-1.5">
+        <dt>Access ended</dt>
+        {/* Null for accounts switched off before the cutoff was recorded. */}
+        <dd className="text-zinc-700 dark:text-zinc-300">
+          {accessEndedAt ? formatTimestamp(accessEndedAt) : "Not recorded"}
+        </dd>
+      </div>
+      <div className="flex flex-wrap gap-x-1.5">
+        <dt>Last request</dt>
+        <dd className="text-zinc-700 dark:text-zinc-300">
+          {lastSeenAt ? formatTimestamp(lastSeenAt) : "None seen"}
+        </dd>
+      </div>
+    </dl>
   );
 }
 

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { sessionPredatesCutoff } from "../src/lib/session-cutoff";
 
 // Sessions are 30-day JWTs, so the token keeps asserting an account, a role and
 // a department long after an admin deactivates or removes it. An entry point
@@ -18,6 +19,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 // passes to getServerSession.
 const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
+const serverActions = join("src", "app", "actions.ts");
 
 // Edge middleware sits at the repo root rather than under src/, and is the most
 // likely place for a token-trusting check to reappear, because getServerSession
@@ -105,7 +107,46 @@ describe("session revocation", () => {
     assert.ok(entryPoints.length > 0, "expected authenticated entry points under src/app");
 
     for (const path of entryPoints) {
-      assert.match(read(path), /from "@\/lib\/session"|requireSessionUser/, path);
+      assert.match(read(path), /from "@\/lib\/session"/, path);
     }
+  });
+
+  it("sends a refused form submit to the notice rather than an error screen", () => {
+    // Server actions used to throw their own "Authentication required." Nothing
+    // catches it and there is no error boundary under src/app, so a form
+    // submitted from a tab that was open when the account was switched off
+    // ended on Next's raw error screen while a page load got a quiet notice.
+    // Going through requireUser redirects both to the same place.
+    const actions = read(serverActions);
+
+    assert.match(actions, /import \{ requireUser \} from "@\/lib\/session"/);
+    assert.doesNotMatch(actions, /Authentication required/);
+  });
+
+  it("stamps a cutoff when an account is switched off and never clears it", () => {
+    // The cutoff is what makes deactivation reach a phone as well as a laptop,
+    // and what Settings shows as "Access ended". Clearing it on reactivation
+    // would wake every session the person still had open on their old devices.
+    const actions = read(serverActions);
+
+    assert.match(actions, /accessEndedAt: new Date\(\)/);
+    assert.doesNotMatch(actions, /accessEndedAt: null/);
+    assert.match(read(sessionResolver), /accessEndedAt: true/);
+  });
+
+  it("refuses a session minted before the account was switched off", () => {
+    const switchedOff = new Date("2026-08-14T12:00:00.000Z");
+    const before = switchedOff.getTime() - 1;
+    const after = switchedOff.getTime() + 1;
+
+    assert.equal(sessionPredatesCutoff(before, switchedOff), true);
+    // Signed in again after being switched back on.
+    assert.equal(sessionPredatesCutoff(after, switchedOff), false);
+    // Never switched off, so nothing to measure against.
+    assert.equal(sessionPredatesCutoff(before, null), false);
+    // A session predating the claim itself cannot prove it is the newer one.
+    assert.equal(sessionPredatesCutoff(undefined, switchedOff), true);
+    assert.equal(sessionPredatesCutoff(null, switchedOff), true);
+    assert.equal(sessionPredatesCutoff(undefined, null), false);
   });
 });

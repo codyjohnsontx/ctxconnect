@@ -2,11 +2,11 @@
 
 ## Status
 
-Draft
+Built
 
 ## Date
 
-2026-08-12
+2026-08-12, extended 2026-08-14
 
 ## Summary
 
@@ -15,10 +15,14 @@ session. Their sign-in token stays valid for 30 days and nothing re-checked the
 account behind it, so a deactivated advisor kept full read and write access to
 the dealership inbox until the token expired on its own. Every authenticated
 request now resolves the account from the database, so deactivation takes effect
-on the next request. A page request redirects to the login screen, which explains
-that the account is no longer active. Server actions and API routes reject the
-request instead: the write does not go through, but the person is not shown that
-explanation.
+on the next request.
+
+Deactivation is also final and visible. A page load and a form submit both land
+on the same one-sentence notice. The session itself is ended on the account
+rather than on one device, so reactivating does not wake up a browser the person
+still has open - coming back means signing in again. And the admin who pressed
+Deactivate can see what it did: the members list shows when access ended and
+when that account was last let through a request.
 
 ## Problem
 
@@ -68,6 +72,8 @@ one is not necessary: the account row already carries `active`.
 
 ## v1 Scope
 
+Shipped 2026-08-12 (PR #19):
+
 - One resolver, `src/lib/session.ts`, re-reads the account on every
   authenticated request and returns nobody when it is missing or inactive.
 - All five entry points go through it. Pages redirect, server actions throw,
@@ -76,14 +82,35 @@ one is not necessary: the account row already carries `active`.
   future role change also takes effect on the next request.
 - The login page resolves the same way, so a deactivated session is not bounced
   back to the inbox that just rejected it.
-- The login page explains that the account is no longer active and cannot be
-  used, and says who can reverse it.
+- The login page explains that the account is no longer active.
+
+Added 2026-08-14, once the captain confirmed that deactivation is usually a
+firing:
+
+- **One screen for both paths.** Server actions go through the page helper and
+  redirect to the same notice a page load gets, rather than throwing onto Next's
+  error screen. API routes still answer 401; they are read by code.
+- **A notice that stops talking.** One sentence, neutral rather than amber, no
+  call to action. Someone who was just let go knows why, and "ask an
+  administrator" reads as either cruel or as false hope.
+- **The session ends on the account, not on a device.** Deactivating stamps
+  `User.accessEndedAt`, and any session minted before that instant is refused
+  wherever it turns up - laptop, phone, or a tab left open at home - and stays
+  refused after the account is switched back on.
+- **Evidence for the admin.** A deactivated account's row in Settings shows when
+  access ended and when that account was last let through a request.
 
 ## Non-Goals
 
-- Clearing the stale session cookie. Every entry point rejects it, so it is
-  inert, and a server render cannot write cookies.
-- A shorter session lifetime, refresh tokens, or a revocation store.
+- Clearing the stale session cookie. A server render cannot write cookies, and
+  clearing one only reaches the device that happened to make the request. The
+  cutoff on the account reaches all of them, and leaves the inert cookie alone.
+- A shorter session lifetime, refresh tokens, or a full revocation store. One
+  timestamp per account is the whole mechanism.
+- An audit trail of deactivations. `AuditLog` already records who pressed the
+  button; Settings shows the current state, not a history.
+- Showing last-seen for active staff. The members list is an access record, not
+  an activity monitor; the line appears only once an account is switched off.
 - Telling someone at the sign-in form that their account is deactivated rather
   than that their password is wrong. Different surface, different tradeoff.
 - Deleting staff accounts. Settings deactivates; nothing in the product deletes,
@@ -97,17 +124,17 @@ one is not necessary: the account row already carries `active`.
 2. An admin opens Settings and deactivates her account.
 3. Her next request - any page, any form, any AI action - resolves the account,
    finds it inactive, and refuses it. Nothing she submits is written.
-4. On a page load she lands on the login page above an amber notice: her account
-   is no longer active, so it cannot be used right now, and an administrator at
-   her store can turn it back on.
-5. A form submitted from a tab she already had open does not reach that notice.
-   The server action throws rather than redirecting, and there is no error
-   boundary under `src/app`, so that path ends on Next's generic error screen.
-   The write is refused either way, and her next page load reaches the notice.
-   Carrying the form path to the notice as well is follow-up work.
-6. Signing in again fails at the credentials check, which already refuses
+4. On a page load she lands on the login page above one quiet sentence: this
+   account is no longer active. Nothing else - no next step, no one to call.
+5. A form submitted from a tab she already had open lands on the same sentence.
+   The write is refused before it reaches the database.
+6. Her phone, still signed in, is refused on its next request too.
+7. Signing in again fails at the credentials check, which already refuses
    inactive accounts.
-7. When the admin reactivates her, she signs in normally and resumes.
+8. The admin, still on Settings, sees her row read Inactive with the time access
+   ended and the time of her last request, which is earlier.
+9. If the admin deactivated the wrong person and switches her back on, her old
+   sessions stay dead. She signs in once and resumes.
 
 ## Requirements
 
@@ -115,6 +142,13 @@ one is not necessary: the account row already carries `active`.
 - A missing account and an inactive account are treated identically.
 - The deactivation notice appears only after a deactivation-triggered redirect
   to the login page, never after an ordinary sign-out or an expired token.
+- The notice carries no call to action, no support contact and no button.
+- Pages and server actions are refused identically. Route handlers keep
+  returning 401, because their caller is code.
+- A session that predates an account's cutoff is refused even when the account
+  is active again.
+- `lastSeenAt` moves only on a request that was granted, so it can never be
+  later than `accessEndedAt`.
 - An active user sees no behaviour change.
 
 ## User Stories
@@ -123,15 +157,25 @@ one is not necessary: the account row already carries `active`.
   immediately, so that a departing employee cannot read customer conversations
   after they leave.
 - As an advisor whose account was switched off mid-shift, I want to be told
-  what happened, so that I ask the right person instead of retyping a password
-  that will never work.
+  plainly that the account is off, so that I stop retyping a password that will
+  never work.
+- As a dealership admin, I want to see that deactivating worked and when the
+  person was last active, so that I can say they are out and mean it.
 
 ## Acceptance Criteria
 
 - Given an advisor with a live session, when an admin deactivates her account,
   then her next page load redirects to the login page.
-- Given that redirect, when the login page renders, then it shows the
-  deactivation notice naming an administrator as the fix.
+- Given that redirect, when the login page renders, then it shows one sentence
+  saying the account is no longer active, and no next step, contact or button.
+- Given a deactivated account, when a form is submitted from a tab that was
+  already open, then the write is refused and the tab lands on that same notice
+  rather than on an error screen.
+- Given a deactivated account signed in on a second device, when that device
+  makes its next request, then it is refused as well.
+- Given an account that is deactivated and then reactivated, when a session
+  minted before the deactivation is used, then it is still refused, and signing
+  in again works.
 - Given a deactivated account, when any authenticated API route is called with
   its session, then the response is 401 and no data is returned.
 - Given a deactivated account, when the login page is opened with its session
@@ -139,9 +183,10 @@ one is not necessary: the account row already carries `active`.
   to the inbox.
 - Given a session whose account row no longer exists, when a follow-up is
   submitted, then the write is refused before it reaches the database rather
-  than failing on a foreign key. The server action throws, so that tab shows an
-  error screen rather than the login notice, and the next page load reaches the
-  notice.
+  than failing on a foreign key, and the tab lands on the notice.
+- Given a deactivated account, when an admin opens Settings, then that person's
+  row shows when access ended and when their last request was, and the last
+  request is never later than the moment access ended.
 - Given an active account, when any page, form or AI action is used, then
   behaviour is unchanged.
 
@@ -150,8 +195,18 @@ one is not necessary: the account row already carries `active`.
 - **Redirect loop.** The login page previously redirected any session holder to
   the inbox. With the inbox now rejecting deactivated sessions, that pairing
   would have looped; the login page resolves the account the same way.
-- **Reactivation.** Sign-in works again with no cookie cleanup, because the
-  resolver reads current state on every request.
+- **Reactivation.** The account works again, but its old sessions do not:
+  reactivating now costs one sign-in. That is the deliberate price of the cutoff
+  reaching every device, and the case it hurts - "we deactivated the wrong
+  person" - is the one where a sign-in costs nothing.
+- **Sessions predating the cutoff claim.** A session minted before this change
+  carries no sign-in timestamp, so it cannot be shown to be newer than a cutoff
+  and is refused. Only accounts that have been deactivated at least once are
+  affected.
+- **An account never deactivated.** No cutoff, so nothing to compare against and
+  no behaviour change.
+- **Deactivated before this change.** No cutoff was recorded, so Settings reads
+  "Access ended Not recorded" rather than inventing a time.
 - **Deleted account.** Treated as inactive rather than as an error, so a session
   outliving its row signs out instead of crashing.
 - **Demo account.** The demo advisor is an ordinary active account and is
@@ -164,8 +219,17 @@ one is not necessary: the account row already carries `active`.
 
 ## Data Requirements
 
-Reads `User.id`, `name`, `email`, `role`, `department` and `active` once per
-authenticated request. Nothing new is written and no schema changes.
+Reads `User.id`, `name`, `email`, `role`, `department`, `active`,
+`accessEndedAt` and `lastSeenAt` once per authenticated request.
+
+Two nullable columns on `User`:
+
+- `accessEndedAt` - set when an admin deactivates the account, never cleared.
+  Sessions older than it are refused, and Settings shows it as "Access ended".
+- `lastSeenAt` - written at most once a minute, and only on a request that was
+  granted, so it stays behind `accessEndedAt` by construction.
+
+Nothing is backfilled: existing rows start null on both.
 
 ## Analytics / Success Metrics
 
@@ -173,12 +237,19 @@ No live usage metrics; this is a single-store product with seeded data. The
 success signal is behavioural: after an admin deactivates an account, the next
 request from that person is refused. Metric to track once real stores are on it:
 time between a deactivation and the last successful request from that account,
-which should be under one request rather than up to 30 days.
+which should be under one request rather than up to 30 days. Settings now shows
+both halves of that measure to the admin directly.
 
 ## Risks
 
-- One extra indexed primary-key lookup per authenticated request. Every page in
-  the app already makes several larger queries, so the cost is not meaningful.
+- One extra indexed primary-key lookup per authenticated request, plus at most
+  one small write per account per minute. Every page in the app already makes
+  several larger queries, so the cost is not meaningful.
+- Reactivation costs a sign-in. Accepted: deactivation is usually a firing, and
+  the convenience being given up belongs to the rare mistaken case.
+- `/api/auth/session`, NextAuth's own endpoint, still echoes the claims in a
+  deactivated person's cookie back to them - their own name, email and role. It
+  grants no access to store data, and nothing in the app reads it.
 - A future entry point could authenticate on its own and reintroduce the gap.
   A test pins `src/lib/session.ts` as the only module allowed to read the
   session. It matches source text rather than parsing it, so it catches the
@@ -190,17 +261,30 @@ which should be under one request rather than up to 30 days.
   rather than that the password is invalid? It is friendlier and this is an
   internal staff tool, but it also confirms a valid password to whoever is
   typing. Left as is for now.
+- Should a manager, rather than only an admin, be able to read the access record?
+  Settings is already visible to managers read-only, so today they can.
 
 ## Implementation Notes
 
 `resolveAccount` in `src/lib/session.ts` owns the re-read. `getActiveSessionUser`
-wraps it for actions and route handlers, and `requireUser` wraps it for pages,
-distinguishing "no session" from "account gone" so only the second one gets the
-notice. `src/app/actions.ts` and the three route handlers under `src/app/api`
-lost their inline `getServerSession` calls, which also removed four copies of
-the same auth check.
+wraps it for route handlers and the login page; `requireUser` wraps it for pages
+and, since 2026-08-14, for server actions too - `src/app/actions.ts` no longer
+has an auth helper of its own, so a refused form redirects instead of throwing.
+
+The cutoff is compared against `signedInAt`, a claim stamped once in the NextAuth
+`jwt` callback at sign-in and copied forward untouched. The token's own `iat`
+cannot be used: NextAuth re-encodes the cookie as the session refreshes, so a
+deactivated browser polling `/api/auth/session` would walk its `iat` past the
+cutoff and keep the access it just lost. The comparison itself lives in
+`src/lib/session-cutoff.ts`, away from the Prisma import, so it can be unit
+tested without a database.
+
+Settings renders the access record from the same `getSettingsData` query; no new
+query, and no new page.
 
 ## Validation
+
+2026-08-12, first slice:
 
 - `npx tsc --noEmit`, `npm run lint`, `npm test` (57 tests) all clean.
 - Verified end-to-end against local seeded data, driving one session cookie
@@ -209,10 +293,28 @@ the same auth check.
   three session-backed route handlers: `POST /api/messages/send`,
   `POST /api/ai/ops-brief`, and
   `POST /api/ai/ops-brief/[insightId]/action`. A server action refuses the write
-  by throwing, so the caller sees an error rather than the notice. Reactivating
-  the account makes the same cookie work again with no re-login, `/login` returns
-  200 for a deactivated cookie rather than looping back to `/inbox`, and a
-  session pointing at a deleted account row is refused without a Prisma crash.
+  by throwing, so the caller sees an error rather than the notice. `/login`
+  returns 200 for a deactivated cookie rather than looping back to `/inbox`, and
+  a session pointing at a deleted account row is refused without a Prisma crash.
+
+2026-08-14, this slice:
+
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (60 tests) all clean.
+- Driven end-to-end in Chrome against a freshly migrated and seeded local
+  database. Signed in as the admin, pressed Deactivate on the service advisor,
+  and her row immediately read `Inactive`, `Access ended Aug 14, 2026, 1:17 AM`,
+  `Last request Aug 14, 2026, 1:16 AM` - the last request earlier than the
+  cutoff, as designed.
+- Her live session, held in a separate cookie jar, then got 307 to
+  `/login?reason=inactive` on `/inbox` and `/templates` and 401 from
+  `POST /api/ai/ops-brief`. After reactivating her from the same admin screen,
+  that cookie was still refused everywhere; a fresh sign-in returned 200.
+  `signedInAt` in `/api/auth/session` did not move across those refreshes, which
+  is what makes the cutoff hold.
+- Part 1 as the end user: signed in as the advisor in the browser, opened a
+  customer thread, deactivated her mid-session, then pressed Save note. The tab
+  landed on `/login?reason=inactive` reading only "This account is no longer
+  active." No note reached the database (`Message` count for that text: 0).
 
 ## Portfolio Notes
 
@@ -225,3 +327,14 @@ resolver, five call sites converging on it, and a test that keeps the sixth from
 drifting. The second decision was to spend a few lines on the message: a
 correct sign-out that leaves someone staring at "invalid email or password"
 converts a security fix into a support call.
+
+The 2026-08-14 slice turned on one fact: deactivation is usually a firing. That
+answered three questions at once. The notice loses its call to action, because
+"ask an administrator" is either cruel or false hope to someone just let go. The
+session ends on the account rather than on a device, because a fired advisor has
+a phone as well as a laptop, and the convenience being traded away - not having
+to sign in after a reactivation - belongs to the rare case where the admin picked
+the wrong person. And the members list gains an access record, because the thirty
+day hole survived unnoticed for so long precisely for want of a screen that said
+what deactivating had done. That last one was the most valuable of the three and
+the smallest: two lines of existing data, no new page.

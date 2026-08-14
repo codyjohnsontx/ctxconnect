@@ -134,6 +134,13 @@ model User {
   role          Role
   department    Department?
   active        Boolean  @default(true)
+  // The moment an admin last switched this account off. Sessions minted before
+  // it are refused for good, so reactivating does not wake an old browser tab
+  // back up, and it is the "access ended" time an admin reads in Settings.
+  accessEndedAt DateTime?
+  // The last request this account was allowed through on, so an admin can see
+  // that nothing succeeded after access ended. Only granted requests move it.
+  lastSeenAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
