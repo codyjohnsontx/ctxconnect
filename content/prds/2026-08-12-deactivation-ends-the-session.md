@@ -423,10 +423,15 @@ able to turn a granted request into a 500.
   cutoff is stamped only on the transition out of active and never cleared, a
   granted request cannot outrun it, a session with no sign-in time is refused,
   the notice names the account as inactive only when it is, and every timestamp
-  the cutoff compares comes from one clock. (An exact test count used to be
-  written here. It went stale twice, both times because someone added a test -
-  a hand-maintained number in prose is a claim that expires. If a count is ever
-  wanted, it has to come from the suite.)
+  the cutoff compares comes from one clock.
+
+  This entry carries no test count, and the 2026-08-12 entry above deliberately
+  keeps its own. The two are different kinds of statement. A dated entry records
+  what was run on a particular day and is anchored to that day, so it cannot go
+  stale. Prose describing the suite as it stands is a claim about now, and a
+  hand-maintained number inside one expires the moment anyone adds a test -
+  which is how the figure here went stale twice. Describe the coverage; if a
+  current count is ever wanted, it has to come from the suite itself.
 - Driven end-to-end in Chrome against a freshly migrated and seeded local
   database. Signed in as the admin, pressed Deactivate on the service advisor,
   and her row immediately read `Inactive`, `Access ended Aug 14, 2026, 1:17 AM`,
