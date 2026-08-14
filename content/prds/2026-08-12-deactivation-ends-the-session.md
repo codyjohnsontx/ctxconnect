@@ -405,13 +405,16 @@ wraps it for route handlers and the login page; `requireUser` wraps it for pages
 and, since 2026-08-14, for server actions too - `src/app/actions.ts` no longer
 has an auth helper of its own, so a refused form redirects instead of throwing.
 
-The cutoff is compared against `signedInAt`, a claim stamped once in the NextAuth
-`jwt` callback at sign-in and copied forward untouched. The token's own `iat`
-cannot be used: NextAuth re-encodes the cookie as the session refreshes, so a
-deactivated browser polling `/api/auth/session` would walk its `iat` past the
-cutoff and keep the access it just lost. The comparison itself lives in
-`src/lib/session-cutoff.ts`, away from the Prisma import, so it can be unit
-tested without a database. It is named `sessionCannotBeProvenCurrent` rather
+The cutoff is compared against `signedInAt`, a claim read from the database clock
+inside `authorize` - before the password compare, the Turnstile round trip and
+the account read - so it records when the sign-in began rather than when it
+finished. It is carried out through `authorize`'s return value, copied onto the
+token in the NextAuth `jwt` callback, and never re-derived after that. The
+token's own `iat` cannot be used: NextAuth re-encodes the cookie as the session
+refreshes, so a deactivated browser polling `/api/auth/session` would walk its
+`iat` past the cutoff and keep the access it just lost. The comparison itself
+lives in `src/lib/session-cutoff.ts`, away from the Prisma import, so it can be
+unit tested without a database. It is named `sessionCannotBeProvenCurrent` rather
 than for the cutoff comparison, because a missing claim is refused before any
 cutoff is consulted and the old name no longer described what it decides.
 
@@ -455,9 +458,11 @@ able to turn a granted request into a 500.
   one module reads the session, a deactivated and a deleted account are refused
   alike, a form submit reaches the notice rather than an error screen, the
   cutoff is stamped only on the transition out of active and never cleared, a
-  granted request cannot outrun it, a session with no sign-in time is refused,
-  the notice names the account as inactive only when it is, and every timestamp
-  the cutoff compares comes from one clock.
+  granted request cannot outrun it, a status change is recorded in the audit log
+  only when a row actually moved, a session with no sign-in time is refused, the
+  notice names the account as inactive only when it is, every timestamp the
+  cutoff compares comes from one clock, and the sign-in time is stamped before
+  any authentication work runs rather than after it.
 
   This entry carries no test count, and the 2026-08-12 entry above deliberately
   keeps its own. The two are different kinds of statement. A dated entry records
@@ -513,6 +518,12 @@ that; signing in once did. Reading it as epoch milliseconds instead measured
 0.0s from wall clock, after which the whole flow was re-driven end to end:
 deactivate to `/login?reason=inactive`, reactivate to a plain `/login`, fresh
 sign-in to 200.
+
+Moving that stamp to the start of `authorize` was measured rather than assumed:
+`signedInAt` now lands 358ms before the sign-in completes, where it previously
+landed at completion, and the demo provider stamps it as well. The same three
+checks were driven again afterwards and still hold - deactivate to
+`/login?reason=inactive`, reactivate to a plain `/login`, fresh sign-in to 200.
 
 ## Portfolio Notes
 
