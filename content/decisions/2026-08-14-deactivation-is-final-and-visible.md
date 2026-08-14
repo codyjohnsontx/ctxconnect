@@ -21,9 +21,9 @@ was inconsistent, reversible, and invisible:
 - pressing Deactivate produced no evidence that anything had happened, which is
   exactly why the thirty-day hole survived unnoticed for so long.
 
-The captain settled the fact the rest hangs on: **deactivation in a dealership
-is usually a firing.** It is not a temporary pause and it is not usually a
-mistake.
+The product owner settled the fact the rest hangs on: **deactivation in a
+dealership is usually a firing.** It is not a temporary pause and it is not
+usually a mistake.
 
 ## Options Considered
 

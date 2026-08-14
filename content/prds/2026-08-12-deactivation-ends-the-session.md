@@ -84,8 +84,8 @@ Shipped 2026-08-12 (PR #19):
   back to the inbox that just rejected it.
 - The login page explains that the account is no longer active.
 
-Added 2026-08-14, once the captain confirmed that deactivation is usually a
-firing:
+Added 2026-08-14, once the product owner confirmed that deactivation is usually
+a firing:
 
 - **One screen for both paths.** Server actions go through the page helper and
   redirect to the same notice a page load gets, rather than throwing onto Next's
