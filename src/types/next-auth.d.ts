@@ -16,6 +16,9 @@ declare module "next-auth" {
   interface User {
     role: string;
     department: string | null;
+    // Read from the database clock at the start of `authorize`, before any
+    // password or bot check runs, so it records when authentication began.
+    signedInAt: number;
   }
 }
 

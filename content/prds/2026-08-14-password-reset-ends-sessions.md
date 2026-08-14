@@ -24,8 +24,9 @@ product behaviour, and for which kind of reset.
 
 `resetStaffPassword` writes a new `passwordHash` and stops there. The session
 resolver in `src/lib/session.ts` refuses a request when the account is missing,
-inactive, or its session predates the account's `accessEndedAt` cutoff - and a
-password reset moves none of those. So the reset takes effect at the next
+inactive, when the session was minted at or before the account's `accessEndedAt`
+cutoff, or when it carries no sign-in timestamp at all - and a password reset
+moves none of those. So the reset takes effect at the next
 sign-in and never before it.
 
 Two situations sit behind the same button, and they may not want the same
@@ -119,6 +120,14 @@ These need answering before this is buildable:
 To be written once the open questions are answered.
 
 ## Portfolio Notes
+
+This document arrived carrying two phrasings that had just been corrected
+everywhere else in the repository - "predates" for a boundary that is now "at or
+before", and a list of refusal rules missing the one with the biggest
+operational consequence. Both were fixed on review, one round after the
+corrections that should have prevented them. A new document is where corrected
+wording goes to die: the fix lands in the files that had the error, and the next
+file written from memory reintroduces it.
 
 Worth keeping as an example of not fixing something. The two-line change was
 available, the mechanism was already built and tested, and the branch that found

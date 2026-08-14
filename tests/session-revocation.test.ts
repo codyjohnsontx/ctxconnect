@@ -183,13 +183,40 @@ describe("session revocation", () => {
     // by different clocks can print them out of order.
     const auth = read(authConfig);
 
-    assert.match(auth, /token\.signedInAt = await databaseNow\(\)/);
+    // Stamped inside authorize and carried forward, never re-read here.
+    assert.match(auth, /token\.signedInAt = user\.signedInAt/);
     assert.doesNotMatch(auth, /signedInAt = Date\.now\(\)/);
     // As a number, not a timestamp. Selecting clock_timestamp() directly came
     // back through the driver with its zone already lost - five hours early on
     // a America/Chicago host - which would have made every session look older
     // than every cutoff. Caught by running it, not by reading it.
     assert.match(auth, /EXTRACT\(EPOCH FROM clock_timestamp\(\)\) \* 1000/);
+  });
+
+  it("stamps the sign-in time before authentication runs, not after", () => {
+    // Read at the end, signedInAt recorded when authentication FINISHED, and a
+    // cost-12 bcrypt compare sits in the middle of that: an admin deactivating
+    // during those few hundred milliseconds would see the completing session
+    // claim an instant after the cutoff, which the cutoff then would not refuse.
+    // Reading it first inverts the failure direction - a deactivation landing
+    // after this point stamps a later cutoff and the session is refused, and one
+    // landing before it is caught by the account read that follows.
+    const auth = read(authConfig);
+
+    for (const authorizeBody of auth.split("async authorize(").slice(1)) {
+      const stamp = authorizeBody.indexOf("await databaseNow()");
+      const accountRead = authorizeBody.indexOf("prisma.user.findUnique");
+
+      assert.ok(stamp > -1, "every authorize stamps a sign-in time");
+      assert.ok(stamp < accountRead, "the stamp precedes the account read");
+    }
+
+    // The password compare is the expensive part, and it must come after too.
+    const passwordProvider = auth.split("async authorize(")[1];
+    assert.ok(
+      passwordProvider.indexOf("await databaseNow()") < passwordProvider.indexOf("await compare("),
+      "the stamp precedes the password compare",
+    );
   });
 
   it("refuses a session that carries no sign-in time, cutoff or not", () => {

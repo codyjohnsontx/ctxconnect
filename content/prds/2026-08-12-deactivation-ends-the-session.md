@@ -361,12 +361,28 @@ separates the two jobs `accessEndedAt` is currently doing: enforcement becomes
 the counter, and `accessEndedAt` goes back to being purely the time shown to a
 manager, which is all Part 3 ever needed from it.
 
-**Not built here, deliberately.** The remaining exposure is a sign-in and a
-deactivation landing in the same millisecond on an account that is later
-reactivated - a rounding artefact rather than a risk - and it is refused anyway,
-because the comparison resolves a tie against access. Replacing the enforcement
-primitive at that price, on a change that already carries a verified set of
-fixes, would be machinery bought with real risk to pay for none.
+**Not built here, deliberately** - but the reason first given for that was
+wrong, and it is worth recording why. It said the only remaining exposure was a
+sign-in and a deactivation landing in the same millisecond: a rounding artefact.
+Review then found a structural window instead. `signedInAt` was stamped after
+`authorize` finished, so it recorded when authentication *ended*, and a cost-12
+bcrypt compare sits in the middle of that - two to four hundred milliseconds in
+which an admin could deactivate the account while a sign-in was in flight and
+the completing session would still claim an instant after the cutoff. Not one
+millisecond. Two hundred and fifty, and by construction rather than by bad luck.
+
+It is now stamped before any authentication work runs, so it records when the
+sign-in *began*. That inverts the failure direction: a deactivation committing
+after that point stamps a later cutoff and the session is refused, and one
+committing before it is caught by the account read that follows. What is left is
+the exact-equality case, which the `<=` comparison refuses.
+
+The counter is still the better design and still not worth building here. But
+the case for not building it now rests on the window being closed, not on the
+window having been small - it never was.
+
+Replacing the enforcement primitive on a change that already carries a verified
+set of fixes would be machinery bought with real risk to pay for none.
 
 Build it if enforcement ever needs to be exact rather than good enough: if
 sessions start being minted somewhere other than this app, if the database stops
