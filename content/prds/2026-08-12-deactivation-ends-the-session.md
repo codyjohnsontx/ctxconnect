@@ -181,7 +181,8 @@ which should be under one request rather than up to 30 days.
   the app already makes several larger queries, so the cost is not meaningful.
 - A future entry point could authenticate on its own and reintroduce the gap.
   A test pins `src/lib/session.ts` as the only module allowed to read the
-  session.
+  session. It matches source text rather than parsing it, so it catches the
+  common ways in rather than every one; an aliased import still slips past.
 
 ## Open Questions
 
