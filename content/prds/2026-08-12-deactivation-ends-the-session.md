@@ -71,8 +71,8 @@ one is not necessary: the account row already carries `active`.
   future role change also takes effect on the next request.
 - The login page resolves the same way, so a deactivated session is not bounced
   back to the inbox that just rejected it.
-- The login page explains a deactivation-triggered sign-out and says who can
-  reverse it.
+- The login page explains that the account is no longer active and cannot be
+  used, and says who can reverse it.
 
 ## Non-Goals
 
@@ -108,8 +108,8 @@ one is not necessary: the account row already carries `active`.
 
 - No module outside `src/lib/session.ts` may read the session directly.
 - A missing account and an inactive account are treated identically.
-- The deactivation notice appears only after a deactivation-triggered sign-out,
-  never after an ordinary sign-out or an expired token.
+- The deactivation notice appears only after a deactivation-triggered redirect
+  to the login page, never after an ordinary sign-out or an expired token.
 - An active user sees no behaviour change.
 
 ## User Stories
