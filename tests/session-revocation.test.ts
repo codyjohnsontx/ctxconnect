@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
@@ -19,6 +19,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
 
+// Edge middleware sits at the repo root rather than under src/, and is the most
+// likely place for a token-trusting check to reappear, because getServerSession
+// cannot run in that runtime. Scanning src/ alone would leave it invisible.
+const rootMiddleware = "middleware.ts";
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -33,7 +38,9 @@ function sourceFiles(dir: string): string[] {
 }
 
 function relativeSourceFiles() {
-  return sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
+  const files = sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
+
+  return existsSync(join(repoRoot, rootMiddleware)) ? [...files, rootMiddleware] : files;
 }
 
 function read(path: string) {
@@ -42,17 +49,21 @@ function read(path: string) {
 
 describe("session revocation", () => {
   it("resolves the signed-in account in exactly one module", () => {
-    // Both supported server-side ways to read a NextAuth session: getServerSession
-    // and getToken from next-auth/jwt. Pinning only the first would let a route
-    // handler reach for the second and trust a 30-day token unchallenged.
+    // The three supported server-side ways to read a NextAuth session:
+    // getServerSession, getToken from next-auth/jwt, and withAuth from
+    // next-auth/middleware. Pinning only the first would let a route handler or
+    // the edge middleware reach for another and trust a 30-day token unchallenged.
     //
     // This is a best-effort textual guard, not a proof. It matches whole
-    // identifiers, and `\s*` covers `getToken ({ ... })`, but an aliased import
-    // such as `import { getToken as gt }` still defeats it - catching that would
-    // mean parsing TypeScript rather than matching text, which is not worth it
-    // here. The real contract is the one this test is named for: only
-    // src/lib/session.ts reads the session.
-    const readsTheSession = /\bgetServerSession\b|\bgetToken\s*\(/;
+    // identifiers, tolerates whitespace and an explicit type argument before the
+    // call parens, so neither `getToken ({ ... })` nor `getToken<JWT>({ ... })`
+    // slips past, and it matches the next-auth/middleware specifier so both
+    // `import { withAuth }` and `export { default }` from it are caught. But an
+    // aliased import such as `import { getToken as gt }` still defeats it -
+    // catching that would mean parsing TypeScript rather than matching text,
+    // which is not worth it here. The real contract is the one this test is
+    // named for: only src/lib/session.ts reads the session.
+    const readsTheSession = /\bgetServerSession\b|\bgetToken\b\s*(?:<[^>]*>\s*)?\(|next-auth\/middleware/;
     const callers = relativeSourceFiles().filter((path) => readsTheSession.test(read(path)));
 
     assert.deepEqual(callers, [sessionResolver]);
