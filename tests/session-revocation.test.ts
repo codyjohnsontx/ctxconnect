@@ -272,22 +272,65 @@ describe("session revocation", () => {
     const reset = serverAction("resetStaffPassword");
 
     assert.match(reset, /"passwordHash" = \$\{passwordHash\}/);
-    assert.match(reset, /"accessEndedAt" = \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/);
+    assert.match(
+      reset,
+      /"accessEndedAt" = CASE WHEN "active" THEN \(clock_timestamp\(\) AT TIME ZONE 'UTC'\) ELSE "accessEndedAt" END/,
+    );
   });
 
   it("leaves the account usable after a password reset", () => {
     // The whole point of stamping the cutoff without touching `active`: the
     // sessions are gone, the account is not. Setting active here would turn a
     // password reset into a deactivation the admin did not ask for.
-    assert.doesNotMatch(serverAction("resetStaffPassword"), /"active"/);
+    assert.doesNotMatch(serverAction("resetStaffPassword"), /"active" = /);
   });
 
   it("moves the cutoff on every reset, not only the first", () => {
     // Deactivation guards its WHERE on `active = true` because a repeat press
     // is not a real transition. A reset has no such state: the second reset in
     // a minute is a new password, and the sessions minted between the two must
-    // go with it.
+    // go with it. Guarding the WHERE would also stop the new hash reaching a
+    // deactivated account, which an admin may legitimately write before
+    // reactivating someone.
     assert.doesNotMatch(serverAction("resetStaffPassword"), /WHERE[^\n]*"active"/);
+  });
+
+  it("leaves a deactivation record alone when that account's password is reset", () => {
+    // Reset is offered on every row, including an inactive one. On a live
+    // account the stamp is what ends the sessions; on an account that is
+    // already off, the cutoff is the deactivation record Settings renders as
+    // "Access ended", and restamping it would replace the moment the person
+    // actually lost access with an unrelated later one. Nothing is lost by
+    // skipping it - resolveAccount refuses an inactive account before the
+    // cutoff is read at all.
+    const reset = serverAction("resetStaffPassword");
+
+    assert.match(reset, /CASE WHEN "active" THEN/);
+    assert.match(reset, /ELSE "accessEndedAt" END/);
+  });
+
+  it("guards every raw write of the cutoff on the account being active", () => {
+    // The third door. Deactivation guards it in the WHERE, the reset guards it
+    // in the SET, and a future action that stamps it unguarded would move the
+    // one number the access record exists to make trustworthy. Whole statements
+    // rather than the whole file, so one guarded writer cannot vouch for
+    // another.
+    const statements = read(serverActions)
+      .split(/UPDATE "User"/)
+      .slice(1)
+      .map((tail) => tail.split("`")[0]);
+
+    const cutoffWriters = statements.filter((statement) => /"accessEndedAt" =/.test(statement));
+
+    assert.ok(cutoffWriters.length > 0, "expected raw updates that write the cutoff");
+
+    for (const statement of cutoffWriters) {
+      const guarded =
+        /WHERE[\s\S]*"active" = true/.test(statement) ||
+        /"accessEndedAt" = CASE WHEN "active" THEN/.test(statement);
+
+      assert.ok(guarded, `this write of the cutoff is not guarded on "active":\n${statement}`);
+    }
   });
 
   it("does not report a reset that wrote to no row", () => {

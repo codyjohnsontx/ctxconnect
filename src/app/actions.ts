@@ -484,16 +484,27 @@ export async function resetStaffPassword(formData: FormData) {
   // shows the access record only for inactive accounts, so this does not put an
   // "Access ended" line against someone who is working normally.
   //
-  // Unlike deactivation there is no `active = true` guard on the WHERE: a reset
-  // is not a transition into a state it could repeat itself out of, and every
-  // reset - including a second one a minute later - is meant to end the sessions
-  // that existed before it. The clock reading still comes from the database
-  // inside the statement rather than from JavaScript before it, for the reason
-  // recordLastSeen in src/lib/session.ts spells out.
+  // The guard on the cutoff is in the SET, not the WHERE. On a live account
+  // every reset has to move it - including a second one a minute later, whose
+  // whole job is the sessions minted since the first - so guarding the WHERE
+  // would be wrong, and it would also stop the new hash reaching a deactivated
+  // account, which is a reasonable thing to write before reactivating someone.
+  // But on an account that is already inactive the cutoff is the deactivation
+  // record Settings renders as "Access ended", and moving it would overwrite the
+  // moment the person actually lost access with an unrelated later time. Nothing
+  // is lost by leaving it alone: resolveAccount refuses an inactive account
+  // before the cutoff is ever consulted, and authorize will not mint a session
+  // for one either. This is the same falsification the deactivation branch
+  // guarded when it stopped a repeat Deactivate restamping the cutoff, arriving
+  // through a second door.
+  //
+  // The clock reading comes from the database inside the statement rather than
+  // from JavaScript before it, for the reason recordLastSeen in
+  // src/lib/session.ts spells out.
   const changed = await prisma.$executeRaw`
     UPDATE "User"
     SET "passwordHash" = ${passwordHash},
-        "accessEndedAt" = (clock_timestamp() AT TIME ZONE 'UTC'),
+        "accessEndedAt" = CASE WHEN "active" THEN (clock_timestamp() AT TIME ZONE 'UTC') ELSE "accessEndedAt" END,
         "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
     WHERE "id" = ${targetUserId}
   `;

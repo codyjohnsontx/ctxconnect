@@ -31,6 +31,11 @@ export default async function LoginPage({
   // are signed out by their own successful action and need the two halves
   // joined up: what changed, and that signing in again is the whole of it.
   const passwordChanged = reason === PASSWORD_CHANGED_REASON;
+  const notice = accountInactive
+    ? "This account is no longer active."
+    : passwordChanged
+      ? "Your password was changed, which signed this account out everywhere. Sign in with the new password."
+      : null;
 
   return (
     <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
@@ -65,11 +70,9 @@ export default async function LoginPage({
             <h1 className="text-3xl font-semibold tracking-tight">Attend</h1>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
           </div>
-          {accountInactive || passwordChanged ? (
+          {notice ? (
             <p className="mb-4 rounded-lg border border-zinc-200 bg-zinc-100 p-3 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-              {accountInactive
-                ? "This account is no longer active."
-                : "Your password was changed, which signed this account out everywhere. Sign in with the new password."}
+              {notice}
             </p>
           ) : null}
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

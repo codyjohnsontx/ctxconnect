@@ -70,7 +70,15 @@ blocking it.
 - The rule is now enforced by one timestamp doing two jobs: it is both the
   enforcement boundary and the "Access ended" time an admin reads on `/settings`.
   The generation-counter design noted in the deactivation PRD would separate
-  them; this decision does not build it.
+  them; this decision does not build it. Because one value carries both, a reset
+  stamps the cutoff only while the account is active. On a live account that
+  stamp is the whole mechanism, and every reset must move it. On an account that
+  is already deactivated, that same value is the deactivation record, and moving
+  it would replace the moment the person lost access with an unrelated later
+  time - while ending nothing, since an inactive account is refused before the
+  cutoff is consulted and cannot mint a session in the first place. Resetting the
+  password of a deactivated account therefore writes the new hash and leaves the
+  record alone.
 
 ## Portfolio Notes
 

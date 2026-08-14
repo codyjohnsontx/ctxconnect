@@ -71,6 +71,14 @@ Two properties of it matter to anyone reading this document:
   is consulted, whether or not the account has one. Those sessions cannot show
   when they began.
 
+One timestamp does two jobs: it is the enforcement boundary, and it is the
+"Access ended" time `/settings` shows on a deactivated account's row. That is why
+a reset stamps it only while the account is active. On a live account the stamp
+is the whole mechanism and every reset must move it; on an account that is
+already deactivated the same value is the deactivation record, and moving it
+would replace the moment the person lost access with an unrelated later one while
+ending nothing, since an inactive account is refused before the cutoff is read.
+
 ## Decision
 
 Every reset ends every session on that account. Recorded in
@@ -86,7 +94,8 @@ nothing on the members screen suggested it. It is no longer needed for this.
 ## v1 Scope
 
 - `resetStaffPassword` writes the new hash and stamps `accessEndedAt` in one
-  statement, leaving `active` alone.
+  statement, leaving `active` alone, and stamps it only while the account is
+  active so a deactivation record is never overwritten.
 - The admin who resets their own password is redirected to the login page with a
   reason, and the login page names it.
 
@@ -121,9 +130,12 @@ in with the new password."
 - A reset must end sessions on every device, not only the one that would next
   contact the server.
 - A reset must not deactivate the account.
-- Every reset moves the cutoff, including a second reset a minute after the
-  first. Deactivation guards its write on `active = true` because a repeat press
-  is not a real transition; a reset has no such state.
+- Every reset of an active account moves the cutoff, including a second reset a
+  minute after the first. Deactivation guards its write on `active = true`
+  because a repeat press is not a real transition; a reset has no such state.
+- A reset must not move the cutoff on an account that is already inactive: there
+  the cutoff is the deactivation record. The new password is still written, so an
+  admin can set one before reactivating someone.
 - The audit row is written for the reset that happened, including a self-reset.
 
 ## User Stories
@@ -148,6 +160,9 @@ in with the new password."
   login page or an error screen.
 - Given an admin resetting their own password, when the reset completes, then the
   audit row for it is still written.
+- Given an account deactivated at 09:00, when an admin resets its password at
+  11:00, then its `/settings` row still reads "Access ended" 09:00 and the new
+  password is still written.
 - Given a reset that matches no account row, when the action runs, then it raises
   rather than reporting a reset that did not happen.
 
@@ -170,6 +185,13 @@ in with the new password."
   sent; the next page load asks them to sign in.
 - **Two resets in quick succession.** The second moves the cutoff again, so a
   session minted between them is refused too.
+- **A reset on an account that is already deactivated.** Reset is offered on
+  every row, and setting a password before reactivating someone is a real thing
+  an admin does. The new hash is written, but the cutoff is left where
+  deactivation put it: on that row it is the "Access ended" time an admin reads
+  while reconstructing what happened, and restamping it would report the wrong
+  moment. No session is missed by skipping it - an inactive account is refused
+  before its cutoff is consulted, and it cannot mint a new session either.
 
 ## Data Requirements
 
@@ -182,6 +204,14 @@ The clock reading comes from the database inside the statement, for the reason
 sessions" rather than "the moment it was switched off". `/settings` shows it only
 for inactive accounts, so a reset does not put an "Access ended" line against
 someone who is working normally.
+
+That display rule reads cleanly in one direction and not in the other. A reset on
+an active account writes a value nobody sees, which is fine. A reset on an
+account that was *already* inactive would write over a value that is on screen -
+the deactivation record - so the write is guarded: `accessEndedAt` is stamped
+only when `active` is true, in the same statement, leaving the WHERE clause
+matching on id alone so the hash still reaches a deactivated account and the
+zero-row check still catches a missing one.
 
 ## Analytics / Success Metrics
 

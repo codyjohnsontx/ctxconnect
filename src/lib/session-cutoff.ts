@@ -17,7 +17,10 @@
  * Two things stamp it, and they differ only in what else they change.
  * Deactivation sets `active = false` alongside it, so the account is refused
  * outright. A password reset leaves `active` alone, so the account stays fully
- * usable and only the sessions minted at or before the reset are gone.
+ * usable and only the sessions minted at or before the reset are gone - and it
+ * stamps the cutoff only while the account is active, because on an inactive
+ * one that value is the deactivation record and there are no sessions left to
+ * end.
  *
  * `signedInAt` is stamped once, at sign-in, rather than read from the token's
  * own `iat`, which moves forward as NextAuth re-encodes the cookie.
