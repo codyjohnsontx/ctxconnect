@@ -1,9 +1,7 @@
 "use server";
 
 import { hash } from "bcryptjs";
-import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
-import { authOptions } from "@/lib/auth";
 import { maxBriefsPerPass, runAmbientBriefPass } from "@/lib/ai/ambient-pass";
 import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
@@ -28,15 +26,16 @@ import {
 } from "@/lib/notifications";
 import { scopedConversationWhere } from "@/lib/data";
 import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
+import { getActiveSessionUser } from "@/lib/session";
 
 async function requireSessionUser() {
-  const session = await getServerSession(authOptions);
+  const user = await getActiveSessionUser();
 
-  if (!session?.user?.id) {
+  if (!user) {
     throw new Error("Authentication required.");
   }
 
-  return session.user;
+  return user;
 }
 
 async function recordAiInsightFormEvent({

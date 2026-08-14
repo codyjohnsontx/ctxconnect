@@ -10,6 +10,13 @@ marketing or customer-facing website in this codebase.
 Every UI page requires an authenticated staff session, except `/login`,
 `/privacy-policy`, and `/terms-and-conditions`.
 
+A staff session is a 30-day JWT, so holding one is not enough on its own. Every
+authenticated page, server action, and route handler resolves the caller through
+`src/lib/session.ts`, which re-reads the account row on each request and refuses
+the request when the account is missing or `active` is false. Deactivating a
+staff account therefore cuts off access on that person's next request rather
+than when the token expires.
+
 The API routes are not UI pages and do not share one contract. Most of them still
 run on a staff session: `POST /api/messages/send`, `POST /api/ai/ops-brief`, and
 `POST /api/ai/ops-brief/[insightId]/action` each require a session and then check
