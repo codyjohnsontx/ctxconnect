@@ -2,7 +2,7 @@ import { getServerSession, type Session } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { sessionPredatesCutoff } from "@/lib/session-cutoff";
+import { sessionCannotBeProvenCurrent } from "@/lib/session-cutoff";
 
 export type SessionUser = Session["user"];
 
@@ -55,6 +55,15 @@ async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
 }
 
 /**
+ * Whether anyone is signed in, and when nobody is, whether that is because the
+ * account itself is switched off. The two refusals are not the same sentence to
+ * the person reading them.
+ */
+type Resolution =
+  | { user: SessionUser; accountInactive: false }
+  | { user: null; accountInactive: boolean };
+
+/**
  * Re-reads the account a session claims, so the database rather than the token
  * decides who is signed in.
  *
@@ -70,9 +79,9 @@ async function recordLastSeen(userId: string, lastSeenAt: Date | null) {
  * An account switched back on does not resurrect the sessions it had when it
  * was switched off; those are older than its cutoff and stay refused.
  */
-async function resolveAccount(session: Session | null): Promise<SessionUser | null> {
+async function resolveAccount(session: Session | null): Promise<Resolution> {
   if (!session?.user?.id) {
-    return null;
+    return { user: null, accountInactive: false };
   }
 
   const account = await prisma.user.findUnique({
@@ -89,34 +98,40 @@ async function resolveAccount(session: Session | null): Promise<SessionUser | nu
     },
   });
 
+  // A deleted row is treated as a deactivated one: from the outside they are
+  // the same event, and a session can outlive a row removed outside the app.
   if (!account?.active) {
-    return null;
+    return { user: null, accountInactive: true };
   }
 
-  if (sessionPredatesCutoff(session.user.signedInAt, account.accessEndedAt)) {
-    return null;
+  // The account is live; only this particular session is too old to trust.
+  if (sessionCannotBeProvenCurrent(session.user.signedInAt, account.accessEndedAt)) {
+    return { user: null, accountInactive: false };
   }
 
   await recordLastSeen(account.id, account.lastSeenAt);
 
   return {
-    ...session.user,
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    role: account.role,
-    department: account.department,
+    user: {
+      ...session.user,
+      id: account.id,
+      name: account.name,
+      email: account.email,
+      role: account.role,
+      department: account.department,
+    },
+    accountInactive: false,
   };
 }
 
 /**
  * The signed-in staff member, or null when there is no session, the account
- * behind it is gone, has been deactivated, or the session predates the moment
- * it was switched off. Route handlers and the login page resolve here; pages
- * and server actions use requireUser.
+ * behind it is gone, has been deactivated, or the session cannot be shown to
+ * postdate the moment it was switched off. Route handlers and the login page
+ * resolve here; pages and server actions use requireUser.
  */
 export async function getActiveSessionUser(): Promise<SessionUser | null> {
-  return resolveAccount(await getServerSession(authOptions));
+  return (await resolveAccount(await getServerSession(authOptions))).user;
 }
 
 /**
@@ -126,6 +141,12 @@ export async function getActiveSessionUser(): Promise<SessionUser | null> {
  * that was open when the account was switched off lands on the same notice a
  * page load does rather than on Next's raw error screen. Someone who was just
  * let go should read one quiet sentence, not a stack of framework text.
+ *
+ * Only an account that really is switched off gets that sentence. A session
+ * refused for being older than a cutoff on a live account - the advisor
+ * deactivated by mistake at 01:00 and put back at 01:10 - lands on a plain
+ * login page instead, because telling her the account is inactive would be
+ * telling her something untrue.
  */
 export async function requireUser() {
   const session = await getServerSession(authOptions);
@@ -134,10 +155,10 @@ export async function requireUser() {
     redirect("/login");
   }
 
-  const user = await resolveAccount(session);
+  const { user, accountInactive } = await resolveAccount(session);
 
   if (!user) {
-    redirect(`/login?reason=${INACTIVE_ACCOUNT_REASON}`);
+    redirect(accountInactive ? `/login?reason=${INACTIVE_ACCOUNT_REASON}` : "/login");
   }
 
   return user;

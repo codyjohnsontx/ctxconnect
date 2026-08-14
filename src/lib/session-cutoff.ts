@@ -4,7 +4,8 @@
  */
 
 /**
- * True when this session was minted before the account was last switched off.
+ * True when this session cannot be shown to have been minted after the moment
+ * the account last lost access.
  *
  * Deactivation has to reach the phone as well as the laptop, and a server
  * render cannot clear a cookie on a device that is not currently asking for
@@ -13,18 +14,28 @@
  * including after the account is switched back on.
  *
  * `signedInAt` is stamped once, at sign-in, rather than read from the token's
- * own `iat`, which moves forward as NextAuth re-encodes the cookie. A session
- * without it predates the claim, so it cannot be shown to be newer than the
- * cutoff and is refused too. The cost is one sign-in for anyone holding a
- * pre-upgrade session for an account that has since been reactivated.
+ * own `iat`, which moves forward as NextAuth re-encodes the cookie.
+ *
+ * A session carrying no `signedInAt` at all is refused outright, whether or not
+ * the account has a cutoff. Those sessions were minted before the claim
+ * existed, so they hold no evidence of when they began, and the alternative -
+ * backfilling a cutoff onto every already-inactive account - would mean writing
+ * an "Access ended" time nobody can defend onto the one screen built to be
+ * trusted. Refusing what cannot be proven costs every staff member a single
+ * sign-in, once, on the deploy that ships this. Guessing would cost the record
+ * its meaning permanently.
  */
-export function sessionPredatesCutoff(
+export function sessionCannotBeProvenCurrent(
   signedInAt: number | null | undefined,
   accessEndedAt: Date | null,
 ) {
+  if (typeof signedInAt !== "number") {
+    return true;
+  }
+
   if (!accessEndedAt) {
     return false;
   }
 
-  return typeof signedInAt !== "number" || signedInAt < accessEndedAt.getTime();
+  return signedInAt < accessEndedAt.getTime();
 }

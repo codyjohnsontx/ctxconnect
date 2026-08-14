@@ -68,9 +68,13 @@ already on hand, on a screen that already exists.
 - **Reactivation now costs a sign-in.** The only argument for the old behaviour
   was convenience in the case "we deactivated the wrong person" - which is the
   case where one extra sign-in costs nothing.
-- **Sessions minted before this change are refused for any account that has been
-  deactivated at least once,** because they carry no sign-in timestamp to compare
-  against the cutoff. Same price: one sign-in.
+- **Every session minted before this change is refused,** because none of them
+  carry a sign-in timestamp and so none can prove when they began. The whole
+  store signs in once on the deploy that ships this. The alternative was
+  backfilling a cutoff onto already-inactive accounts, which closes the same
+  hole but stamps an "Access ended" time nobody can defend onto the screen this
+  feature exists to make trustworthy. A one-time sign-in is a smaller price than
+  a record that reads precisely and lies.
 - **Two nullable columns on `User`.** A session store or shorter token lifetimes
   would have been heavier and bought no more than one timestamp does.
 - **The members list gains an access record but not an activity monitor.**

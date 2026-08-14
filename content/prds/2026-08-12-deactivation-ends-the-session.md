@@ -140,8 +140,9 @@ a firing:
 
 - No module outside `src/lib/session.ts` may read the session directly.
 - A missing account and an inactive account are treated identically.
-- The deactivation notice appears only after a deactivation-triggered redirect
-  to the login page, never after an ordinary sign-out or an expired token.
+- The deactivation notice appears only when the account really is switched off,
+  never after an ordinary sign-out, an expired token, or a session refused for
+  being older than a cutoff on an account that is currently active.
 - The notice carries no call to action, no support contact and no button.
 - Pages and server actions are refused identically. Route handlers keep
   returning 401, because their caller is code.
@@ -169,6 +170,11 @@ a firing:
   then her next page load redirects to the login page.
 - Given that redirect, when the login page renders, then it shows one sentence
   saying the account is no longer active, and no next step, contact or button.
+- Given an account that was reactivated, when a session older than its cutoff
+  is used, then the person is refused to a plain login page with no notice,
+  because the account is active and the notice would be false.
+- Given an account that is already inactive, when Deactivate is submitted
+  again from a stale tab, then the recorded cutoff does not move.
 - Given a deactivated account, when a form is submitted from a tab that was
   already open, then the write is refused and the tab lands on that same notice
   rather than on an error screen.
@@ -204,11 +210,19 @@ a firing:
   reaching every device, and the case it hurts - "we deactivated the wrong
   person" - is the one where a sign-in costs nothing.
 - **Sessions predating the cutoff claim.** A session minted before this change
-  carries no sign-in timestamp, so it cannot be shown to be newer than a cutoff
-  and is refused. Only accounts that have been deactivated at least once are
-  affected.
-- **An account never deactivated.** No cutoff, so nothing to compare against and
-  no behaviour change.
+  carries no sign-in timestamp, so it holds no evidence of when it began and is
+  refused - whether or not its account has a cutoff. **Everyone signed in at the
+  moment this deploys therefore signs in once more, on purpose.** The alternative
+  was backfilling a cutoff onto every already-inactive account, which closes the
+  same hole but writes an "Access ended" time nobody can defend onto the one
+  screen built to be trusted. Refusing what cannot be proven costs a single
+  sign-in, once; guessing would cost the record its meaning permanently.
+- **An account never deactivated.** No cutoff, so once its staff have signed in
+  again after the deploy there is no behaviour change.
+- **Deactivated before this change, then reactivated.** No cutoff was recorded,
+  so nothing distinguishes that account's month-old cookies by timestamp - they
+  are refused for carrying no sign-in claim at all, which is why that claim is
+  checked before the cutoff rather than after it.
 - **Deactivated before this change.** No cutoff was recorded, so Settings reads
   "Access ended Not recorded" rather than inventing a time.
 - **Deleted account.** Treated as inactive rather than as an error, so a session
@@ -229,6 +243,11 @@ a firing:
   than the server's UTC.
 - **Ordinary sign-out and expired tokens.** Land on a plain login page with no
   notice, because nothing went wrong.
+- **A session refused on a live account.** The advisor deactivated by mistake at
+  01:00 and put back at 01:10 still holds a session older than that cutoff. She
+  is refused, but her account is active, so she lands on a plain login page:
+  telling her the account is no longer active would be telling her something
+  untrue.
 
 ## Data Requirements
 
@@ -250,7 +269,11 @@ Writing `lastSeenAt` also moves Prisma's `@updatedAt` on the same row, so an
 active account's `User.updatedAt` now changes with traffic rather than only when
 someone edits the account. Nothing in the product reads that field today.
 
-Nothing is backfilled: existing rows start null on both.
+Nothing is backfilled: existing rows start null on both, and no migration
+invents a cutoff for accounts deactivated before this shipped. Those accounts
+keep reading "Access ended  Not recorded", which is true - the product genuinely
+does not know when it happened. Their old sessions are refused for carrying no
+sign-in claim rather than by comparison against a fabricated time.
 
 ## Analytics / Success Metrics
 
@@ -268,6 +291,10 @@ both halves of that measure to the admin directly.
   several larger queries, so the cost is not meaningful.
 - Reactivation costs a sign-in. Accepted: deactivation is usually a firing, and
   the convenience being given up belongs to the rare mistaken case.
+- The deploy that ships this signs every staff member out once, because no
+  session minted before it can prove when it began. Ordinary for a change of
+  this kind, it happens exactly once, and it is the price of not writing a time
+  into the access record that nobody can stand behind.
 - `/api/auth/session`, NextAuth's own endpoint, still echoes the claims in a
   deactivated person's cookie back to them - their own name, email and role. It
   grants no access to store data, and nothing in the app reads it.
@@ -298,7 +325,13 @@ cannot be used: NextAuth re-encodes the cookie as the session refreshes, so a
 deactivated browser polling `/api/auth/session` would walk its `iat` past the
 cutoff and keep the access it just lost. The comparison itself lives in
 `src/lib/session-cutoff.ts`, away from the Prisma import, so it can be unit
-tested without a database.
+tested without a database. It is named `sessionCannotBeProvenCurrent` rather
+than for the cutoff comparison, because a missing claim is refused before any
+cutoff is consulted and the old name no longer described what it decides.
+
+`resolveAccount` returns why it refused, not only that it did, so `requireUser`
+can send an inactive account to the notice and a merely-too-old session on a
+live account to a plain login page.
 
 Settings renders the access record from the same `getSettingsData` query; no new
 query, and no new page. The two times render through `LocalTimestamp`, a small

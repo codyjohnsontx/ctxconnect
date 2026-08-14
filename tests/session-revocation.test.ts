@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { sessionPredatesCutoff } from "../src/lib/session-cutoff";
+import { sessionCannotBeProvenCurrent } from "../src/lib/session-cutoff";
 
 // Sessions are 30-day JWTs, so the token keeps asserting an account, a role and
 // a department long after an admin deactivates or removes it. An entry point
@@ -153,14 +153,44 @@ describe("session revocation", () => {
     const before = switchedOff.getTime() - 1;
     const after = switchedOff.getTime() + 1;
 
-    assert.equal(sessionPredatesCutoff(before, switchedOff), true);
+    assert.equal(sessionCannotBeProvenCurrent(before, switchedOff), true);
     // Signed in again after being switched back on.
-    assert.equal(sessionPredatesCutoff(after, switchedOff), false);
+    assert.equal(sessionCannotBeProvenCurrent(after, switchedOff), false);
     // Never switched off, so nothing to measure against.
-    assert.equal(sessionPredatesCutoff(before, null), false);
-    // A session predating the claim itself cannot prove it is the newer one.
-    assert.equal(sessionPredatesCutoff(undefined, switchedOff), true);
-    assert.equal(sessionPredatesCutoff(null, switchedOff), true);
-    assert.equal(sessionPredatesCutoff(undefined, null), false);
+    assert.equal(sessionCannotBeProvenCurrent(before, null), false);
+  });
+
+  it("refuses a session that carries no sign-in time, cutoff or not", () => {
+    // Sessions minted before this claim existed hold no evidence of when they
+    // began. The alternative - backfilling a cutoff onto every already-inactive
+    // account so the comparison has something to bite on - would write an
+    // "Access ended" time nobody can defend onto the screen built to be trusted,
+    // and would still be a guess. Refusing costs one sign-in on the deploy that
+    // ships this; guessing costs the record its meaning for good.
+    //
+    // Without this, a null cutoff plus a missing claim resolves to "let them in",
+    // so reactivating an account deactivated before this feature shipped would
+    // wake its month-old cookie with no sign-in at all.
+    assert.equal(sessionCannotBeProvenCurrent(undefined, null), true);
+    assert.equal(sessionCannotBeProvenCurrent(null, null), true);
+    assert.equal(sessionCannotBeProvenCurrent(undefined, new Date()), true);
+    assert.equal(sessionCannotBeProvenCurrent(null, new Date()), true);
+  });
+
+  it("names the account as inactive only when the account is inactive", () => {
+    // resolveAccount refuses for two different reasons and requireUser has to
+    // tell them apart: an advisor deactivated by mistake and put back reads
+    // "This account is no longer active." on a session that is merely too old,
+    // about an account that demonstrably is active.
+    const resolver = read(sessionResolver);
+
+    assert.match(resolver, /accountInactive: true/);
+    assert.match(resolver, /redirect\(accountInactive \?/);
+  });
+
+  it("stamps the cutoff only on the transition out of active", () => {
+    // A second Deactivate press - two admins, or one stale tab - must not move
+    // the recorded cutoff later than the moment access actually ended.
+    assert.match(read(serverActions), /where: \{ id: targetUserId, active: true \}/);
   });
 });

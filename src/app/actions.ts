@@ -405,14 +405,26 @@ export async function updateStaffUserStatus(formData: FormData) {
     throw new Error("You cannot deactivate your own account.");
   }
 
-  // Deactivating stamps the cutoff every session is measured against, which is
-  // also the "access ended" time Settings shows. Reactivating leaves it alone:
-  // the sessions the person had when they were switched off must stay dead, so
-  // coming back means signing in again.
-  await prisma.user.update({
-    where: { id: targetUserId },
-    data: active ? { active } : { active, accessEndedAt: new Date() },
-  });
+  if (active) {
+    // Reactivating leaves the cutoff alone: the sessions the person had when
+    // they were switched off must stay dead, so coming back means signing in.
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: { active: true },
+    });
+  } else {
+    // Deactivating stamps the cutoff every session is measured against, which is
+    // also the "Access ended" time Settings shows. `active: true` in the WHERE
+    // makes only the real transition stamp it: two admins with the screen open,
+    // or one stale tab submitted five minutes late, would otherwise overwrite
+    // the cutoff with a later time and move the one number this record exists to
+    // make trustworthy. A second press on an already-inactive account matches no
+    // rows and changes nothing, which is the honest outcome.
+    await prisma.user.updateMany({
+      where: { id: targetUserId, active: true },
+      data: { active: false, accessEndedAt: new Date() },
+    });
+  }
 
   await prisma.auditLog.create({
     data: {
