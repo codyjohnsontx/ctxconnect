@@ -72,7 +72,7 @@ one is not necessary: the account row already carries `active`.
   authenticated request and returns nobody when it is missing or inactive.
 - All five entry points go through it. Pages redirect, server actions throw,
   route handlers return 401.
-- Name, role and department come from the row rather than the token, so a
+- Name, email, role and department come from the row rather than the token, so a
   future role change also takes effect on the next request.
 - The login page resolves the same way, so a deactivated session is not bounced
   back to the inbox that just rejected it.
