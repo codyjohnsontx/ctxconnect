@@ -13,6 +13,19 @@ export function labelize(value: string) {
     .join(" ");
 }
 
+const timestampFormat = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+/**
+ * A date and a time, for facts an admin has to be able to compare - such as
+ * when an account lost access against when it was last seen using it.
+ */
+export function formatTimestamp(value: Date) {
+  return timestampFormat.format(value);
+}
+
 export function formatPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
 

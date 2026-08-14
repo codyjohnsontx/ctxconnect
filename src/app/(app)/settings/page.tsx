@@ -5,6 +5,7 @@ import {
   updateDealershipSettings,
   updateStaffUserStatus,
 } from "@/app/actions";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
@@ -106,6 +107,7 @@ export default async function SettingsPage() {
                         <Badge variant={user.active ? "green" : "red"}>{user.active ? "Active" : "Inactive"}</Badge>
                       </div>
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
+                      {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge>{labelize(user.role)}</Badge>
                         {user.department ? <Badge>{labelize(user.department)}</Badge> : null}
@@ -227,6 +229,37 @@ export default async function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What deactivating an account actually did, for the admin who pressed the
+ * button. Two facts, no judgement: when this account's sessions stopped being
+ * accepted, and when it was last granted a request.
+ *
+ * The labels say "granted" because that is all the second number knows. A
+ * refused request is not recorded, so an account that has been turned away
+ * fifty times since the cutoff reads exactly the same as one nobody has
+ * touched; an admin must not read quiet where there was only refusal.
+ */
+function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | null; lastSeenAt: Date | null }) {
+  return (
+    <dl className="mt-2 space-y-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="flex flex-wrap gap-x-1.5">
+        <dt>Access ended</dt>
+        {/* Null for accounts switched off before the cutoff was recorded. */}
+        <dd className="text-zinc-700 dark:text-zinc-300">
+          {accessEndedAt ? <LocalTimestamp value={accessEndedAt} /> : "Not recorded"}
+        </dd>
+      </div>
+      <div className="flex flex-wrap gap-x-1.5">
+        <dt>Last granted request</dt>
+        {/* Refused requests are not recorded, so "none" means none were let through. */}
+        <dd className="text-zinc-700 dark:text-zinc-300">
+          {lastSeenAt ? <LocalTimestamp value={lastSeenAt} /> : "None granted"}
+        </dd>
+      </div>
+    </dl>
   );
 }
 

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { sessionCannotBeProvenCurrent } from "../src/lib/session-cutoff";
 
 // Sessions are 30-day JWTs, so the token keeps asserting an account, a role and
 // a department long after an admin deactivates or removes it. An entry point
@@ -18,6 +19,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 // passes to getServerSession.
 const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
+const serverActions = join("src", "app", "actions.ts");
 
 // Edge middleware sits at the repo root rather than under src/, and is the most
 // likely place for a token-trusting check to reappear, because getServerSession
@@ -105,7 +107,149 @@ describe("session revocation", () => {
     assert.ok(entryPoints.length > 0, "expected authenticated entry points under src/app");
 
     for (const path of entryPoints) {
-      assert.match(read(path), /from "@\/lib\/session"|requireSessionUser/, path);
+      assert.match(read(path), /from "@\/lib\/session"/, path);
     }
+  });
+
+  it("sends a refused form submit to the notice rather than an error screen", () => {
+    // Server actions used to throw their own "Authentication required." Nothing
+    // catches it and there is no error boundary under src/app, so a form
+    // submitted from a tab that was open when the account was switched off
+    // ended on Next's raw error screen while a page load got a quiet notice.
+    // Going through requireUser redirects both to the same place.
+    const actions = read(serverActions);
+
+    assert.match(actions, /import \{ requireUser \} from "@\/lib\/session"/);
+    assert.doesNotMatch(actions, /Authentication required/);
+  });
+
+  it("stamps a cutoff when an account is switched off and never clears it", () => {
+    // The cutoff is what makes deactivation reach a phone as well as a laptop,
+    // and what Settings shows as "Access ended". Clearing it on reactivation
+    // would wake every session the person still had open on their old devices.
+    const actions = read(serverActions);
+
+    assert.match(actions, /"accessEndedAt" = \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/);
+    assert.doesNotMatch(actions, /accessEndedAt.*null/i);
+    assert.match(read(sessionResolver), /accessEndedAt: true/);
+  });
+
+  it("records a granted request without letting it outrun the cutoff", () => {
+    // Two guards, both required. The WHERE means a deactivation that commits
+    // first leaves this matching no rows. The timestamp comes from the database
+    // inside the statement, so it is read once the row lock is held rather than
+    // picked in JavaScript beforehand - a value chosen before the statement is
+    // sent can be older than one chosen by a request that commits first, which
+    // is how "access ended 2:03, last request 2:04" reaches a manager's screen.
+    const resolver = read(sessionResolver);
+
+    assert.match(resolver, /WHERE "id" = \$\{userId\} AND "active" = true/);
+    assert.match(resolver, /"lastSeenAt" = \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/);
+    // Skipping and failing are both non-events for a request whose access has
+    // already been decided; neither may propagate out of the resolver.
+    assert.match(resolver, /catch \(error\)/);
+  });
+
+  it("refuses a session minted before the account was switched off", () => {
+    const switchedOff = new Date("2026-08-14T12:00:00.000Z");
+    const before = switchedOff.getTime() - 1;
+    const after = switchedOff.getTime() + 1;
+
+    assert.equal(sessionCannotBeProvenCurrent(before, switchedOff), true);
+    // Signed in again after being switched back on.
+    assert.equal(sessionCannotBeProvenCurrent(after, switchedOff), false);
+    // Never switched off, so nothing to measure against.
+    assert.equal(sessionCannotBeProvenCurrent(before, null), false);
+    // A tie fails closed. The two values are rounded to the millisecond by
+    // different paths, so a sign-in and a deactivation in the same millisecond
+    // can land on the same number, and a tie here resolves against access.
+    assert.equal(sessionCannotBeProvenCurrent(switchedOff.getTime(), switchedOff), true);
+  });
+
+  it("records an account status change only when something changed", () => {
+    // A repeat Deactivate from a stale tab correctly moves nothing, but it used
+    // to append an audit row saying the account was deactivated at that later
+    // moment. Audit logs exist to be read back by someone reconstructing an
+    // incident, and a row for an event that did not happen misleads exactly
+    // that person.
+    assert.match(read(serverActions), /if \(changed > 0\) \{\s*await prisma\.auditLog\.create/);
+  });
+
+  it("reads every timestamp the cutoff compares from one clock", () => {
+    // signedInAt is compared against accessEndedAt, and lastSeenAt is read
+    // beside it. All three come from the database clock: a second clock means a
+    // session minted just before a deactivation can carry a time after the
+    // cutoff and survive it, and an access record whose two lines were written
+    // by different clocks can print them out of order.
+    const auth = read(authConfig);
+
+    // Stamped inside authorize and carried forward, never re-read here.
+    assert.match(auth, /token\.signedInAt = user\.signedInAt/);
+    assert.doesNotMatch(auth, /signedInAt = Date\.now\(\)/);
+    // As a number, not a timestamp. Selecting clock_timestamp() directly came
+    // back through the driver with its zone already lost - five hours early on
+    // a America/Chicago host - which would have made every session look older
+    // than every cutoff. Caught by running it, not by reading it.
+    assert.match(auth, /EXTRACT\(EPOCH FROM clock_timestamp\(\)\) \* 1000/);
+  });
+
+  it("stamps the sign-in time before authentication runs, not after", () => {
+    // Read at the end, signedInAt recorded when authentication FINISHED, and a
+    // cost-12 bcrypt compare sits in the middle of that: an admin deactivating
+    // during those few hundred milliseconds would see the completing session
+    // claim an instant after the cutoff, which the cutoff then would not refuse.
+    // Reading it first inverts the failure direction - a deactivation landing
+    // after this point stamps a later cutoff and the session is refused, and one
+    // landing before it is caught by the account read that follows.
+    const auth = read(authConfig);
+
+    for (const authorizeBody of auth.split("async authorize(").slice(1)) {
+      const stamp = authorizeBody.indexOf("await databaseNow()");
+      const accountRead = authorizeBody.indexOf("prisma.user.findUnique");
+
+      assert.ok(stamp > -1, "every authorize stamps a sign-in time");
+      assert.ok(stamp < accountRead, "the stamp precedes the account read");
+    }
+
+    // The password compare is the expensive part, and it must come after too.
+    const passwordProvider = auth.split("async authorize(")[1];
+    assert.ok(
+      passwordProvider.indexOf("await databaseNow()") < passwordProvider.indexOf("await compare("),
+      "the stamp precedes the password compare",
+    );
+  });
+
+  it("refuses a session that carries no sign-in time, cutoff or not", () => {
+    // Sessions minted before this claim existed hold no evidence of when they
+    // began. The alternative - backfilling a cutoff onto every already-inactive
+    // account so the comparison has something to bite on - would write an
+    // "Access ended" time nobody can defend onto the screen built to be trusted,
+    // and would still be a guess. Refusing costs one sign-in on the deploy that
+    // ships this; guessing costs the record its meaning for good.
+    //
+    // Without this, a null cutoff plus a missing claim resolves to "let them in",
+    // so reactivating an account deactivated before this feature shipped would
+    // wake its month-old cookie with no sign-in at all.
+    assert.equal(sessionCannotBeProvenCurrent(undefined, null), true);
+    assert.equal(sessionCannotBeProvenCurrent(null, null), true);
+    assert.equal(sessionCannotBeProvenCurrent(undefined, new Date()), true);
+    assert.equal(sessionCannotBeProvenCurrent(null, new Date()), true);
+  });
+
+  it("names the account as inactive only when the account is inactive", () => {
+    // resolveAccount refuses for two different reasons and requireUser has to
+    // tell them apart: an advisor deactivated by mistake and put back reads
+    // "This account is no longer active." on a session that is merely too old,
+    // about an account that demonstrably is active.
+    const resolver = read(sessionResolver);
+
+    assert.match(resolver, /accountInactive: true/);
+    assert.match(resolver, /redirect\(accountInactive \?/);
+  });
+
+  it("stamps the cutoff only on the transition out of active", () => {
+    // A second Deactivate press - two admins, or one stale tab - must not move
+    // the recorded cutoff later than the moment access actually ended.
+    assert.match(read(serverActions), /WHERE "id" = \$\{targetUserId\} AND "active" = true/);
   });
 });
