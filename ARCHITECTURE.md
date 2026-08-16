@@ -28,6 +28,11 @@ purpose. The alternative, backfilling a cutoff onto already-inactive accounts,
 would have written an "Access ended" time nobody could defend onto the one
 screen built to be trusted.
 
+Two admin actions stamp that cutoff. Deactivation sets `active` to false
+alongside it. A password reset leaves `active` alone, so the account stays fully
+usable and only the sessions minted at or before the reset are gone. The
+README's Operations Notes carry what each one means for an admin.
+
 The API routes are not UI pages and do not share one contract. Most of them still
 run on a staff session: `POST /api/messages/send`, `POST /api/ai/ops-brief`, and
 `POST /api/ai/ops-brief/[insightId]/action` each require a session and then check

@@ -134,9 +134,14 @@ model User {
   role          Role
   department    Department?
   active        Boolean  @default(true)
-  // The moment an admin last switched this account off. Sessions minted before
-  // it are refused for good, so reactivating does not wake an old browser tab
-  // back up, and it is the "access ended" time an admin reads in Settings.
+  // The moment this account last lost its existing sessions: an admin switched
+  // it off, or reset its password while it was active. Sessions minted at or
+  // before it are refused for good, so neither reactivating nor carrying on
+  // after a reset wakes an old browser tab back up. Settings reads it as the
+  // "access ended" time, and shows it only for inactive accounts - on a live
+  // account it marks a reset, which is not access ending. A reset stamps it
+  // only while the account is active, so resetting the password of an
+  // already-deactivated account leaves its deactivation record intact.
   accessEndedAt DateTime?
   // The last request this account was allowed through on, so an admin can see
   // that nothing succeeded after access ended. Only granted requests move it.

@@ -2,6 +2,7 @@
 
 import { hash } from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { maxBriefsPerPass, runAmbientBriefPass } from "@/lib/ai/ambient-pass";
 import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
@@ -26,7 +27,7 @@ import {
 } from "@/lib/notifications";
 import { scopedConversationWhere } from "@/lib/data";
 import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
-import { requireUser } from "@/lib/session";
+import { PASSWORD_CHANGED_REASON, requireUser } from "@/lib/session";
 
 async function recordAiInsightFormEvent({
   aiInsightId,
@@ -471,10 +472,49 @@ export async function resetStaffPassword(formData: FormData) {
 
   const passwordHash = await hash(password, 12);
 
-  await prisma.user.update({
-    where: { id: targetUserId },
-    data: { passwordHash },
-  });
+  // The new hash alone only changes what the person types at the sign-in form.
+  // Every session already signed in on the account keeps working for the rest
+  // of its 30-day life, on every device - so a reset prompted by a shared or
+  // stolen password left whoever held it carrying straight on, which is the one
+  // thing a reset exists to stop.
+  //
+  // Stamping the same cutoff deactivation uses, without touching `active`, ends
+  // those sessions wherever they turn up while leaving the account fully usable:
+  // the person signs in once with the new password and carries on. Settings
+  // shows the access record only for inactive accounts, so this does not put an
+  // "Access ended" line against someone who is working normally.
+  //
+  // The guard on the cutoff is in the SET, not the WHERE. On a live account
+  // every reset has to move it - including a second one a minute later, whose
+  // whole job is the sessions minted since the first - so guarding the WHERE
+  // would be wrong, and it would also stop the new hash reaching a deactivated
+  // account, which is a reasonable thing to write before reactivating someone.
+  // But on an account that is already inactive the cutoff is the deactivation
+  // record Settings renders as "Access ended", and moving it would overwrite the
+  // moment the person actually lost access with an unrelated later time. Nothing
+  // is lost by leaving it alone: resolveAccount refuses an inactive account
+  // before the cutoff is ever consulted, and authorize will not mint a session
+  // for one either. This is the same falsification the deactivation branch
+  // guarded when it stopped a repeat Deactivate restamping the cutoff, arriving
+  // through a second door.
+  //
+  // The clock reading comes from the database inside the statement rather than
+  // from JavaScript before it, for the reason recordLastSeen in
+  // src/lib/session.ts spells out.
+  const changed = await prisma.$executeRaw`
+    UPDATE "User"
+    SET "passwordHash" = ${passwordHash},
+        "accessEndedAt" = CASE WHEN "active" THEN (clock_timestamp() AT TIME ZONE 'UTC') ELSE "accessEndedAt" END,
+        "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+    WHERE "id" = ${targetUserId}
+  `;
+
+  // prisma.user.update used to raise on a missing row. Raw SQL reports zero
+  // instead, and an admin who is told nothing must not conclude they have just
+  // reset a password they did not.
+  if (changed === 0) {
+    throw new Error("That staff account no longer exists.");
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -486,6 +526,21 @@ export async function resetStaffPassword(formData: FormData) {
   });
 
   revalidatePath("/settings");
+
+  // Nothing stops an admin resetting their own password, and the cutoff above
+  // ends the session they pressed the button with. That is correct - a reset
+  // that skipped the resetter would be a reset that does not do what it says -
+  // but it must not read as a fault. Without this they would land on a bare
+  // login page on their next click, having just been signed out by their own
+  // successful action with nothing on screen connecting the two.
+  //
+  // Their other devices, and anyone else whose password is reset, still get the
+  // plain login page: the session is refused by the cutoff, and the cutoff does
+  // not record why it was stamped. Only the request that performed the reset
+  // knows, so only it can say so.
+  if (targetUserId === user.id) {
+    redirect(`/login?reason=${PASSWORD_CHANGED_REASON}`);
+  }
 }
 
 export async function updateDealershipSettings(formData: FormData) {
