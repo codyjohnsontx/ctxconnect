@@ -157,6 +157,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
+          // The row previews this message, and a staff reply or an internal
+          // note reads as the customer's own words without a name on it. Only
+          // the name: the full User row carries a password hash.
+          include: { sender: { select: { name: true } } },
         },
         aiInsights: {
           orderBy: { createdAt: "desc" },

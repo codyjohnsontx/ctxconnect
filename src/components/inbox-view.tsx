@@ -18,6 +18,7 @@ import {
   lastUndeliveredOutbound,
   undeliveredDetail,
 } from "@/lib/message-delivery";
+import { type PreviewAuthor, previewAttribution } from "@/lib/message-preview";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
 type InboxData = Awaited<ReturnType<typeof getInboxData>>;
@@ -32,6 +33,14 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
   WAITING_ON_STAFF: "red",
   FOLLOW_UP_NEEDED: "amber",
   CLOSED: "green",
+};
+
+// A previewed message that is not the customer's gets a label in the voice's
+// own colour: amber for a note, matching the amber note bubble in the thread,
+// and plain zinc for a staff reply, which is ordinary rather than notable.
+const authorTone: Record<PreviewAuthor, string> = {
+  staff: "text-zinc-500 dark:text-zinc-400",
+  note: "text-amber-700 dark:text-amber-400",
 };
 
 const aiRiskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
@@ -183,6 +192,15 @@ export function InboxView({
                 // that never reached the customer. Left unmarked it reads as an
                 // answer already given, and the row is where she decides to skip.
                 const previewUndelivered = lastMessage ? isUndelivered(lastMessage) : false;
+                // Whose words the preview is. An inbound message gets nothing:
+                // the customer's voice is what a row is read as by default, and
+                // her name is already in bold on the line above. Skipped when the
+                // reply failed - "Not delivered:" is both the more urgent fact and
+                // already proof that staff wrote it, and two labels on one row
+                // would fight for a two-line clamp.
+                const previewAuthor = previewUndelivered
+                  ? null
+                  : previewAttribution(lastMessage, currentUser.id);
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
                 const insight = conversation.aiInsights[0];
@@ -219,6 +237,11 @@ export function InboxView({
                         // label and the message do not run together when the row is
                         // read aloud or copied.
                         <span className="font-semibold text-red-600 dark:text-red-400">Not delivered: </span>
+                      ) : null}
+                      {previewAuthor ? (
+                        <span className={cn("font-semibold", authorTone[previewAuthor.author])}>
+                          {previewAuthor.label}{" "}
+                        </span>
                       ) : null}
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
