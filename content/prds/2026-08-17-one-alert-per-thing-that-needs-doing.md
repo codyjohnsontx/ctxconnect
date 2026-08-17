@@ -50,7 +50,7 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 - Given three stored copies of one overdue follow-up, when the advisor reads her rail, then the badge counts it once and the rail lists it once.
 - Given a follow-up that has crossed its due date, when the sweep next runs, then it reads as overdue only.
 - Given two distinct overdue follow-ups, when the Command Center renders, then the overdue tile reads 2.
-- Given an advisor whose badge counts one alert, when her manager reads the team table, then her "Active alerts" reads the same number.
+- Given one thread carrying five unanswered inbound texts, when her manager reads the team table, then her "Active alerts" counts that thread once rather than five times, collapsed by the same rule the rail uses.
 - Given a follow-up due later today, when the Command Center renders, then it counts under due-today and not under overdue.
 
 ## Risks / Open Questions
@@ -62,6 +62,7 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 
 - **Two writers still store the same fact in two shapes.** The Twilio webhook raises `UNASSIGNED_CONVERSATION` with the inbound message attached; the operational sweep raises it for the same thread with no message. Collapsing the key means the advisor now reads one alert either way, but making the two writers agree is an ingestion change and is filed separately.
 - **Nothing retires an unanswered-message alert until the thread closes.** `NEW_INBOUND_MESSAGE` is raised per inbound text and only resolved when the conversation is closed, so answering the customer does not clear it. Collapsing the key fixes the overstatement - one answered thread no longer reads as five - but the row still stands on a thread she has already replied to. That lifecycle is a separate change.
+- **Her badge and the team column count the same unit over different sets.** Both collapse rows to facts now, which is what this change closed, but the badge counts every alert she may read, including one raised against her department and addressed to a manager, while the column counts only the alerts addressed to her. So the two totals can still differ for reasons that have nothing to do with the unit. That scope difference predates this branch and is unchanged by it; making the two the same set would be a scope change to that column and a separate product call, not something decided here.
 
 ## Portfolio Notes
 
