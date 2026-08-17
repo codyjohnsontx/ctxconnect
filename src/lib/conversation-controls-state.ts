@@ -61,6 +61,21 @@ export function adoptSavedValues(
 }
 
 /**
+ * Why a save is about to take the thread out of the reach of the person making
+ * it. `department` when it is genuinely moving to another department, and
+ * `assignment` when the department is unchanged and it was the assignment that
+ * held it - which is how a staff account with no department of its own reaches
+ * any thread at all. The warning has to say which, because telling her the
+ * thread is being handed to the department it already sits in is not true.
+ */
+export function handOffReason(
+  draft: ConversationControlValues,
+  saved: ConversationControlValues,
+): "department" | "assignment" {
+  return draft.department === saved.department ? "assignment" : "department";
+}
+
+/**
  * Whether Save has anything to do. Offered only against the server's own
  * values, so a panel that agrees with the database cannot submit at all.
  */

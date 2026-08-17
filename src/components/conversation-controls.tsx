@@ -10,6 +10,7 @@ import { canAccessConversation } from "@/lib/conversation-access";
 import {
   adoptSavedValues,
   type ConversationControlValues,
+  handOffReason,
   hasUnsavedControlChanges,
 } from "@/lib/conversation-controls-state";
 import type { AppUser } from "@/lib/data";
@@ -173,8 +174,10 @@ export function ConversationControls({
         <p className="flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
-            Saving hands this conversation to {labelize(draft.department)}. It leaves your inbox and
-            you will not be able to open it again.
+            {handOffReason(draft, saved) === "department"
+              ? `Saving hands this conversation to ${labelize(draft.department)}.`
+              : "Saving takes this conversation off you."}{" "}
+            It leaves your inbox and you will not be able to open it again.
           </span>
         </p>
       ) : null}

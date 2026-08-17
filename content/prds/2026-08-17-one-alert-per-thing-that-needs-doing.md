@@ -33,7 +33,7 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 
 ## v1 Scope
 
-- One rule, in a database-free module, for collapsing alert rows to facts: same subject, same conversation, task and message is one alert.
+- One rule, in a database-free module, for collapsing alert rows to facts: same subject on the same conversation and follow-up is one alert. The message that raised it counts only where the fact really is one message - a text that failed to send, because two failed texts on one thread are two things to fix.
 - The rail badge, the Command Center panel, the SLA focus list and the Command Center's SLA tile all count facts.
 - A follow-up that has crossed its due date withdraws the "due today" row it supersedes, and the other way round when it is moved.
 - The overdue and due-today tiles split today's queue at the current time, the rule every other surface already used.
@@ -56,6 +56,8 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 
 - Counting facts is a `groupBy` rather than a `count`, which is one query either way but a more expensive one. It is bounded by the alert table, not the message table.
 - Lists read `notificationScanLimit` rows before collapsing, because the copies of one fact sort next to each other and would otherwise fill a short list. That is a scan bound, not a display bound, and anything beyond it is unlisted - which is what the next PRD addresses.
+- **Two writers still store the same fact in two shapes.** The Twilio webhook raises `UNASSIGNED_CONVERSATION` with the inbound message attached; the operational sweep raises it for the same thread with no message. Collapsing the key means the advisor now reads one alert either way, but making the two writers agree is an ingestion change and is filed separately.
+- **Nothing retires an unanswered-message alert until the thread closes.** `NEW_INBOUND_MESSAGE` is raised per inbound text and only resolved when the conversation is closed, so answering the customer does not clear it. Collapsing the key fixes the overstatement - one answered thread no longer reads as five - but the row still stands on a thread she has already replied to. That lifecycle is a separate change.
 
 ## Portfolio Notes
 

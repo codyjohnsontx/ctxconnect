@@ -36,22 +36,16 @@ type MessageComposerProps = {
 
 const EMPTY_DRAFT: Draft = { body: "", blanks: [] };
 
-// Whether the browser has let us touch its storage so far. A private window or
-// a locked-down profile throws; the composer keeps working and simply stops
-// promising that the draft is being kept. Module-level because it is a fact
-// about the browser, not about one conversation.
-let storageWorks = true;
-
 function readStoredDraft(key: string): Draft | null {
   try {
     return parseDraft(window.localStorage.getItem(key), Date.now());
   } catch {
-    storageWorks = false;
     return null;
   }
 }
 
-function writeStoredDraft(key: string, draft: Draft): void {
+/** Whether the browser kept it. A private window or a locked-down profile throws. */
+function writeStoredDraft(key: string, draft: Draft): boolean {
   try {
     const payload = serializeDraft(draft, Date.now());
 
@@ -60,8 +54,30 @@ function writeStoredDraft(key: string, draft: Draft): void {
     } else {
       window.localStorage.setItem(key, payload);
     }
+
+    return true;
   } catch {
-    storageWorks = false;
+    return false;
+  }
+}
+
+/**
+ * Drop an entry the read path refuses - past its twelve hours, or
+ * unrecognisable - because it is unsent customer-facing text that is never
+ * going back in the box. Only this advisor's entry for this thread: sign-out
+ * owns the rest of her keys, and nobody owns anyone else's.
+ */
+function purgeUnusableDraft(key: string): boolean {
+  try {
+    const raw = window.localStorage.getItem(key);
+
+    if (raw !== null && parseDraft(raw, Date.now()) === null) {
+      window.localStorage.removeItem(key);
+    }
+
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -92,6 +108,11 @@ export function MessageComposer({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // Whether this browser has actually kept anything. Held here and set from the
+  // storage calls themselves, because a browser that reads and refuses to write
+  // is the one that leaves "Saved as a draft on this device." sitting over text
+  // that was never stored.
+  const [storageWorks, setStorageWorks] = useState(true);
 
   const hydrated = useSyncExternalStore(noStoreToSubscribeTo, onTheClient, onTheServer);
 
@@ -118,6 +139,15 @@ export function MessageComposer({
   // retyping it saves.
   const canRestoreUnsent = Boolean(unsentBody) && !body.trim() && !disabled && !demoBlocked && !isPending;
 
+  // A draft too old to put back is cleared rather than left behind: the read
+  // above already refused it, and a shared front-desk browser must not still be
+  // holding it tomorrow for whoever signs in next.
+  useEffect(() => {
+    if (!purgeUnusableDraft(storageKey)) {
+      setStorageWorks(false);
+    }
+  }, [storageKey]);
+
   // Only what she has actually edited is written back, so the first renders -
   // before hydration has had a chance to read - cannot erase the stored draft.
   useEffect(() => {
@@ -125,7 +155,7 @@ export function MessageComposer({
       return;
     }
 
-    writeStoredDraft(storageKey, edited);
+    setStorageWorks(writeStoredDraft(storageKey, edited));
   }, [edited, storageKey]);
 
   const availableTemplates = useMemo(

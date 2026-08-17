@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   adoptSavedValues,
   type ConversationControlValues,
+  handOffReason,
   hasUnsavedControlChanges,
   sameControlValues,
 } from "../src/lib/conversation-controls-state";
@@ -93,5 +94,23 @@ describe("the controls panel and the database cannot disagree", () => {
 
       assert.equal(sameControlValues(urgent, changed), false, `${field} was not compared`);
     }
+  });
+});
+
+// The warning that fires before a save she cannot undo has to name the real
+// reason she is about to lose the thread. Staff with no department of their own
+// reach a thread only through the assignment, so moving it to a colleague costs
+// them the thread while the department never moves.
+describe("why a save takes the thread out of her reach", () => {
+  it("names the department when the thread is genuinely being handed to one", () => {
+    assert.equal(handOffReason({ ...urgent, department: "PARTS" }, urgent), "department");
+  });
+
+  it("does not claim a hand-off when only the assignee moved", () => {
+    assert.equal(handOffReason({ ...urgent, assignedUserId: "advisor-2" }, urgent), "assignment");
+  });
+
+  it("does not claim a hand-off when the thread is being unassigned", () => {
+    assert.equal(handOffReason({ ...urgent, assignedUserId: "unassigned" }, urgent), "assignment");
   });
 });

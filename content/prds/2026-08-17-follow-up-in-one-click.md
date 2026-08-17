@@ -52,7 +52,8 @@ Acting on the brief's recommendation either adds a follow-up or shows her the on
 ## Risks / Open Questions
 
 - **This changes the demo.** `docs/demo-script.md` Click 3 is "Use as follow-up" on Renee Whitlock, introduced as "the part I care about most", and the seed gives that thread a follow-up whose title is identical to the brief's suggestion. That click now shows the existing follow-up instead of creating one, which demonstrates the de-dupe rather than the creation. Three ways out: change the seed so the titles differ, move Click 3 to another thread, or keep it and narrate the de-dupe. Not decided here - the demo script and seed are untouched.
-- The default due date is built from the browser's `datetime-local` value and stored through `createTask`, which parses a bare local-time string on the server. On a UTC host that shifts the stored hour. Pre-existing and tracked separately; this change adds a default to that path but not a second writer.
+- The default due date is computed on the server, not in the browser: `defaultFollowUpDueDate(new Date())` runs in `src/components/inbox-view.tsx`, a Server Component, and its value is rendered into the `datetime-local` input before the browser sees the form. So the time she is handed is the server's wall clock rather than her own - on a UTC host, an advisor in Central time opens the form on 17:00 meaning noon. Accepted as-is and filed as its own open item: computing it client-side would split date defaulting across client and server and invite a hydration mismatch.
+- Whatever she submits is stored through `createTask`, which parses a bare local-time string on the server. Pre-existing and tracked separately; this change adds a default to that path but not a second writer.
 
 ## Portfolio Notes
 

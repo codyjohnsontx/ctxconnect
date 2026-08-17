@@ -11,6 +11,12 @@
  * These helpers collapse the rows back down to the facts before anything is
  * listed or counted. They take plain objects and never touch the database, so
  * the alert rail, the Command Center and their counters share one rule.
+ *
+ * What makes two rows one fact is the thread they are about, not the message
+ * that raised them. A thread with no owner is one thing to do however many
+ * texts have arrived on it, and so is a thread with unanswered customer
+ * messages. The single exception is a text that failed to send: two failed
+ * texts on one thread are two things to fix, so those keep the message.
  */
 
 import type { Department, Prisma } from "@/generated/prisma/client";
@@ -33,15 +39,20 @@ export type NotificationFact = {
 // told a follow-up is both still coming and already late.
 const followUpTypes: string[] = [NotificationType.FOLLOW_UP_DUE, NotificationType.FOLLOW_UP_OVERDUE];
 
+// The alerts whose fact really is one message rather than the thread: two
+// texts that failed to send on one thread are two things to fix and must not
+// collapse into one. Every other alert describes the thread itself - it has no
+// owner, it has an unanswered customer message, it missed its SLA - so the
+// message it happened to be raised from stays out of the key. Writers disagree
+// about whether they attach one at all, and keying on it splits one unowned
+// thread into two alerts and one busy thread into an alert per text.
+const perMessageTypes: string[] = [NotificationType.MESSAGE_FAILED];
+
 export function notificationFactKey(notification: NotificationFact): string {
   const subject = followUpTypes.includes(notification.type) ? "FOLLOW_UP" : notification.type;
+  const message = perMessageTypes.includes(notification.type) ? (notification.messageId ?? "") : "";
 
-  return [
-    subject,
-    notification.conversationId ?? "",
-    notification.taskId ?? "",
-    notification.messageId ?? "",
-  ].join(" ");
+  return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
 }
 
 // Which of the rows describing one fact the reader should actually see: the

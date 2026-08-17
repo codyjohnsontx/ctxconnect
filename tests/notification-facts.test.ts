@@ -73,6 +73,31 @@ describe("notificationFactKey", () => {
     );
   });
 
+  // What makes two rows one fact is the thread, not the message that raised
+  // them. Both writers of an unowned thread and every text arriving on a busy
+  // thread have to land on one key, or the rail lists a customer twice and the
+  // badge counts a day of texts as a day of work.
+  it("counts an unowned thread once however the row that raised it was written", () => {
+    // The webhook attaches the inbound message to its row; the operational
+    // sweep raises the same thread with no message at all.
+    assert.equal(
+      notificationFactKey(
+        alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "c1", messageId: "m1" }),
+      ),
+      notificationFactKey(alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "c1" })),
+    );
+  });
+
+  it("counts a thread's unanswered texts as one thread to answer", () => {
+    const keys = new Set(
+      ["m1", "m2", "m3", "m4", "m5"].map((messageId) =>
+        notificationFactKey(alert("NEW_INBOUND_MESSAGE", advisor, { conversationId: "c1", messageId })),
+      ),
+    );
+
+    assert.equal(keys.size, 1);
+  });
+
   it("does not confuse an absent id with a different one", () => {
     // A blank id must not slide into the neighbouring field and make two
     // unrelated alerts look like one.
@@ -162,6 +187,38 @@ describe("dedupeNotificationFacts", () => {
     ];
 
     assert.equal(dedupeNotificationFacts(rows).length, 2);
+  });
+
+  it("lists an unowned thread once, in both the shapes it is stored in", () => {
+    const rows = [
+      {
+        ...alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "c1", messageId: "m1" }),
+        title: "New unassigned customer message",
+      },
+      {
+        ...alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "c1" }),
+        title: "Unassigned conversation",
+      },
+    ];
+
+    assert.equal(dedupeNotificationFacts(rows, advisor).length, 1);
+  });
+
+  it("lists a thread that took five texts as one thread waiting on her", () => {
+    const rows = ["m1", "m2", "m3", "m4", "m5"].map((messageId) =>
+      alert("NEW_INBOUND_MESSAGE", advisor, { conversationId: "c1", messageId }),
+    );
+
+    assert.equal(dedupeNotificationFacts(rows, advisor).length, 1);
+  });
+
+  it("keeps two failed texts on one thread as two things to fix", () => {
+    const rows = [
+      alert("MESSAGE_FAILED", managerA, { conversationId: "c1", messageId: "m1" }),
+      alert("MESSAGE_FAILED", managerA, { conversationId: "c1", messageId: "m2" }),
+    ];
+
+    assert.equal(dedupeNotificationFacts(rows, advisor).length, 2);
   });
 
   it("handles an empty list", () => {
@@ -335,6 +392,24 @@ describe("the badge counts exactly what the rail can show", () => {
 
     assert.equal(scanned, 2);
     assert.equal(badgeCount(rows) - scanned, 1);
+  });
+
+  it("agrees with the rail on threads the database can only group per message", () => {
+    // The badge groups in the database, which can group only by the columns it
+    // has: the two shapes an unowned thread is written in, and every text that
+    // landed on a busy thread, all survive that grouping as separate rows.
+    // Collapsing to facts afterwards is what keeps the number she reads equal
+    // to the list she can open.
+    const perMessage = [
+      alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "conv-4", messageId: "msg-2" }),
+      alert("UNASSIGNED_CONVERSATION", managerB, { conversationId: "conv-4" }),
+      ...["msg-3", "msg-4", "msg-5", "msg-6", "msg-7"].map((messageId) =>
+        alert("NEW_INBOUND_MESSAGE", advisor, { conversationId: "conv-5", messageId }),
+      ),
+    ];
+
+    assert.equal(badgeCount(perMessage), 2);
+    assert.equal(badgeCount(perMessage), railListed(perMessage, perMessage.length));
   });
 
   it("asks one question, so an alert she has looked at is on both sides", () => {
