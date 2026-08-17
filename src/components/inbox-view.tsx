@@ -8,10 +8,11 @@ import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Textarea } from "@/components/ui/field";
+import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import type { AppUser, getInboxData } from "@/lib/data";
+import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import {
   UNDELIVERED_HEADLINE,
   isUndelivered,
@@ -103,6 +104,14 @@ export function InboxView({
   // Validated against the enum rather than printed: it arrives on the URL, and
   // the banner should never render whatever a hand-typed query string says.
   const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
+  // Formatted here rather than in the brief panel so the duplicate warning and
+  // the "Open follow-ups" list below it read the same due date the same way.
+  const openFollowUps = (selectedConversation?.tasks ?? []).map((task) => ({
+    id: task.id,
+    title: task.title,
+    dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
+  }));
+  const defaultDueDate = defaultFollowUpDueDate(new Date());
 
   return (
     <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
@@ -431,6 +440,7 @@ export function InboxView({
                 key={selectedConversation.id}
                 conversationId={selectedConversation.id}
                 initialInsight={selectedConversation.aiInsights[0] ?? null}
+                openFollowUps={openFollowUps}
                 briefIsCurrent={selectedBriefIsCurrent}
               />
 
@@ -502,7 +512,13 @@ export function InboxView({
                     <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">No open follow-ups.</p>
                   ) : (
                     selectedConversation.tasks.map((task) => (
-                      <div key={task.id} className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+                      // The brief's "See the follow-up" lands here, so the card
+                      // needs an anchor and room to clear the sticky header.
+                      <div
+                        key={task.id}
+                        id={`follow-up-${task.id}`}
+                        className="scroll-mt-6 rounded-lg border border-zinc-200 p-3 text-sm target:border-amber-400 target:bg-amber-50 dark:border-zinc-800 dark:target:border-amber-600 dark:target:bg-amber-950/40"
+                      >
                         <div className="font-medium">{task.title}</div>
                         <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                           Due {formatDistanceToNow(task.dueDate, { addSuffix: true })} · {task.assignedUser?.name ?? "Unassigned"}
@@ -557,7 +573,16 @@ export function InboxView({
                       ))}
                     </Select>
                   </div>
-                  <Input name="dueDate" type="datetime-local" required />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="follow-up-due-date">Due</Label>
+                    <Input
+                      id="follow-up-due-date"
+                      name="dueDate"
+                      type="datetime-local"
+                      required
+                      defaultValue={defaultDueDate}
+                    />
+                  </div>
                   <Button type="submit" variant="secondary" className="w-full">
                     Add follow-up
                   </Button>
