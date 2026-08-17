@@ -13,7 +13,10 @@
  * the alert rail, the Command Center and their counters share one rule.
  */
 
-import { NotificationType } from "@/generated/prisma/enums";
+import type { Department, Prisma } from "@/generated/prisma/client";
+import { NotificationStatus, NotificationType } from "@/generated/prisma/enums";
+import { canSeeAll } from "@/lib/conversation-access";
+import type { AppUser } from "@/lib/data";
 
 export type NotificationFact = {
   type: string;
@@ -88,3 +91,48 @@ export function dedupeNotificationFacts<T extends NotificationFact>(
  * next to each other in the ordering and would otherwise fill it.
  */
 export const notificationScanLimit = 60;
+
+/**
+ * How many rows the Command Center reads. The sidebar rail sends whatever it
+ * could not fit to that page, so the page has to reach further than the rail
+ * does - a "12 more in Command Center" that lands on a shorter list than the
+ * sidebar it came from is the dead end this exists to remove.
+ */
+export const notificationPageScanLimit = notificationScanLimit * 5;
+
+/**
+ * An alert stands until the work behind it is done: being resolved is the only
+ * thing that retires one, and nothing in the app marks an alert read. The rail
+ * counted the unread rows while listing everything not resolved, so its number
+ * and the list it labels were free to describe different sets. One clause now
+ * answers both.
+ */
+export const activeNotificationWhere = {
+  status: { not: NotificationStatus.RESOLVED },
+} satisfies Prisma.NotificationWhereInput;
+
+/**
+ * The alerts a staff member may read: a manager sees the dealership's, and
+ * anyone else sees the ones addressed to her plus the ones raised against her
+ * department. A reader with no department gets only her own - never an empty
+ * clause, which Prisma reads as "match everything" and would hand her the
+ * whole dealership's alerts.
+ */
+export function notificationScopeWhere(user: AppUser): Prisma.NotificationWhereInput {
+  if (canSeeAll(user)) {
+    return {};
+  }
+
+  const orFilters: Prisma.NotificationWhereInput[] = [{ recipientUserId: user.id }];
+
+  if (user.department) {
+    orFilters.push({ department: user.department as Department });
+  }
+
+  return { OR: orFilters };
+}
+
+/** The alerts standing against this staff member right now - the set the rail lists and its badge counts. */
+export function activeNotificationsWhere(user: AppUser): Prisma.NotificationWhereInput {
+  return { AND: [notificationScopeWhere(user), activeNotificationWhere] };
+}

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  activeNotificationsWhere,
   dedupeNotificationFacts,
   notificationFactKey,
+  notificationScopeWhere,
 } from "../src/lib/notification-facts";
+import type { Prisma } from "../src/generated/prisma/client";
 
 // Attend stores one alert row per recipient, so a single fact - a thread with
 // no owner, a text that failed, a follow-up past its time - arrives at the
@@ -163,5 +166,185 @@ describe("dedupeNotificationFacts", () => {
 
   it("handles an empty list", () => {
     assert.deepEqual(dedupeNotificationFacts([], advisor), []);
+  });
+});
+
+// The rail's badge and the rail's list ask the same question - what is still
+// waiting on this member of staff - so they now ask it with one clause. These
+// run that clause against rows rather than checking its shape, because the
+// mistake it replaced was a clause that read correctly and matched the whole
+// dealership.
+type AlertRow = {
+  recipientUserId: string | null;
+  department: string | null;
+  status: string;
+};
+
+function matches(where: Prisma.NotificationWhereInput, row: AlertRow): boolean {
+  const clause = where as Record<string, unknown>;
+
+  if (Array.isArray(clause.AND)) {
+    return (clause.AND as Prisma.NotificationWhereInput[]).every((part) => matches(part, row));
+  }
+
+  if (Array.isArray(clause.OR)) {
+    return (clause.OR as Prisma.NotificationWhereInput[]).some((part) => matches(part, row));
+  }
+
+  const conditions = Object.entries(clause).map(([field, expected]) => {
+    const actual = row[field as keyof AlertRow];
+
+    if (expected && typeof expected === "object" && "not" in expected) {
+      return actual !== (expected as { not: unknown }).not;
+    }
+
+    return actual === expected;
+  });
+
+  // An empty clause is Prisma's "match everything", which is what a missing
+  // department must never turn a reader's scope into.
+  return conditions.every(Boolean);
+}
+
+const serviceAdvisor = { id: advisor, role: "STAFF", department: "SERVICE" };
+const manager = { id: "manager", role: "MANAGER", department: "SALES" };
+const floater = { id: "floater", role: "STAFF", department: null };
+
+function alertRow(overrides: Partial<AlertRow> = {}): AlertRow {
+  return {
+    recipientUserId: managerA,
+    department: "SERVICE",
+    status: "UNREAD",
+    ...overrides,
+  };
+}
+
+describe("notificationScopeWhere", () => {
+  it("gives an advisor the alerts addressed to her", () => {
+    assert.equal(
+      matches(notificationScopeWhere(serviceAdvisor), alertRow({ recipientUserId: serviceAdvisor.id, department: "PARTS" })),
+      true,
+    );
+  });
+
+  it("gives an advisor the alerts raised against her department, whoever they were addressed to", () => {
+    assert.equal(matches(notificationScopeWhere(serviceAdvisor), alertRow({ department: "SERVICE" })), true);
+  });
+
+  it("keeps another department's alerts out of her rail", () => {
+    assert.equal(matches(notificationScopeWhere(serviceAdvisor), alertRow({ department: "PARTS" })), false);
+  });
+
+  it("gives a manager the whole dealership", () => {
+    assert.equal(matches(notificationScopeWhere(manager), alertRow({ department: "PARTS" })), true);
+  });
+
+  it("gives a reader with no department only her own alerts", () => {
+    const scope = notificationScopeWhere(floater);
+
+    assert.equal(matches(scope, alertRow({ recipientUserId: floater.id, department: null })), true);
+    assert.equal(matches(scope, alertRow({ department: "SERVICE" })), false);
+  });
+});
+
+describe("activeNotificationsWhere", () => {
+  it("counts an alert that is still standing", () => {
+    assert.equal(
+      matches(activeNotificationsWhere(serviceAdvisor), alertRow({ department: "SERVICE", status: "UNREAD" })),
+      true,
+    );
+  });
+
+  it("leaves out an alert whose work is done", () => {
+    assert.equal(
+      matches(activeNotificationsWhere(serviceAdvisor), alertRow({ department: "SERVICE", status: "RESOLVED" })),
+      false,
+    );
+  });
+
+  it("keeps an alert she has already looked at, because looking is not doing", () => {
+    assert.equal(
+      matches(activeNotificationsWhere(serviceAdvisor), alertRow({ department: "SERVICE", status: "READ" })),
+      true,
+    );
+  });
+
+  it("still respects who may read it", () => {
+    assert.equal(
+      matches(activeNotificationsWhere(serviceAdvisor), alertRow({ department: "PARTS", status: "UNREAD" })),
+      false,
+    );
+  });
+});
+
+// The defect this closes, seen on the running app before the fix: the badge
+// read 5 and the rail listed 3, with no route to the other 2. The badge and
+// the list were two different questions - one counted the unread rows, the
+// other listed everything not resolved and then cut the list short - so they
+// were free to describe different sets.
+//
+// This runs both paths over one set of rows: the badge counts facts through a
+// database grouping, the rail dedupes the rows it read. They have to land on
+// the same number, and everything counted has to be reachable.
+describe("the badge counts exactly what the rail can show", () => {
+  type StoredAlert = ReturnType<typeof alert>;
+
+  /** What `countNotificationFacts` does: group in the database, then collapse. */
+  function badgeCount(all: StoredAlert[]) {
+    const grouped = new Map<string, StoredAlert>();
+
+    for (const row of all) {
+      grouped.set([row.type, row.conversationId, row.taskId, row.messageId].join(" "), row);
+    }
+
+    return dedupeNotificationFacts([...grouped.values()]).length;
+  }
+
+  /** What the rail does: read up to the scan limit, then collapse. */
+  function railListed(all: StoredAlert[], scanLimit: number) {
+    return dedupeNotificationFacts(all.slice(0, scanLimit), advisor).length;
+  }
+
+  const rows = [
+    // One overdue follow-up, copied to two managers and its assignee.
+    alert("FOLLOW_UP_OVERDUE", managerA, { taskId: "task-1", conversationId: "conv-1" }),
+    alert("FOLLOW_UP_OVERDUE", managerB, { taskId: "task-1", conversationId: "conv-1" }),
+    alert("FOLLOW_UP_OVERDUE", advisor, { taskId: "task-1", conversationId: "conv-1" }),
+    // The "due today" row it superseded, still stored.
+    alert("FOLLOW_UP_DUE", managerA, { taskId: "task-1", conversationId: "conv-1" }),
+    // A failed text, copied to both managers.
+    alert("MESSAGE_FAILED", managerA, { conversationId: "conv-2", messageId: "msg-1" }),
+    alert("MESSAGE_FAILED", managerB, { conversationId: "conv-2", messageId: "msg-1" }),
+    // An unowned thread.
+    alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "conv-3" }),
+  ];
+
+  it("agrees with the rail on how many things are waiting", () => {
+    assert.equal(badgeCount(rows), railListed(rows, rows.length));
+  });
+
+  it("counts three real facts out of seven stored rows", () => {
+    assert.equal(badgeCount(rows), 3);
+  });
+
+  it("says how many are past the scan rather than dropping them silently", () => {
+    // A scan short enough to miss the last fact: the rail lists what it read
+    // and the difference against the badge is what the "more in Command
+    // Center" row exists to carry.
+    const scanned = railListed(rows, 6);
+
+    assert.equal(scanned, 2);
+    assert.equal(badgeCount(rows) - scanned, 1);
+  });
+
+  it("asks one question, so an alert she has looked at is on both sides", () => {
+    // The badge used to count only UNREAD while the list showed everything not
+    // resolved. Nothing in the app marks an alert read, which is the only
+    // reason that never showed up as a divergence on its own.
+    const where = activeNotificationsWhere(serviceAdvisor);
+
+    for (const status of ["UNREAD", "READ"]) {
+      assert.equal(matches(where, alertRow({ department: "SERVICE", status })), true, status);
+    }
   });
 });

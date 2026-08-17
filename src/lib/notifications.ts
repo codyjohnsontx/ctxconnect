@@ -11,15 +11,10 @@ import {
   type Prisma,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { AppUser } from "@/lib/data";
-import { dedupeNotificationFacts, notificationScanLimit } from "@/lib/notification-facts";
+import { activeNotificationWhere, dedupeNotificationFacts } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
 
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
-
-const activeNotificationWhere = {
-  status: { in: [NotificationStatus.UNREAD, NotificationStatus.READ] },
-} satisfies Prisma.NotificationWhereInput;
 
 const managerWhere = {
   active: true,
@@ -333,44 +328,4 @@ export async function syncOperationalNotifications() {
       });
     }),
   );
-}
-
-export async function getNotificationSummary(user: AppUser) {
-  await syncOperationalNotifications();
-
-  const userCanSeeAll = user.role === Role.ADMIN || user.role === Role.MANAGER;
-  const scopedWhere: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
-        ],
-      };
-
-  const [unreadCount, commandCount, latest] = await Promise.all([
-    countNotificationFacts({
-      AND: [scopedWhere, { status: NotificationStatus.UNREAD }],
-    }),
-    countNotificationFacts({
-      AND: [scopedWhere, activeNotificationWhere],
-    }),
-    prisma.notification.findMany({
-      where: {
-        AND: [scopedWhere, activeNotificationWhere],
-      },
-      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: notificationScanLimit,
-      include: {
-        conversation: { include: { customer: true } },
-        task: { include: { customer: true } },
-      },
-    }),
-  ]);
-
-  return {
-    unreadCount,
-    commandCount,
-    latest: dedupeNotificationFacts(latest, user.id).slice(0, 8),
-  };
 }

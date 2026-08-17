@@ -4,7 +4,6 @@ import {
   DeliveryStatus,
   Department,
   MessageDirection,
-  NotificationStatus,
   NotificationType,
   type Prisma,
   Priority,
@@ -20,7 +19,14 @@ import {
   scopedConversationWhere,
 } from "@/lib/conversation-access";
 import { getIntegrationHealth } from "@/lib/env";
-import { dedupeNotificationFacts, notificationScanLimit } from "@/lib/notification-facts";
+import {
+  activeNotificationWhere,
+  activeNotificationsWhere,
+  dedupeNotificationFacts,
+  notificationPageScanLimit,
+  notificationScanLimit,
+  notificationScopeWhere,
+} from "@/lib/notification-facts";
 import {
   countNotificationFacts,
   notificationHref,
@@ -380,13 +386,7 @@ async function getCommandCenterFocusItems(
     case "slaMissed": {
       const notifications = await prisma.notification.findMany({
         where: {
-          AND: [
-            notificationScope,
-            {
-              type: NotificationType.SLA_MISSED,
-              status: { not: NotificationStatus.RESOLVED },
-            },
-          ],
+          AND: [notificationScope, activeNotificationWhere, { type: NotificationType.SLA_MISSED }],
         },
         orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
         take: notificationScanLimit,
@@ -545,14 +545,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   const selectedFocus = isCommandCenterFocus(focusParam) ? focusParam : undefined;
   const userCanSeeAll = canSeeAll(user);
   const taskScope = scopedTaskWhere(user);
-  const notificationScope: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          ...(user.department ? [{ department: user.department as Department }] : []),
-        ],
-      };
+  const notificationScope = notificationScopeWhere(user);
 
   const [
     unread,
@@ -567,6 +560,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     overdue,
     visibleConversations,
     latestNotifications,
+    notificationCount,
     focusItems,
     needsAction,
     users,
@@ -586,7 +580,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     countNotificationFacts({
-      AND: [notificationScope, { type: NotificationType.SLA_MISSED, status: { not: NotificationStatus.RESOLVED } }],
+      AND: [notificationScope, activeNotificationWhere, { type: NotificationType.SLA_MISSED }],
     }),
     prisma.conversation.count({
       where: {
@@ -640,16 +634,15 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     prisma.notification.findMany({
-      where: {
-        AND: [notificationScope, { status: { not: NotificationStatus.RESOLVED } }],
-      },
+      where: { AND: [notificationScope, activeNotificationWhere] },
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: notificationScanLimit,
+      take: notificationPageScanLimit,
       include: {
         conversation: { include: { customer: true, assignedUser: true } },
         task: { include: { customer: true, assignedUser: true } },
       },
     }),
+    countNotificationFacts({ AND: [notificationScope, activeNotificationWhere] }),
     getCommandCenterFocusItems(user, selectedFocus, now, todayEnd, notificationScope),
     prisma.conversation.findMany({
       where: {
@@ -698,7 +691,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
           where: { status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] } },
         },
         notifications: {
-          where: { status: { not: NotificationStatus.RESOLVED } },
+          where: activeNotificationWhere,
         },
       },
     }),
@@ -793,12 +786,14 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       definition: "Average time from a visible inbound customer SMS to the next outbound staff reply over the last 14 days.",
     },
     visibleConversations,
-    latestNotifications: dedupeNotificationFacts(latestNotifications, user.id)
-      .slice(0, 12)
-      .map((notification) => ({
-        ...notification,
-        href: notificationHref(notification),
-      })),
+    // Not a sample: this is where the rail sends the alerts it could not fit,
+    // so it lists everything the deeper scan reached and the panel says how
+    // many are beyond it.
+    latestNotifications: dedupeNotificationFacts(latestNotifications, user.id).map((notification) => ({
+      ...notification,
+      href: notificationHref(notification),
+    })),
+    notificationCount,
     selectedFocus,
     focusItems,
     needsAction,
@@ -822,16 +817,12 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
 export async function getShellData(user: AppUser) {
   const scope = scopedConversationWhere(user);
   const userCanSeeAll = canSeeAll(user);
-  const notificationScope: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          ...(user.department ? [{ department: user.department as Department }] : []),
-        ],
-      };
+  // The rail's badge and the rail's list are the same question asked twice, so
+  // they ask it with the same clause: a number the list cannot account for is
+  // work the advisor has no way to reach.
+  const alertWhere = activeNotificationsWhere(user);
 
-  const [inboxCount, taskCount, commandCount, latestNotifications] = await Promise.all([
+  const [inboxCount, taskCount, alertCount, alerts] = await Promise.all([
     prisma.conversation.count({
       where: {
         AND: [
@@ -861,13 +852,9 @@ export async function getShellData(user: AppUser) {
 	            ],
 	          },
     }),
-    countNotificationFacts({
-      AND: [notificationScope, { status: NotificationStatus.UNREAD }],
-    }),
+    countNotificationFacts(alertWhere),
     prisma.notification.findMany({
-      where: {
-        AND: [notificationScope, { status: { not: NotificationStatus.RESOLVED } }],
-      },
+      where: alertWhere,
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
       take: notificationScanLimit,
       include: {
@@ -881,14 +868,15 @@ export async function getShellData(user: AppUser) {
     counts: {
       inbox: inboxCount,
       tasks: taskCount,
-      command: commandCount,
+      command: alertCount,
     },
-    latestNotifications: dedupeNotificationFacts(latestNotifications, user.id)
-      .slice(0, 5)
-      .map((notification) => ({
-        ...notification,
-        href: notificationHref(notification),
-      })),
+    // Every alert the scan reached, not a sample of them: the rail scrolls, so
+    // the only alerts it leaves out are the ones beyond the scan limit, and it
+    // says how many those are rather than dropping them silently.
+    latestNotifications: dedupeNotificationFacts(alerts, user.id).map((notification) => ({
+      ...notification,
+      href: notificationHref(notification),
+    })),
   };
 }
 
