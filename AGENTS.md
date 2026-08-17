@@ -1199,6 +1199,13 @@ Use the most relevant validation command for the change.
 
 If a command is unavailable, fails because of unrelated existing issues, or cannot be run in the current environment, say so clearly.
 
+Running the app locally has traps that cost an hour each if you rediscover them - a
+gitignored `.env` pointing at a dead database, a `prisma dev` server that corrupts the
+Postgres wire protocol under concurrent queries, and a demo account that silently blocks
+the send path. They are documented in
+[`.claude/skills/verify/SKILL.md`](./.claude/skills/verify/SKILL.md); read it before
+driving the app end to end, and add anything new you learn there rather than here.
+
 ## Final Response After Work
 
 After completing product planning or implementation work, summarize in a product-aware way.

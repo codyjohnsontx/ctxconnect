@@ -2,15 +2,20 @@ import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { z } from "zod";
 import { getTwilioConfig } from "@/lib/env";
+import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
 import { prisma } from "@/lib/prisma";
+import { smsOverBy, smsTooLongMessage } from "@/lib/sms-length";
 import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, Priority } from "@/generated/prisma/client";
 import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 import { getActiveSessionUser } from "@/lib/session";
 
+// The length limit is checked after parsing rather than inside the schema, so a
+// reply that is merely too long gets a sentence naming how much to cut instead
+// of the same "invalid payload" a malformed request gets.
 const sendSchema = z.object({
   conversationId: z.string().min(1),
-  body: z.string().trim().min(1).max(1600),
+  body: z.string().trim().min(1),
 });
 
 export async function POST(request: Request) {
@@ -31,6 +36,12 @@ export async function POST(request: Request) {
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid message payload." }, { status: 400 });
+  }
+
+  const overBy = smsOverBy(parsed.data.body);
+
+  if (overBy > 0) {
+    return NextResponse.json({ error: smsTooLongMessage(overBy) }, { status: 400 });
   }
 
   let conversation;
@@ -78,24 +89,21 @@ export async function POST(request: Request) {
       where: { id: message.id },
       data: {
         deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: "Twilio configuration is incomplete. Review Settings > Integration health.",
+        errorMessage: TEXTING_NOT_CONNECTED,
       },
     });
 
     await notifyManagers({
       type: NotificationType.MESSAGE_FAILED,
       title: "Message failed",
-      body: `${conversation.customer.name}: Twilio configuration is incomplete.`,
+      body: `${conversation.customer.name}: texting is not connected for the dealership.`,
       conversationId: conversation.id,
       messageId: message.id,
       department: conversation.department,
       priority: Priority.HIGH,
     });
 
-    return NextResponse.json(
-      { error: "Twilio configuration is incomplete. Review Settings > Integration health." },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: TEXTING_NOT_CONNECTED }, { status: 503 });
   }
 
   try {
