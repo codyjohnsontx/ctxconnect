@@ -392,12 +392,12 @@ describe("the badge counts exactly what the rail can show", () => {
     assert.equal(badgeCount(rows) - scanned, 1);
   });
 
-  it("agrees with the rail on threads the database can only group per message", () => {
-    // The badge groups in the database, which can group only by the columns it
-    // has: the two shapes an unowned thread is written in, and every text that
-    // landed on a busy thread, all survive that grouping as separate rows.
-    // Collapsing to facts afterwards is what keeps the number she reads equal
-    // to the list she can open.
+  it("agrees with the rail on a thread that is stored once per text", () => {
+    // Both sides ask the fact key: the database counts distinct values of it,
+    // the rail collapses the rows it read by it. So the shapes that used to
+    // read as several things to do - the two an unowned thread is written in,
+    // and a row per text that landed on a busy thread - come to one fact
+    // whichever side of the screen is asking.
     const perMessage = [
       alert("UNASSIGNED_CONVERSATION", managerA, { conversationId: "conv-4", messageId: "msg-2" }),
       alert("UNASSIGNED_CONVERSATION", managerB, { conversationId: "conv-4" }),
