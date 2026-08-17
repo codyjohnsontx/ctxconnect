@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { SendHorizonal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
+import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
 import { smsOverBy, smsTooLongMessage } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
 import type { Department } from "@/generated/prisma/client";
@@ -18,6 +19,8 @@ type Template = {
 
 type MessageComposerProps = {
   conversationId: string;
+  /** The signed-in advisor, so a shared browser keeps drafts apart. */
+  userId: string;
   customerName: string;
   advisorName: string;
   dealershipName: string;
@@ -31,8 +34,47 @@ type MessageComposerProps = {
   unsentBody?: string | null;
 };
 
+const EMPTY_DRAFT: Draft = { body: "", blanks: [] };
+
+// Whether the browser has let us touch its storage so far. A private window or
+// a locked-down profile throws; the composer keeps working and simply stops
+// promising that the draft is being kept. Module-level because it is a fact
+// about the browser, not about one conversation.
+let storageWorks = true;
+
+function readStoredDraft(key: string): Draft | null {
+  try {
+    return parseDraft(window.localStorage.getItem(key), Date.now());
+  } catch {
+    storageWorks = false;
+    return null;
+  }
+}
+
+function writeStoredDraft(key: string, draft: Draft): void {
+  try {
+    const payload = serializeDraft(draft, Date.now());
+
+    if (payload === null) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, payload);
+    }
+  } catch {
+    storageWorks = false;
+  }
+}
+
+// The stored draft only exists in the browser, so the server render has to be
+// the empty box and the first client render has to match it. These three feed
+// the standard "am I hydrated yet" read.
+const noStoreToSubscribeTo = () => () => {};
+const onTheClient = () => true;
+const onTheServer = () => false;
+
 export function MessageComposer({
   conversationId,
+  userId,
   customerName,
   advisorName,
   dealershipName,
@@ -44,13 +86,26 @@ export function MessageComposer({
   unsentBody,
 }: MessageComposerProps) {
   const router = useRouter();
-  const [body, setBody] = useState("");
+  // What she has typed here in this visit, or null while the box is still
+  // showing whatever she left behind last time.
+  const [edited, setEdited] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  // Blanks the last applied template left behind, so a draft can be checked for
-  // the ones Attend put there without treating her own brackets as unfinished.
-  const [blanks, setBlanks] = useState<string[]>([]);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  const hydrated = useSyncExternalStore(noStoreToSubscribeTo, onTheClient, onTheServer);
+
+  const storageKey = draftStorageKey(userId, conversationId);
+
+  // Until she touches the box it shows the reply she was part-way through when
+  // she last left this thread. The queue on the left is how she checks
+  // anything, and clicking it used to hand the text back as an empty box.
+  const stored = hydrated && !edited ? readStoredDraft(storageKey) : null;
+  const draft = edited ?? stored ?? EMPTY_DRAFT;
+  // Blanks travel with the body rather than in their own state, so a draft put
+  // back after a reload still knows which brackets Attend left and which are
+  // her own words.
+  const { body, blanks } = draft;
 
   const unfilled = useMemo(() => remainingBlanks(body, blanks), [body, blanks]);
 
@@ -62,6 +117,16 @@ export function MessageComposer({
   // she has started typing, replacing what she wrote would cost more than the
   // retyping it saves.
   const canRestoreUnsent = Boolean(unsentBody) && !body.trim() && !disabled && !demoBlocked && !isPending;
+
+  // Only what she has actually edited is written back, so the first renders -
+  // before hydration has had a chance to read - cannot erase the stored draft.
+  useEffect(() => {
+    if (!edited) {
+      return;
+    }
+
+    writeStoredDraft(storageKey, edited);
+  }, [edited, storageKey]);
 
   const availableTemplates = useMemo(
     () => templates.filter((template) => template.department === department || template.department === "GENERAL"),
@@ -77,8 +142,7 @@ export function MessageComposer({
 
     const filled = fillTemplate(template.body, { customerName, advisorName, dealershipName, unit });
 
-    setBody(filled.body);
-    setBlanks(filled.blanks);
+    setEdited({ body: filled.body, blanks: filled.blanks });
     setError(null);
 
     // Put the cursor on the first blank so filling it in is the next keystroke
@@ -117,8 +181,9 @@ export function MessageComposer({
         return;
       }
 
-      setBody("");
-      setBlanks([]);
+      // An empty edit rather than no edit: it clears the box and, through the
+      // effect above, the stored draft the sent reply came from.
+      setEdited(EMPTY_DRAFT);
       router.refresh();
     });
   }
@@ -128,7 +193,7 @@ export function MessageComposer({
       {canRestoreUnsent ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200 dark:bg-red-950/50 dark:text-red-100 dark:ring-red-900">
           <span>{customerName} never got your last reply.</span>
-          <Button type="button" size="sm" variant="secondary" onClick={() => setBody(unsentBody ?? "")}>
+          <Button type="button" size="sm" variant="secondary" onClick={() => setEdited({ body: unsentBody ?? "", blanks: [] })}>
             Rewrite it
           </Button>
         </div>
@@ -160,7 +225,7 @@ export function MessageComposer({
         <Textarea
           ref={bodyRef}
           value={body}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={(event) => setEdited({ body: event.target.value, blanks })}
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
@@ -195,6 +260,21 @@ export function MessageComposer({
       ) : disabled ? (
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           This customer has opted out with STOP. They must text START before staff can send again.
+        </p>
+      ) : null}
+      {/* Says out loud that leaving the thread is safe - the reassurance is
+          most of the point - and it is what makes an already-filled box she
+          comes back to read as her own draft rather than a reply she sent. */}
+      {storageWorks && body.trim() ? (
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
+          Saved as a draft on this device.
+          <button
+            type="button"
+            onClick={() => setEdited(EMPTY_DRAFT)}
+            className="font-medium underline underline-offset-2 transition hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            Discard draft
+          </button>
         </p>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}

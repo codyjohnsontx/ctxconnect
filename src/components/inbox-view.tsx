@@ -387,7 +387,9 @@ export function InboxView({
             </div>
 
             <MessageComposer
+              key={selectedConversation.id}
               conversationId={selectedConversation.id}
+              userId={currentUser.id}
               customerName={selectedConversation.customer.name}
               advisorName={advisorName}
               dealershipName={dealershipSettings.dealershipName}

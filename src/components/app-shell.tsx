@@ -35,6 +35,7 @@ const navItems: Array<{
 type AppShellProps = {
   children: ReactNode;
   user: {
+    id: string;
     name?: string | null;
     role: string;
   };
@@ -123,7 +124,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
           </div>
           <div className="flex gap-2">
             <ThemeToggle />
-            <SignOutButton />
+            <SignOutButton userId={user.id} />
           </div>
         </div>
       </aside>
