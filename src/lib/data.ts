@@ -9,12 +9,16 @@ import {
   type Prisma,
   Priority,
   ProductEventType,
-  Role,
   TaskStatus,
 } from "@/generated/prisma/client";
 import { getQueueBriefCoverage } from "@/lib/ai/ambient-pass";
 import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
 import { rankConversationQueue } from "@/lib/ai/queue-rank";
+import {
+  canAccessConversation,
+  canSeeAll,
+  scopedConversationWhere,
+} from "@/lib/conversation-access";
 import { getIntegrationHealth } from "@/lib/env";
 import { notificationHref, syncOperationalNotifications } from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
@@ -65,25 +69,10 @@ const dealershipSettingsSelect = {
   websiteUrl: true,
 } satisfies Prisma.DealershipSettingsSelect;
 
-export function canSeeAll(user: AppUser) {
-  return user.role === Role.ADMIN || user.role === Role.MANAGER;
-}
-
-export function scopedConversationWhere(user: AppUser): Prisma.ConversationWhereInput {
-  if (canSeeAll(user)) {
-    return {};
-  }
-
-  const orFilters: Prisma.ConversationWhereInput[] = [{ assignedUserId: user.id }];
-
-  if (user.department) {
-    orFilters.push({ department: user.department as Department });
-  }
-
-  return {
-    OR: orFilters,
-  };
-}
+// The conversation access rules live in a database-free module so they can be
+// tested directly and read by the controls panel in the browser; they stay
+// exported from here so callers keep one place to ask who sees what.
+export { canAccessConversation, canSeeAll, scopedConversationWhere };
 
 async function getOrCreateDealershipSettings() {
   return prisma.dealershipSettings.upsert({
@@ -208,9 +197,13 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
           },
         })
       : null,
+    // Only the two fields the assignee pickers render. The full row carries a
+    // password hash, and the pickers now live in a client component, so a
+    // `select` here is what keeps hashes out of the page payload.
     prisma.user.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
     prisma.tag.findMany({ orderBy: { name: "asc" } }),
     prisma.template.findMany({

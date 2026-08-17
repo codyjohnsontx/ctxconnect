@@ -1,6 +1,12 @@
 import { Role, type Department, type Prisma } from "@/generated/prisma/client";
 import type { AppUser } from "@/lib/data";
+import { canAccessConversation } from "@/lib/conversation-access";
 import { prisma } from "@/lib/prisma";
+
+// The conversation access rule lives in a database-free module so it can be
+// tested directly and read by the controls panel in the browser; it stays
+// exported from here so callers keep one place to ask about permissions.
+export { canAccessConversation };
 
 export function isAdmin(user: AppUser) {
   return user.role === Role.ADMIN;
@@ -50,29 +56,7 @@ export async function requireConversationAccess(user: AppUser, conversationId: s
     throw new Error("Conversation not found.");
   }
 
-  if (isManagerOrAdmin(user)) {
-    return conversation;
-  }
-
-  const accessFilters: Prisma.ConversationWhereInput[] = [{ assignedUserId: user.id }];
-
-  if (user.department) {
-    accessFilters.push({ department: user.department as Department });
-  }
-
-  const hasAccess = accessFilters.some((filter) => {
-    if ("assignedUserId" in filter) {
-      return conversation.assignedUserId === filter.assignedUserId;
-    }
-
-    if ("department" in filter) {
-      return conversation.department === filter.department;
-    }
-
-    return false;
-  });
-
-  if (!hasAccess) {
+  if (!canAccessConversation(user, conversation)) {
     throw new Error("Conversation access denied.");
   }
 

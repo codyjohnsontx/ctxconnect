@@ -30,6 +30,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
       selectedId={conversationId}
       searchParams={query}
       isDemo={Boolean(user.isDemo)}
+      currentUser={user}
     />
   );
 }
