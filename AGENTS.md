@@ -1276,7 +1276,7 @@ from there. Read the module before changing a surface that depends on it; a seco
 copy of one of these rules is how the screen and the database end up disagreeing.
 
 * Who may open a conversation: [`src/lib/conversation-access.ts`](./src/lib/conversation-access.ts). The queue query, the server-side guard and the controls panel all read it, because a department hand-off can take a thread out of the advisor making it.
-* What counts as one alert: [`src/lib/notification-facts.ts`](./src/lib/notification-facts.ts). A `Notification` row is stored **once per recipient**, so a badge that counts rows overstates the work; the same module also owns the one scope-and-status clause the rail's badge and the rail's list both use.
+* What counts as one alert: [`src/lib/notification-facts.ts`](./src/lib/notification-facts.ts). A `Notification` row is stored **once per recipient**, so a badge that counts rows overstates the work. The same module owns the scope-and-status rule behind the rail's badge and the rail's list, in the two forms they need: a Prisma clause the list filters with, and SQL the badge counts distinct facts with. Both are built there from one pair of lists, and the SQL is why this one module is server-only.
 * Whose voice a queue row is previewing: [`src/lib/message-preview.ts`](./src/lib/message-preview.ts).
 * Whether the brief's suggested follow-up already exists: [`src/lib/follow-ups.ts`](./src/lib/follow-ups.ts).
 
