@@ -11,10 +11,12 @@ import { DeliveryStatus, MessageDirection } from "@/generated/prisma/client";
  * The failure the dealership can actually act on, written by the send route so
  * the API response and the stored message carry the same sentence. An advisor
  * cannot fix the connection herself, so this names who can rather than naming
- * the vendor or the environment variable behind it.
+ * the vendor or the environment variable behind it. It names no screen either:
+ * Settings only reports the connection as a read-only health card, so sending
+ * her there would promise a reconnect the product does not offer.
  */
 export const TEXTING_NOT_CONNECTED =
-  "Texting is not connected for this dealership, so no message can go out. An administrator can reconnect it in Settings.";
+  "Texting is not connected for this dealership, so no message can go out. An administrator can reconnect texting for the dealership.";
 
 /**
  * What the advisor reads when nothing more specific is known. Carrier failures

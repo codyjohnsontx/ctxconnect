@@ -253,8 +253,9 @@ end to end, fixed, and covered by tests. No usage claims.
   which is recoverable, whereas an invented time reads as fact.
 - **The red bubble is a colour signal.** It also carries text and an icon, so it
   does not depend on colour alone.
-- **The 1600 limit is Attend's, not the carrier's.** It matches what the route
-  has always enforced; this change only makes the refusal legible.
+- **The 1600 limit is Twilio's, so it is not ours to raise.** Twilio rejects a
+  longer body outright. It matches what the route has always enforced; this
+  change only makes the refusal legible.
 
 ## Open Questions
 
