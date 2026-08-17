@@ -13,6 +13,19 @@ description: How to run and drive Attend locally to verify changes end-to-end (d
 - `next build` needs `DATABASE_URL` **in the environment** — it does not load `.env` for the Prisma-client module eval during page-data collection, so a clean build errors with "DATABASE_URL is required to create the Prisma client" on every Prisma-importing route (`/login`, etc.). `next build` only needs `DATABASE_URL` (that's all `src/lib/prisma.ts` reads). Export it first: `export $(grep -E '^DATABASE_URL=' .env | sed 's/\"//g')` then `npx --no-install next build`. (On Vercel it's a real build env var, so CI/prod builds fine.)
 - `npm run prisma:seed` reseeds demo data (destructive-recreate of seeded conversations; user IDs stable). With `OPENAI_API_KEY` set it also regenerates every seeded AI brief through the real model, so the seed costs money: `SEED_AI_BRIEFS=false` skips that step (see the README's seed section).
 
+## Local database
+
+`.env` is gitignored, so a fresh worktree inherits whatever URL the last session wrote - usually a dead `prisma dev` port. Check it before blaming the app.
+
+- **Do not point `DATABASE_URL` at a `prisma dev` server.** Any page that issues concurrent queries (`getInboxData` runs a `Promise.all`) intermittently dies with `DriverAdapterError: bind message supplies N parameters, but prepared statement "" requires M`, where N and M vary per request. That is Postgres wire-protocol desync through the `prisma dev` proxy, not a code bug - `/inbox` may survive while `/inbox/[conversationId]` 500s every time. Use a plain Postgres instead: create a database on a real server, point `DATABASE_URL` and `DIRECT_URL` at it with no extra query params, `prisma migrate deploy`, then seed.
+- Extra libpq-style params in the URL (`connection_limit`, `pool_timeout`, …) make the desync above much more frequent. Keep the URL bare.
+
+## Driving the send path
+
+`DEMO_USER_EMAIL` is often set to `service@ctxchat.local` locally - the primary-user account. `isDemo` is stamped into the JWT at sign-in from that variable, so the service advisor is demo-capped and `POST /api/messages/send` returns 403 before it reaches any send logic. To exercise sending, repoint `DEMO_USER_EMAIL` at something else, then **sign out and back in** (editing `.env` alone does not restamp an existing token).
+
+Twilio is normally unconfigured locally, so a send is persisted and then marked `FAILED` with a 503 rather than reaching a carrier. That is the cheapest way to produce a failed-delivery state to look at.
+
 ## Driving auth flows without a browser
 
 Cookie-jar curl against NextAuth v4 endpoints:

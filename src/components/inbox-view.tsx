@@ -8,15 +8,15 @@ import { QueueStatus } from "@/components/queue-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
-import {
-  ConversationStatus,
-  DeliveryStatus,
-  Department,
-  MessageDirection,
-  Priority,
-} from "@/generated/prisma/client";
+import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import type { getInboxData } from "@/lib/data";
+import {
+  UNDELIVERED_HEADLINE,
+  isUndelivered,
+  lastUndeliveredOutbound,
+  undeliveredDetail,
+} from "@/lib/message-delivery";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
 type InboxData = Awaited<ReturnType<typeof getInboxData>>;
@@ -78,9 +78,11 @@ export function InboxView({
   isDemo,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
+  // null rather than a stand-in word: a template that names the bike should ask
+  // for it, not text the customer about "your unit".
   const unit = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-    : "unit";
+    : null;
   const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
   const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
@@ -158,6 +160,10 @@ export function InboxView({
             <div className="divide-y divide-zinc-100">
               {conversations.map((conversation) => {
                 const lastMessage = conversation.messages[0];
+                // The preview is whatever was written last, which includes a reply
+                // that never reached the customer. Left unmarked it reads as an
+                // answer already given, and the row is where she decides to skip.
+                const previewUndelivered = lastMessage ? isUndelivered(lastMessage) : false;
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
                 const insight = conversation.aiInsights[0];
@@ -188,7 +194,13 @@ export function InboxView({
                         {formatDistanceToNow(conversation.lastMessageAt, { addSuffix: true })}
                       </span>
                     </div>
-                    <p className="line-clamp-2 text-sm text-zinc-600 dark:text-zinc-300">
+                    <p className="line-clamp-2 break-words text-sm text-zinc-600 dark:text-zinc-300">
+                      {previewUndelivered ? (
+                        // The space is a real text node rather than a margin so the
+                        // label and the message do not run together when the row is
+                        // read aloud or copied.
+                        <span className="font-semibold text-red-600 dark:text-red-400">Not delivered: </span>
+                      ) : null}
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
                     {insight && !insight.dismissedAt ? (
@@ -294,6 +306,8 @@ export function InboxView({
               {selectedConversation.messages.map((message) => {
                 const internal = message.direction === MessageDirection.INTERNAL;
                 const outbound = message.direction === MessageDirection.OUTBOUND;
+                const undelivered = isUndelivered(message);
+                const undeliveredCause = undelivered ? undeliveredDetail(message.errorMessage) : null;
 
                 return (
                   <div
@@ -310,6 +324,12 @@ export function InboxView({
                         outbound && "bg-zinc-950 text-white",
                         message.direction === MessageDirection.INBOUND && "bg-white text-zinc-900 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800",
                         internal && "max-w-[88%] bg-amber-50 text-amber-950 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-100 dark:ring-amber-900",
+                        // An undelivered reply keeps the sent bubble's shape and side,
+                        // because that is where she wrote it, but loses the delivered
+                        // bubble's colour so the two can never be skimmed as the same
+                        // thing.
+                        undelivered &&
+                          "bg-red-50 text-red-950 ring-1 ring-red-300 dark:bg-red-950/60 dark:text-red-50 dark:ring-red-800",
                       )}
                     >
                       <div className="mb-1 flex items-center gap-2 text-xs opacity-70">
@@ -322,10 +342,24 @@ export function InboxView({
                               : selectedConversation.customer.name}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap leading-6">{message.body}</p>
+                      {/* break-words because a customer sending a photo link is
+                          ordinary, and one unbroken word is wider than the bubble:
+                          the URL ran off the right and the middle of it could not
+                          be read at all. */}
+                      <p className="whitespace-pre-wrap break-words leading-6">{message.body}</p>
+                      {undelivered ? (
+                        <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold leading-5">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            {UNDELIVERED_HEADLINE}
+                            {undeliveredCause ? (
+                              <span className="block font-normal opacity-80">{undeliveredCause}</span>
+                            ) : null}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="mt-2 text-[11px] opacity-60">
                         {formatDistanceToNow(message.createdAt, { addSuffix: true })} · {labelize(message.deliveryStatus)}
-                        {message.deliveryStatus === DeliveryStatus.FAILED && message.errorMessage ? ` · ${message.errorMessage}` : ""}
                       </div>
                     </div>
                   </div>
@@ -343,6 +377,7 @@ export function InboxView({
               templates={templates}
               disabled={selectedConversation.customer.smsOptedOut}
               demoBlocked={isDemo}
+              unsentBody={lastUndeliveredOutbound(selectedConversation.messages)?.body ?? null}
             />
           </div>
 
