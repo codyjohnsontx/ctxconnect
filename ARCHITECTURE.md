@@ -166,6 +166,12 @@ Twilio handles:
 - inbound webhooks
 - delivery status callbacks
 
+The browser keeps two things: the dark mode preference, and the reply an advisor
+has typed and not yet sent. The draft is the one that carries customer data, so
+it is held per signed-in user and per conversation, expires after twelve hours,
+and is removed on sign-out - a dealership front desk is one browser several
+people use across a day. The rule is `src/lib/drafts.ts`.
+
 ## Deferred Work
 
 This slice explicitly defers:
