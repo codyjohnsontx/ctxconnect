@@ -67,17 +67,15 @@ function writeStoredDraft(key: string, draft: Draft): boolean {
  * going back in the box. Only this advisor's entry for this thread: sign-out
  * owns the rest of her keys, and nobody owns anyone else's.
  */
-function purgeUnusableDraft(key: string): boolean {
+function purgeUnusableDraft(key: string) {
   try {
     const raw = window.localStorage.getItem(key);
 
     if (raw !== null && parseDraft(raw, Date.now()) === null) {
       window.localStorage.removeItem(key);
     }
-
-    return true;
   } catch {
-    return false;
+    // Storage is unavailable, so there is nothing stored to remove.
   }
 }
 
@@ -141,22 +139,23 @@ export function MessageComposer({
 
   // A draft too old to put back is cleared rather than left behind: the read
   // above already refused it, and a shared front-desk browser must not still be
-  // holding it tomorrow for whoever signs in next.
+  // holding it tomorrow for whoever signs in next. This one stays an effect
+  // because it is storage being tidied on the way in and nothing on screen
+  // waits on the answer.
   useEffect(() => {
-    if (!purgeUnusableDraft(storageKey)) {
-      setStorageWorks(false);
-    }
+    purgeUnusableDraft(storageKey);
   }, [storageKey]);
 
-  // Only what she has actually edited is written back, so the first renders -
-  // before hydration has had a chance to read - cannot erase the stored draft.
-  useEffect(() => {
-    if (!edited) {
-      return;
-    }
-
-    setStorageWorks(writeStoredDraft(storageKey, edited));
-  }, [edited, storageKey]);
+  // Keeping the draft is what her typing does, not what rendering does, so the
+  // write lives with the edit instead of in an effect watching for one. Two
+  // things follow. Nothing is written until she has actually edited something,
+  // so the first renders - before hydration has had a chance to read - cannot
+  // erase the stored draft. And the reassurance below is never shown over a
+  // write that has already failed, because both land in the same render.
+  function commitDraft(next: Draft) {
+    setEdited(next);
+    setStorageWorks(writeStoredDraft(storageKey, next));
+  }
 
   const availableTemplates = useMemo(
     () => templates.filter((template) => template.department === department || template.department === "GENERAL"),
@@ -172,7 +171,7 @@ export function MessageComposer({
 
     const filled = fillTemplate(template.body, { customerName, advisorName, dealershipName, unit });
 
-    setEdited({ body: filled.body, blanks: filled.blanks });
+    commitDraft({ body: filled.body, blanks: filled.blanks });
     setError(null);
 
     // Put the cursor on the first blank so filling it in is the next keystroke
@@ -211,9 +210,9 @@ export function MessageComposer({
         return;
       }
 
-      // An empty edit rather than no edit: it clears the box and, through the
-      // effect above, the stored draft the sent reply came from.
-      setEdited(EMPTY_DRAFT);
+      // An empty edit rather than no edit: it clears the box and, with it, the
+      // stored draft the sent reply came from.
+      commitDraft(EMPTY_DRAFT);
       router.refresh();
     });
   }
@@ -255,7 +254,7 @@ export function MessageComposer({
         <Textarea
           ref={bodyRef}
           value={body}
-          onChange={(event) => setEdited({ body: event.target.value, blanks })}
+          onChange={(event) => commitDraft({ body: event.target.value, blanks })}
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
@@ -300,7 +299,7 @@ export function MessageComposer({
           Saved as a draft on this device.
           <button
             type="button"
-            onClick={() => setEdited(EMPTY_DRAFT)}
+            onClick={() => commitDraft(EMPTY_DRAFT)}
             className="font-medium underline underline-offset-2 transition hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             Discard draft
