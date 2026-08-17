@@ -34,7 +34,8 @@ The panel never shows a value the database does not hold, Save is offered only w
 
 - The panel holds its own draft, adopts whatever the server last rendered, and offers Save only while the two differ.
 - A pending change that would move the thread out of the advisor's reach says so before the click.
-- A save that hands the thread away redirects to `/inbox?movedTo=<department>`, and the queue names the hand-off.
+- A save that hands the thread away redirects to `/inbox?movedTo=<department>&handOff=<reason>`, and the queue names the hand-off.
+- The warning before the click and the banner after it read one rule, so both name the same reason: a department the thread genuinely moved to, or an assignment that took it off her while the department stayed put.
 - A rejected save says so instead of looking like nothing happened.
 - The conversation access rule moves to a database-free module so the queue query, the server-side guard and the panel all read one rule.
 
@@ -51,7 +52,8 @@ The panel never shows a value the database does not hold, Save is offered only w
 - Given a colleague changed the same thread in another tab, when the page re-renders, then the panel adopts their values rather than keeping stale ones.
 - Given a pending department change that would remove her access, when she looks at the panel, then it says the thread will leave her inbox before she presses Save.
 - Given she completes that hand-off, when the save lands, then she is on `/inbox` with "Handed off to Parts. That conversation has left your inbox." and not on a 404.
-- Given she then opens another thread, when the queue link is followed, then the hand-off notice does not follow her.
+- Given a staff member who reaches a thread only through its assignment, when she reassigns it and the department does not move, then the queue says the conversation was taken off her rather than naming a hand-off that did not happen.
+- Given she then opens another thread, when the queue link is followed, then neither the hand-off notice nor its reason follows her.
 
 ## Risks / Open Questions
 

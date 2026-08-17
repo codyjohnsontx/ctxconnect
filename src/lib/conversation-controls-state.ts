@@ -60,19 +60,30 @@ export function adoptSavedValues(
   return { snapshot: saved, draft: saved };
 }
 
+export type HandOffReason = "department" | "assignment";
+
+/** The two reasons, for checking one that arrived on a URL against them. */
+export const handOffReasons: readonly HandOffReason[] = ["department", "assignment"];
+
 /**
- * Why a save is about to take the thread out of the reach of the person making
- * it. `department` when it is genuinely moving to another department, and
+ * Why a save takes the thread out of the reach of the person making it.
+ * `department` when it is genuinely moving to another department, and
  * `assignment` when the department is unchanged and it was the assignment that
  * held it - which is how a staff account with no department of its own reaches
- * any thread at all. The warning has to say which, because telling her the
- * thread is being handed to the department it already sits in is not true.
+ * any thread at all.
+ *
+ * Both the warning before the click and the queue banner after it have to say
+ * which, because telling her the thread was handed to the department it already
+ * sits in is not true. They read it from here, off whatever pair each of them
+ * has - the panel its draft against the server's values, the action the row it
+ * wrote against the row it read - so the two surfaces cannot describe the same
+ * save differently.
  */
 export function handOffReason(
-  draft: ConversationControlValues,
-  saved: ConversationControlValues,
-): "department" | "assignment" {
-  return draft.department === saved.department ? "assignment" : "department";
+  next: { department: string },
+  previous: { department: string },
+): HandOffReason {
+  return next.department === previous.department ? "assignment" : "department";
 }
 
 /**

@@ -34,7 +34,7 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 ## v1 Scope
 
 - One rule, in a database-free module, for collapsing alert rows to facts: same subject on the same conversation and follow-up is one alert. The message that raised it counts only where the fact really is one message - a text that failed to send, because two failed texts on one thread are two things to fix.
-- The rail badge, the Command Center panel, the SLA focus list and the Command Center's SLA tile all count facts.
+- The rail badge, the Command Center panel, the SLA focus list, the Command Center's SLA tile and its per-person "Active alerts" column all count facts. The column is there because a rule that only some screens learn is the same defect: the advisor reading 1 for a thread her manager reads 5 for is this overstatement moved between two screens rather than removed.
 - A follow-up that has crossed its due date withdraws the "due today" row it supersedes, and the other way round while it is still due today or already late.
 - The overdue and due-today tiles split today's queue at the current time, the rule every other surface already used.
 - Where more than one row describes a fact, the row shown is the one describing its current state, preferring the copy addressed to the reader.
@@ -50,6 +50,7 @@ An alert is counted and listed once per real thing that needs doing, wherever it
 - Given three stored copies of one overdue follow-up, when the advisor reads her rail, then the badge counts it once and the rail lists it once.
 - Given a follow-up that has crossed its due date, when the sweep next runs, then it reads as overdue only.
 - Given two distinct overdue follow-ups, when the Command Center renders, then the overdue tile reads 2.
+- Given an advisor whose badge counts one alert, when her manager reads the team table, then her "Active alerts" reads the same number.
 - Given a follow-up due later today, when the Command Center renders, then it counts under due-today and not under overdue.
 
 ## Risks / Open Questions

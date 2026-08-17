@@ -806,7 +806,14 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       ).length,
       openFollowUps: employee.assignedTasks.length,
       overdueFollowUps: employee.assignedTasks.filter((task) => task.dueDate < now).length,
-      activeNotifications: employee.notifications.length,
+      // Counted by fact, the same rule her own badge counts by. This column read
+      // stored rows until the rail stopped doing so, which left the two screens
+      // disagreeing about the same person: one thread with five unanswered texts
+      // is 1 to her and was 5 here. That is the badge-against-list divergence
+      // this work exists to close, recreated between two screens instead of
+      // inside one, and it is a manager staffing a shift who acts on the
+      // overstated number.
+      activeNotifications: dedupeNotificationFacts(employee.notifications).length,
     })),
     aiOpsAnalytics,
   };

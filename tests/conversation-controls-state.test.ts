@@ -4,6 +4,7 @@ import {
   adoptSavedValues,
   type ConversationControlValues,
   handOffReason,
+  handOffReasons,
   hasUnsavedControlChanges,
   sameControlValues,
 } from "../src/lib/conversation-controls-state";
@@ -107,10 +108,33 @@ describe("why a save takes the thread out of her reach", () => {
   });
 
   it("does not claim a hand-off when only the assignee moved", () => {
-    assert.equal(handOffReason({ ...urgent, assignedUserId: "advisor-2" }, urgent), "assignment");
+    const reassigned: ConversationControlValues = { ...urgent, assignedUserId: "advisor-2" };
+
+    assert.equal(handOffReason(reassigned, urgent), "assignment");
   });
 
   it("does not claim a hand-off when the thread is being unassigned", () => {
-    assert.equal(handOffReason({ ...urgent, assignedUserId: "unassigned" }, urgent), "assignment");
+    const unassigned: ConversationControlValues = { ...urgent, assignedUserId: "unassigned" };
+
+    assert.equal(handOffReason(unassigned, urgent), "assignment");
+  });
+
+  // The banner she lands on after the save asks the same question of the rows
+  // the action wrote and read, so the two surfaces cannot tell her different
+  // stories about one save: warned that it comes off her, then told it went to
+  // a department it never left.
+  it("answers the same way off the conversation rows the save wrote", () => {
+    const stored = { assignedUserId: "advisor-1", department: "SERVICE" };
+    const routedToParts = { ...stored, department: "PARTS" };
+    const reassigned = { ...stored, assignedUserId: "advisor-2" };
+    const unassigned = { ...stored, assignedUserId: null };
+
+    assert.equal(handOffReason(routedToParts, stored), "department");
+    assert.equal(handOffReason(reassigned, stored), "assignment");
+    assert.equal(handOffReason(unassigned, stored), "assignment");
+  });
+
+  it("knows only the reasons a URL is allowed to name", () => {
+    assert.deepEqual([...handOffReasons], ["department", "assignment"]);
   });
 });

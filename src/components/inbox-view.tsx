@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
+import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import {
@@ -65,14 +66,18 @@ const BACK_TARGETS: Record<string, { href: string; label: string }> = {
   customers: { href: "/customers", label: "Back to customers" },
 };
 
+// Query keys that describe one navigation or one save rather than a filter, so
+// a link to another thread has to leave them behind: `from` because clicking a
+// sibling thread in the list means she is navigating within the inbox and not
+// still coming from tasks/customers, and the hand-off pair because they describe
+// the save she just made and would otherwise re-assert that notice on every
+// thread she opens afterwards.
+const ONE_SAVE_PARAMS = new Set(["from", "movedTo", "handOff"]);
+
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
-    // Drop the origin marker: clicking a sibling thread in the list means the
-    // user is navigating within the inbox, not still coming from tasks/customers.
-    // Drop the hand-off notice for the same reason - it describes one save, not
-    // a filter, so it must not follow her onto the next thread she opens.
-    if (value && key !== "from" && key !== "movedTo") {
+    if (value && !ONE_SAVE_PARAMS.has(key)) {
       params.set(key, value);
     }
   }
@@ -102,8 +107,11 @@ export function InboxView({
   const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
   // Validated against the enum rather than printed: it arrives on the URL, and
-  // the banner should never render whatever a hand-typed query string says.
+  // the banner should never render whatever a hand-typed query string says. The
+  // reason is checked the same way, and an unrecognised one reads as the
+  // department move the named department already points at.
   const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
+  const movedWhy = handOffReasons.find((reason) => reason === searchParams.handOff) ?? "department";
   // Formatted here rather than in the brief panel so the duplicate warning and
   // the "Open follow-ups" list below it read the same due date the same way.
   const openFollowUps = (selectedConversation?.tasks ?? []).map((task) => ({
@@ -126,14 +134,19 @@ export function InboxView({
             </div>
             <Badge variant="blue">Shared</Badge>
           </div>
-          {/* Set by a hand-off that moved a thread out of this advisor's reach.
+          {/* Set by a save that moved a thread out of this advisor's reach.
               Without it the save silently swaps her open conversation for a bare
-              404, which reads like the app lost her place. */}
+              404, which reads like the app lost her place. It says which of the
+              two things happened for the same reason the panel's warning does:
+              an assignment can carry the thread off without the department
+              moving anywhere. */}
           {movedTo ? (
             <p className="mb-3 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950 dark:text-blue-100">
               <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
-                Handed off to {labelize(movedTo)}. That conversation has left your inbox.
+                {movedWhy === "department"
+                  ? `Handed off to ${labelize(movedTo)}. That conversation has left your inbox.`
+                  : "That conversation was taken off you. It has left your inbox."}
               </span>
             </p>
           ) : null}
