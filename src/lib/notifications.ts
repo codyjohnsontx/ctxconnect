@@ -10,8 +10,9 @@ import {
   TaskStatus,
   type Prisma,
 } from "@/generated/prisma/client";
+import type { AppUser } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
-import { activeNotificationWhere, dedupeNotificationFacts } from "@/lib/notification-facts";
+import { activeNotificationWhere, notificationFactCountQuery } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
 
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
@@ -37,16 +38,19 @@ function slaMinutesForDepartment(department: Department) {
 
 /**
  * Count the operational facts a reader has waiting, not the rows that carry
- * them. Grouping in the database keeps this to one query however many
- * recipients each fact was copied to.
+ * them. The database returns the number and nothing else, however many
+ * recipients each fact was copied to and however long the thread behind it has
+ * been running - this runs on every page load.
  */
-export async function countNotificationFacts(where: Prisma.NotificationWhereInput) {
-  const facts = await prisma.notification.groupBy({
-    by: ["type", "conversationId", "taskId", "messageId"],
-    where,
-  });
+export async function countNotificationFacts(
+  user: AppUser,
+  options: { type?: NotificationType } = {},
+) {
+  const [{ count }] = await prisma.$queryRaw<[{ count: bigint }]>(
+    notificationFactCountQuery(user, options.type),
+  );
 
-  return dedupeNotificationFacts(facts).length;
+  return Number(count);
 }
 
 export function notificationHref(notification: {

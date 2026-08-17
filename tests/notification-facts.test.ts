@@ -3,8 +3,12 @@ import { describe, it } from "node:test";
 import {
   activeNotificationsWhere,
   dedupeNotificationFacts,
+  followUpSubject,
+  followUpTypes,
+  notificationFactCountQuery,
   notificationFactKey,
   notificationScopeWhere,
+  perMessageTypes,
 } from "../src/lib/notification-facts";
 import type { Prisma } from "../src/generated/prisma/client";
 
@@ -346,15 +350,9 @@ describe("activeNotificationsWhere", () => {
 describe("the badge counts exactly what the rail can show", () => {
   type StoredAlert = ReturnType<typeof alert>;
 
-  /** What `countNotificationFacts` does: group in the database, then collapse. */
+  /** What `countNotificationFacts` does: count the distinct fact keys, in the database. */
   function badgeCount(all: StoredAlert[]) {
-    const grouped = new Map<string, StoredAlert>();
-
-    for (const row of all) {
-      grouped.set([row.type, row.conversationId, row.taskId, row.messageId].join(" "), row);
-    }
-
-    return dedupeNotificationFacts([...grouped.values()]).length;
+    return new Set(all.map(notificationFactKey)).size;
   }
 
   /** What the rail does: read up to the scan limit, then collapse. */
@@ -421,5 +419,75 @@ describe("the badge counts exactly what the rail can show", () => {
     for (const status of ["UNREAD", "READ"]) {
       assert.equal(matches(where, alertRow({ department: "SERVICE", status })), true, status);
     }
+  });
+});
+
+// The badge is a number the database works out, so the rule for what makes one
+// fact now exists twice: as the key above, and as the expression SQL counts
+// distinct values of. A badge and a list answering the same question
+// differently is the whole defect, so the two are built from one pair of type
+// lists and these hold them to it. Editing either rule without the other has
+// to fail here.
+describe("the counted key and the collapsed key are one rule", () => {
+  const counted = notificationFactCountQuery(serviceAdvisor);
+
+  it("counts by the very lists the key collapses by", () => {
+    assert.ok(counted.values.includes(followUpTypes), "the SQL carries its own follow-up list");
+    assert.ok(counted.values.includes(perMessageTypes), "the SQL carries its own per-message list");
+    assert.ok(counted.values.includes(followUpSubject));
+  });
+
+  it("joins the same parts, in the same order, as the key", () => {
+    const parts = notificationFactKey(
+      alert("MESSAGE_FAILED", advisor, { conversationId: "c1", messageId: "m1" }),
+    ).split(" ");
+
+    assert.equal(counted.sql.split("|| ' ' ||").length - 1, parts.length - 1);
+    assert.deepEqual(
+      [...counted.sql.matchAll(/"(conversationId|taskId|messageId)"/g)].map((match) => match[1]),
+      ["conversationId", "taskId", "messageId"],
+    );
+  });
+
+  it("gives a follow-up's two states the one subject the key gives them", () => {
+    for (const type of followUpTypes) {
+      assert.equal(
+        notificationFactKey(alert(type, advisor, { conversationId: "c1", taskId: "t1" })).split(" ")[0],
+        followUpSubject,
+      );
+    }
+  });
+});
+
+// The counted rows have to be the listed rows, so the scope and the status
+// clause are the same decisions the rail's queries make.
+describe("the badge counts over the rows the rail lists", () => {
+  it("gives a manager the whole dealership", () => {
+    assert.equal(notificationFactCountQuery(manager).sql.includes(`"recipientUserId"`), false);
+  });
+
+  it("gives an advisor her own alerts and her department's", () => {
+    const counted = notificationFactCountQuery(serviceAdvisor);
+
+    assert.ok(counted.sql.includes(`"recipientUserId" = `));
+    assert.ok(counted.sql.includes(`"department"::text = `));
+    assert.ok(counted.values.includes(serviceAdvisor.id));
+    assert.ok(counted.values.includes(serviceAdvisor.department));
+  });
+
+  it("gives a reader with no department only her own", () => {
+    const counted = notificationFactCountQuery(floater);
+
+    assert.ok(counted.sql.includes(`"recipientUserId" = `));
+    assert.equal(counted.sql.includes(`"department"::text = `), false);
+  });
+
+  it("leaves out the alerts whose work is done", () => {
+    assert.ok(notificationFactCountQuery(serviceAdvisor).values.includes("RESOLVED"));
+  });
+
+  it("narrows to one type only when a tile asks for one", () => {
+    assert.ok(notificationFactCountQuery(manager, "SLA_MISSED").values.includes("SLA_MISSED"));
+    assert.equal(notificationFactCountQuery(manager).sql.includes(`"type"::text = ?`), false);
   });
 });

@@ -579,9 +579,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
         conversation: scope,
       },
     }),
-    countNotificationFacts({
-      AND: [notificationScope, activeNotificationWhere, { type: NotificationType.SLA_MISSED }],
-    }),
+    countNotificationFacts(user, { type: NotificationType.SLA_MISSED }),
     prisma.conversation.count({
       where: {
         AND: [
@@ -642,7 +640,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
         task: { include: { customer: true, assignedUser: true } },
       },
     }),
-    countNotificationFacts({ AND: [notificationScope, activeNotificationWhere] }),
+    countNotificationFacts(user),
     getCommandCenterFocusItems(user, selectedFocus, now, todayEnd, notificationScope),
     prisma.conversation.findMany({
       where: {
@@ -852,7 +850,7 @@ export async function getShellData(user: AppUser) {
 	            ],
 	          },
     }),
-    countNotificationFacts(alertWhere),
+    countNotificationFacts(user),
     prisma.notification.findMany({
       where: alertWhere,
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],

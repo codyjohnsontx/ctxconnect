@@ -9,17 +9,23 @@
  * dealership, so they see every copy too.
  *
  * These helpers collapse the rows back down to the facts before anything is
- * listed or counted. They take plain objects and never touch the database, so
- * the alert rail, the Command Center and their counters share one rule.
+ * listed or counted. They build clauses and keys but never open a connection,
+ * so the alert rail, the Command Center and their counters share one rule and
+ * it can be read without a database.
  *
  * What makes two rows one fact is the thread they are about, not the message
  * that raised them. A thread with no owner is one thing to do however many
  * texts have arrived on it, and so is a thread with unanswered customer
  * messages. The single exception is a text that failed to send: two failed
  * texts on one thread are two things to fix, so those keep the message.
+ *
+ * That rule is needed in two forms, because a list is collapsed after its rows
+ * are read while a badge must be one number the database works out on its own.
+ * Both forms are built here, from the same two lists, so nothing can teach one
+ * of them a rule the other has not learned.
  */
 
-import type { Department, Prisma } from "@/generated/prisma/client";
+import { type Department, Prisma } from "@/generated/prisma/client";
 import { NotificationStatus, NotificationType } from "@/generated/prisma/enums";
 import { canSeeAll } from "@/lib/conversation-access";
 import type { AppUser } from "@/lib/data";
@@ -32,12 +38,18 @@ export type NotificationFact = {
   recipientUserId?: string | null;
 };
 
+/** The subject the two states of one follow-up share. */
+export const followUpSubject = "FOLLOW_UP";
+
 // A follow-up that is due today and one that is already late are the same
 // follow-up. The operational sweep raises the overdue row when the clock
 // passes the due date and only withdraws the "due today" row the next time it
 // runs, so the two have to read as one alert in between or the advisor is
 // told a follow-up is both still coming and already late.
-const followUpTypes: string[] = [NotificationType.FOLLOW_UP_DUE, NotificationType.FOLLOW_UP_OVERDUE];
+export const followUpTypes: string[] = [
+  NotificationType.FOLLOW_UP_DUE,
+  NotificationType.FOLLOW_UP_OVERDUE,
+];
 
 // The alerts whose fact really is one message rather than the thread: two
 // texts that failed to send on one thread are two things to fix and must not
@@ -46,14 +58,27 @@ const followUpTypes: string[] = [NotificationType.FOLLOW_UP_DUE, NotificationTyp
 // message it happened to be raised from stays out of the key. Writers disagree
 // about whether they attach one at all, and keying on it splits one unowned
 // thread into two alerts and one busy thread into an alert per text.
-const perMessageTypes: string[] = [NotificationType.MESSAGE_FAILED];
+export const perMessageTypes: string[] = [NotificationType.MESSAGE_FAILED];
 
 export function notificationFactKey(notification: NotificationFact): string {
-  const subject = followUpTypes.includes(notification.type) ? "FOLLOW_UP" : notification.type;
+  const subject = followUpTypes.includes(notification.type) ? followUpSubject : notification.type;
   const message = perMessageTypes.includes(notification.type) ? (notification.messageId ?? "") : "";
 
   return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
 }
+
+/**
+ * The same key, written out for the database and from the same two lists: the
+ * four parts in the order `notificationFactKey` joins them. It is what the
+ * badge counts distinct values of, so the number over the rail is the number
+ * of rows the rail collapses to.
+ */
+const notificationFactKeySql = Prisma.sql`
+  (CASE WHEN "type"::text = ANY(${followUpTypes}) THEN ${followUpSubject} ELSE "type"::text END)
+  || ' ' || COALESCE("conversationId", '')
+  || ' ' || COALESCE("taskId", '')
+  || ' ' || (CASE WHEN "type"::text = ANY(${perMessageTypes}) THEN COALESCE("messageId", '') ELSE '' END)
+`;
 
 // Which of the rows describing one fact the reader should actually see: the
 // row that describes the follow-up's current state beats the one it
@@ -100,6 +125,15 @@ export function dedupeNotificationFacts<T extends NotificationFact>(
  * How many rows to read before collapsing, wherever a list of alerts is shown.
  * It has to be larger than the list itself, because the copies of one fact sit
  * next to each other in the ordering and would otherwise fill it.
+ *
+ * How many copies that is has no ceiling. It was once the recipient count -
+ * the managers plus an assignee - but a thread collects an alert per inbound
+ * text and keeps them until it is closed, so one busy urgent thread can spend
+ * the whole scan on itself and push other facts behind the "more in Command
+ * Center" row. The screen stays honest either way, because that row is the
+ * difference between the badge and the list rather than a silent shortfall.
+ * The bound that would fix it belongs on the write side, where an answered
+ * thread should stop holding an alert per text, and that is filed separately.
  */
 export const notificationScanLimit = 60;
 
@@ -125,19 +159,39 @@ export const activeNotificationWhere = {
 /**
  * The alerts a staff member may read: a manager sees the dealership's, and
  * anyone else sees the ones addressed to her plus the ones raised against her
- * department. A reader with no department gets only her own - never an empty
- * clause, which Prisma reads as "match everything" and would hand her the
- * whole dealership's alerts.
+ * department. A reader with no department gets only her own.
+ *
+ * Decided once, because the lists ask for it as a Prisma clause and the badge
+ * asks for it as SQL. Two surfaces working this out separately is how one of
+ * them ends up handing a departmentless reader the whole dealership.
+ */
+type ReaderScope =
+  | { everything: true }
+  | { everything: false; recipientUserId: string; department: string | null };
+
+function readerScope(user: AppUser): ReaderScope {
+  if (canSeeAll(user)) {
+    return { everything: true };
+  }
+
+  return { everything: false, recipientUserId: user.id, department: user.department };
+}
+
+/**
+ * That scope as a Prisma clause - never an empty one for a reader who is not a
+ * manager, which Prisma reads as "match everything".
  */
 export function notificationScopeWhere(user: AppUser): Prisma.NotificationWhereInput {
-  if (canSeeAll(user)) {
+  const scope = readerScope(user);
+
+  if (scope.everything) {
     return {};
   }
 
-  const orFilters: Prisma.NotificationWhereInput[] = [{ recipientUserId: user.id }];
+  const orFilters: Prisma.NotificationWhereInput[] = [{ recipientUserId: scope.recipientUserId }];
 
-  if (user.department) {
-    orFilters.push({ department: user.department as Department });
+  if (scope.department) {
+    orFilters.push({ department: scope.department as Department });
   }
 
   return { OR: orFilters };
@@ -146,4 +200,36 @@ export function notificationScopeWhere(user: AppUser): Prisma.NotificationWhereI
 /** The alerts standing against this staff member right now - the set the rail lists and its badge counts. */
 export function activeNotificationsWhere(user: AppUser): Prisma.NotificationWhereInput {
   return { AND: [notificationScopeWhere(user), activeNotificationWhere] };
+}
+
+/**
+ * The badge's question, asked so the database answers it with a number.
+ *
+ * The alternative is reading back a row per stored copy and collapsing them
+ * here, and the rows are not bounded by anything the reader can see: a thread
+ * holds an alert per inbound text until it is closed, and this runs on every
+ * page load. So the same fact key is counted distinct in SQL, over the same
+ * rows `activeNotificationsWhere` describes.
+ */
+export function notificationFactCountQuery(user: AppUser, type?: string): Prisma.Sql {
+  const scope = readerScope(user);
+  const conditions: Prisma.Sql[] = [Prisma.sql`"status"::text <> ${NotificationStatus.RESOLVED}`];
+
+  if (!scope.everything) {
+    conditions.push(
+      scope.department
+        ? Prisma.sql`("recipientUserId" = ${scope.recipientUserId} OR "department"::text = ${scope.department})`
+        : Prisma.sql`"recipientUserId" = ${scope.recipientUserId}`,
+    );
+  }
+
+  if (type) {
+    conditions.push(Prisma.sql`"type"::text = ${type}`);
+  }
+
+  return Prisma.sql`
+    SELECT COUNT(DISTINCT ${notificationFactKeySql}) AS count
+    FROM "Notification"
+    WHERE ${Prisma.join(conditions, " AND ")}
+  `;
 }
