@@ -99,7 +99,12 @@ export function parseDraft(raw: string | null | undefined, now: number): Draft |
     return null;
   }
 
-  if (now - savedAt > DRAFT_MAX_AGE_MS) {
+  // A timestamp in the future is not a fresh draft, it is a broken one: the
+  // machine's clock moved, or the entry was tampered with. `now - savedAt` goes
+  // negative there and would slip past the age bound, leaving customer-facing
+  // text on a shared browser indefinitely - which is the one thing the bound is
+  // for. Anything not written in the last shift is refused.
+  if (savedAt > now || now - savedAt > DRAFT_MAX_AGE_MS) {
     return null;
   }
 

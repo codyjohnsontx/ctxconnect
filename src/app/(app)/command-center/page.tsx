@@ -231,7 +231,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
             </div>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               {notificationCount > latestNotifications.length
-                ? `The newest ${latestNotifications.length} of ${notificationCount} in your scope.`
+                ? `The ${latestNotifications.length} most urgent of ${notificationCount} in your scope.`
                 : "Everything still waiting on you."}
             </p>
           </div>

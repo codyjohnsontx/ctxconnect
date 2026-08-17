@@ -156,4 +156,20 @@ describe("a draft does not outlive the shift", () => {
     const yesterday = NOW - 16 * 60 * 60 * 1000;
     assert.equal(parseDraft(stored("Left last night", [], yesterday), NOW), null);
   });
+
+  // A future stamp makes `now - savedAt` negative, which slips past an age
+  // bound expressed only as an upper limit - so the entry would sit on a shared
+  // browser for as long as the clock stayed wrong.
+  it("refuses a draft stamped in the future rather than treating it as fresh", () => {
+    const tomorrow = NOW + 24 * 60 * 60 * 1000;
+    assert.equal(parseDraft(stored("Stamped ahead", [], tomorrow), NOW), null);
+  });
+
+  it("refuses one stamped a moment ahead, not just a wildly wrong one", () => {
+    assert.equal(parseDraft(stored("Just ahead", [], NOW + 1), NOW), null);
+  });
+
+  it("still accepts one stamped exactly now", () => {
+    assert.equal(parseDraft(stored("Right now", [], NOW), NOW)?.body, "Right now");
+  });
 });

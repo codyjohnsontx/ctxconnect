@@ -110,11 +110,16 @@ export function ConversationControls({
         }
       }}
     >
+      {/* Locked while the save is in flight. The payload is built when she
+          presses Save, so a value changed after that would be posted as the old
+          one and then overwritten by the server's answer when it lands - the
+          same silent revert this panel exists to stop, arriving a different way. */}
       <div className="space-y-1.5">
         <Label htmlFor="controls-assignee">Assignee</Label>
         <Select
           id="controls-assignee"
           value={draft.assignedUserId}
+          disabled={isPending}
           onChange={(event) => change({ assignedUserId: event.target.value })}
         >
           <option value={UNASSIGNED}>Unassigned</option>
@@ -131,6 +136,7 @@ export function ConversationControls({
           <Select
             id="controls-status"
             value={draft.status}
+            disabled={isPending}
             onChange={(event) => change({ status: event.target.value })}
           >
             {statuses.map((status) => (
@@ -145,6 +151,7 @@ export function ConversationControls({
           <Select
             id="controls-priority"
             value={draft.priority}
+            disabled={isPending}
             onChange={(event) => change({ priority: event.target.value })}
           >
             {priorities.map((priority) => (
@@ -160,6 +167,7 @@ export function ConversationControls({
         <Select
           id="controls-department"
           value={draft.department}
+          disabled={isPending}
           onChange={(event) => change({ department: event.target.value })}
         >
           {departments.map((department) => (
