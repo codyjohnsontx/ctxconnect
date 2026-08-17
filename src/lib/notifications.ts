@@ -12,6 +12,7 @@ import {
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AppUser } from "@/lib/data";
+import { dedupeNotificationFacts, notificationScanLimit } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
 
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
@@ -37,6 +38,20 @@ function slaMinutesForDepartment(department: Department) {
     case Department.GENERAL:
       return 60;
   }
+}
+
+/**
+ * Count the operational facts a reader has waiting, not the rows that carry
+ * them. Grouping in the database keeps this to one query however many
+ * recipients each fact was copied to.
+ */
+export async function countNotificationFacts(where: Prisma.NotificationWhereInput) {
+  const facts = await prisma.notification.groupBy({
+    by: ["type", "conversationId", "taskId", "messageId"],
+    where,
+  });
+
+  return dedupeNotificationFacts(facts).length;
 }
 
 export function notificationHref(notification: {
@@ -252,6 +267,21 @@ export async function syncOperationalNotifications() {
         dueAt: task.dueDate,
       };
 
+      // A follow-up that has gone past its time is no longer merely due today,
+      // and the other way round after it has been moved. Withdraw the state it
+      // left behind, or the queue keeps an alert that is no longer true.
+      await prisma.notification.updateMany({
+        where: {
+          taskId: task.id,
+          type: overdue ? NotificationType.FOLLOW_UP_DUE : NotificationType.FOLLOW_UP_OVERDUE,
+          status: { not: NotificationStatus.RESOLVED },
+        },
+        data: {
+          status: NotificationStatus.RESOLVED,
+          resolvedAt: now,
+        },
+      });
+
       await notifyManagers(notification);
 
       if (task.assignedUserId) {
@@ -319,22 +349,18 @@ export async function getNotificationSummary(user: AppUser) {
       };
 
   const [unreadCount, commandCount, latest] = await Promise.all([
-    prisma.notification.count({
-      where: {
-        AND: [scopedWhere, { status: NotificationStatus.UNREAD }],
-      },
+    countNotificationFacts({
+      AND: [scopedWhere, { status: NotificationStatus.UNREAD }],
     }),
-    prisma.notification.count({
-      where: {
-        AND: [scopedWhere, activeNotificationWhere],
-      },
+    countNotificationFacts({
+      AND: [scopedWhere, activeNotificationWhere],
     }),
     prisma.notification.findMany({
       where: {
         AND: [scopedWhere, activeNotificationWhere],
       },
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: 8,
+      take: notificationScanLimit,
       include: {
         conversation: { include: { customer: true } },
         task: { include: { customer: true } },
@@ -342,5 +368,9 @@ export async function getNotificationSummary(user: AppUser) {
     }),
   ]);
 
-  return { unreadCount, commandCount, latest };
+  return {
+    unreadCount,
+    commandCount,
+    latest: dedupeNotificationFacts(latest, user.id).slice(0, 8),
+  };
 }
