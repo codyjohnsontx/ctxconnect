@@ -15,14 +15,14 @@ description: How to run and drive Attend locally to verify changes end-to-end (d
 
 ## Local database
 
-`.env` is gitignored, so a fresh worktree inherits whatever URL the last session wrote — usually a dead `prisma dev` port. Check it before blaming the app.
+`.env` is gitignored, so a fresh worktree inherits whatever URL the last session wrote - usually a dead `prisma dev` port. Check it before blaming the app.
 
-- **Do not point `DATABASE_URL` at a `prisma dev` server.** Any page that issues concurrent queries (`getInboxData` runs a `Promise.all`) intermittently dies with `DriverAdapterError: bind message supplies N parameters, but prepared statement "" requires M`, where N and M vary per request. That is Postgres wire-protocol desync through the `prisma dev` proxy, not a code bug — `/inbox` may survive while `/inbox/[conversationId]` 500s every time. Use a plain Postgres instead: create a database on a real server, point `DATABASE_URL` and `DIRECT_URL` at it with no extra query params, `prisma migrate deploy`, then seed.
+- **Do not point `DATABASE_URL` at a `prisma dev` server.** Any page that issues concurrent queries (`getInboxData` runs a `Promise.all`) intermittently dies with `DriverAdapterError: bind message supplies N parameters, but prepared statement "" requires M`, where N and M vary per request. That is Postgres wire-protocol desync through the `prisma dev` proxy, not a code bug - `/inbox` may survive while `/inbox/[conversationId]` 500s every time. Use a plain Postgres instead: create a database on a real server, point `DATABASE_URL` and `DIRECT_URL` at it with no extra query params, `prisma migrate deploy`, then seed.
 - Extra libpq-style params in the URL (`connection_limit`, `pool_timeout`, …) make the desync above much more frequent. Keep the URL bare.
 
 ## Driving the send path
 
-`DEMO_USER_EMAIL` is often set to `service@ctxchat.local` locally — the primary-user account. `isDemo` is stamped into the JWT at sign-in from that variable, so the service advisor is demo-capped and `POST /api/messages/send` returns 403 before it reaches any send logic. To exercise sending, repoint `DEMO_USER_EMAIL` at something else, then **sign out and back in** (editing `.env` alone does not restamp an existing token).
+`DEMO_USER_EMAIL` is often set to `service@ctxchat.local` locally - the primary-user account. `isDemo` is stamped into the JWT at sign-in from that variable, so the service advisor is demo-capped and `POST /api/messages/send` returns 403 before it reaches any send logic. To exercise sending, repoint `DEMO_USER_EMAIL` at something else, then **sign out and back in** (editing `.env` alone does not restamp an existing token).
 
 Twilio is normally unconfigured locally, so a send is persisted and then marked `FAILED` with a 503 rather than reaching a carrier. That is the cheapest way to produce a failed-delivery state to look at.
 
