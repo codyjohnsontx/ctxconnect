@@ -35,6 +35,7 @@ const navItems: Array<{
 type AppShellProps = {
   children: ReactNode;
   user: {
+    id: string;
     name?: string | null;
     role: string;
   };
@@ -45,6 +46,10 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
   const pathname = (await headers()).get("x-current-path") ?? "";
   const visibleNavItems = navItems.filter((item) => item.href !== "/settings" || user.role === "ADMIN" || user.role === "MANAGER");
   const mobileNavColumns = visibleNavItems.length + 1;
+  // The rail lists every alert it was given and scrolls; on a dealership busy
+  // enough to outrun the scan, the badge would otherwise promise work the rail
+  // cannot show, so the difference gets a row of its own.
+  const unlistedAlerts = Math.max(shellData.counts.command - shellData.latestNotifications.length, 0);
 
   return (
     <div className="min-h-dvh bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
@@ -61,7 +66,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
           </Link>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav className="space-y-1 px-3 py-4">
           {visibleNavItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
@@ -89,18 +94,24 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
           })}
         </nav>
 
-        <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Latest alerts</p>
+        <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          {/* The heading is the way out of the rail: a short screen cuts the
+              list off wherever it runs out of room, so the number always has a
+              destination that can show all of it. */}
+          <Link
+            href="/command-center#alerts"
+            className="mb-2 flex items-center justify-between rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+          >
+            <span className="text-xs font-medium uppercase tracking-wide">Alerts</span>
             <Badge variant={shellData.counts.command > 0 ? "amber" : "green"}>
               {shellData.counts.command}
             </Badge>
-          </div>
-          <div className="space-y-1">
+          </Link>
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
             {shellData.latestNotifications.length === 0 ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">No active alerts.</p>
             ) : (
-              shellData.latestNotifications.slice(0, 3).map((notification) => (
+              shellData.latestNotifications.map((notification) => (
                 <Link
                   key={notification.id}
                   href={notification.href}
@@ -113,6 +124,14 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
                 </Link>
               ))
             )}
+            {unlistedAlerts > 0 ? (
+              <Link
+                href="/command-center#alerts"
+                className="block rounded-md px-2 py-1.5 text-xs font-medium text-zinc-600 underline underline-offset-2 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+              >
+                {unlistedAlerts} more in Command Center
+              </Link>
+            ) : null}
           </div>
         </div>
 
@@ -123,7 +142,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
           </div>
           <div className="flex gap-2">
             <ThemeToggle />
-            <SignOutButton />
+            <SignOutButton userId={user.id} />
           </div>
         </div>
       </aside>

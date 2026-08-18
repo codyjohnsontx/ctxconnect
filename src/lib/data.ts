@@ -4,19 +4,34 @@ import {
   DeliveryStatus,
   Department,
   MessageDirection,
-  NotificationStatus,
   NotificationType,
   type Prisma,
   Priority,
   ProductEventType,
-  Role,
   TaskStatus,
 } from "@/generated/prisma/client";
 import { getQueueBriefCoverage } from "@/lib/ai/ambient-pass";
 import { isAiOpsBriefConfigured } from "@/lib/ai/ops-brief";
 import { rankConversationQueue } from "@/lib/ai/queue-rank";
+import {
+  canAccessConversation,
+  canSeeAll,
+  scopedConversationWhere,
+} from "@/lib/conversation-access";
 import { getIntegrationHealth } from "@/lib/env";
-import { notificationHref, syncOperationalNotifications } from "@/lib/notifications";
+import {
+  activeNotificationWhere,
+  activeNotificationsWhere,
+  dedupeNotificationFacts,
+  notificationPageScanLimit,
+  notificationScanLimit,
+  notificationScopeWhere,
+} from "@/lib/notification-facts";
+import {
+  countNotificationFacts,
+  notificationHref,
+  syncOperationalNotifications,
+} from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
@@ -65,25 +80,10 @@ const dealershipSettingsSelect = {
   websiteUrl: true,
 } satisfies Prisma.DealershipSettingsSelect;
 
-export function canSeeAll(user: AppUser) {
-  return user.role === Role.ADMIN || user.role === Role.MANAGER;
-}
-
-export function scopedConversationWhere(user: AppUser): Prisma.ConversationWhereInput {
-  if (canSeeAll(user)) {
-    return {};
-  }
-
-  const orFilters: Prisma.ConversationWhereInput[] = [{ assignedUserId: user.id }];
-
-  if (user.department) {
-    orFilters.push({ department: user.department as Department });
-  }
-
-  return {
-    OR: orFilters,
-  };
-}
+// The conversation access rules live in a database-free module so they can be
+// tested directly and read by the controls panel in the browser; they stay
+// exported from here so callers keep one place to ask who sees what.
+export { canAccessConversation, canSeeAll, scopedConversationWhere };
 
 async function getOrCreateDealershipSettings() {
   return prisma.dealershipSettings.upsert({
@@ -168,6 +168,10 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
+          // The row previews this message, and a staff reply or an internal
+          // note reads as the customer's own words without a name on it. Only
+          // the name: the full User row carries a password hash.
+          include: { sender: { select: { name: true } } },
         },
         aiInsights: {
           orderBy: { createdAt: "desc" },
@@ -208,9 +212,13 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
           },
         })
       : null,
+    // Only the two fields the assignee pickers render. The full row carries a
+    // password hash, and the pickers now live in a client component, so a
+    // `select` here is what keeps hashes out of the page payload.
     prisma.user.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
     prisma.tag.findMany({ orderBy: { name: "asc" } }),
     prisma.template.findMany({
@@ -248,7 +256,7 @@ function isCommandCenterFocus(value?: string): value is CommandCenterFocus {
 async function getCommandCenterFocusItems(
   user: AppUser,
   focus: CommandCenterFocus | undefined,
-  todayStart: Date,
+  now: Date,
   todayEnd: Date,
   notificationScope: Prisma.NotificationWhereInput,
 ) {
@@ -324,8 +332,8 @@ async function getCommandCenterFocusItems(
             activeTaskWhere,
             taskScope,
             focus === "dueToday"
-              ? { dueDate: { gte: todayStart, lte: todayEnd } }
-              : { dueDate: { lt: todayStart } },
+              ? { dueDate: { gte: now, lte: todayEnd } }
+              : { dueDate: { lt: now } },
           ],
         },
         orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
@@ -378,35 +386,31 @@ async function getCommandCenterFocusItems(
     case "slaMissed": {
       const notifications = await prisma.notification.findMany({
         where: {
-          AND: [
-            notificationScope,
-            {
-              type: NotificationType.SLA_MISSED,
-              status: { not: NotificationStatus.RESOLVED },
-            },
-          ],
+          AND: [notificationScope, activeNotificationWhere, { type: NotificationType.SLA_MISSED }],
         },
         orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-        take: 25,
+        take: notificationScanLimit,
         include: {
           conversation: { include: { customer: true, assignedUser: true } },
           task: { include: { customer: true } },
         },
       });
 
-      return notifications.map((notification) => ({
-        id: notification.id,
-        kind: "notification" as const,
-        title: notification.title,
-        description:
-          notification.body ??
-          notification.conversation?.customer.name ??
-          notification.task?.customer.name ??
-          "SLA notification",
-        meta: `${notification.department ? labelDepartment(notification.department) : "General"} · ${notification.conversation?.assignedUser?.name ?? "Unassigned"}`,
-        href: notificationHref(notification),
-        badges: [labelStatus(notification.priority), "SLA missed"],
-      }));
+      return dedupeNotificationFacts(notifications, user.id)
+        .slice(0, 25)
+        .map((notification) => ({
+          id: notification.id,
+          kind: "notification" as const,
+          title: notification.title,
+          description:
+            notification.body ??
+            notification.conversation?.customer.name ??
+            notification.task?.customer.name ??
+            "SLA notification",
+          meta: `${notification.department ? labelDepartment(notification.department) : "General"} · ${notification.conversation?.assignedUser?.name ?? "Unassigned"}`,
+          href: notificationHref(notification),
+          badges: [labelStatus(notification.priority), "SLA missed"],
+        }));
     }
   }
 }
@@ -534,20 +538,14 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   await syncOperationalNotifications();
 
   const scope = scopedConversationWhere(user);
-  const todayStart = startOfDay(new Date());
-  const todayEnd = endOfDay(new Date());
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const todayEnd = endOfDay(now);
   const responseWindowStart = subDays(todayStart, 14);
   const selectedFocus = isCommandCenterFocus(focusParam) ? focusParam : undefined;
   const userCanSeeAll = canSeeAll(user);
   const taskScope = scopedTaskWhere(user);
-  const notificationScope: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          ...(user.department ? [{ department: user.department as Department }] : []),
-        ],
-      };
+  const notificationScope = notificationScopeWhere(user);
 
   const [
     unread,
@@ -562,6 +560,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     overdue,
     visibleConversations,
     latestNotifications,
+    notificationCount,
     focusItems,
     needsAction,
     users,
@@ -580,11 +579,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
         conversation: scope,
       },
     }),
-    prisma.notification.count({
-      where: {
-        AND: [notificationScope, { type: NotificationType.SLA_MISSED, status: { not: NotificationStatus.RESOLVED } }],
-      },
-    }),
+    countNotificationFacts(user, { type: NotificationType.SLA_MISSED }),
     prisma.conversation.count({
       where: {
         AND: [
@@ -611,14 +606,19 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     prisma.conversation.count({
       where: { AND: [scope, { tags: { some: { tag: { name: "Pickup ready" } } } }] },
     }),
+    // Overdue means the due date has passed, which is the rule the alert rail
+    // and the Tasks page badge already use. Splitting at midnight instead
+    // reported "1 overdue" on the same screen as two overdue follow-up alerts,
+    // so the two tiles now split today's queue at the current time: what is
+    // still coming, and what is late.
     prisma.task.count({
       where: {
-        AND: [activeTaskWhere, taskScope, { dueDate: { gte: todayStart, lte: todayEnd } }],
+        AND: [activeTaskWhere, taskScope, { dueDate: { gte: now, lte: todayEnd } }],
       },
     }),
     prisma.task.count({
       where: {
-        AND: [activeTaskWhere, taskScope, { dueDate: { lt: todayStart } }],
+        AND: [activeTaskWhere, taskScope, { dueDate: { lt: now } }],
       },
     }),
     prisma.conversation.findMany({
@@ -632,17 +632,16 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     prisma.notification.findMany({
-      where: {
-        AND: [notificationScope, { status: { not: NotificationStatus.RESOLVED } }],
-      },
+      where: { AND: [notificationScope, activeNotificationWhere] },
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: 12,
+      take: notificationPageScanLimit,
       include: {
         conversation: { include: { customer: true, assignedUser: true } },
         task: { include: { customer: true, assignedUser: true } },
       },
     }),
-    getCommandCenterFocusItems(user, selectedFocus, todayStart, todayEnd, notificationScope),
+    countNotificationFacts(user),
+    getCommandCenterFocusItems(user, selectedFocus, now, todayEnd, notificationScope),
     prisma.conversation.findMany({
       where: {
         AND: [
@@ -690,7 +689,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
           where: { status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] } },
         },
         notifications: {
-          where: { status: { not: NotificationStatus.RESOLVED } },
+          where: activeNotificationWhere,
         },
       },
     }),
@@ -785,10 +784,14 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       definition: "Average time from a visible inbound customer SMS to the next outbound staff reply over the last 14 days.",
     },
     visibleConversations,
-    latestNotifications: latestNotifications.map((notification) => ({
+    // Not a sample: this is where the rail sends the alerts it could not fit,
+    // so it lists everything the deeper scan reached and the panel says how
+    // many are beyond it.
+    latestNotifications: dedupeNotificationFacts(latestNotifications, user.id).map((notification) => ({
       ...notification,
       href: notificationHref(notification),
     })),
+    notificationCount,
     selectedFocus,
     focusItems,
     needsAction,
@@ -802,8 +805,15 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
         (conversation) => conversation.messages.length > 0,
       ).length,
       openFollowUps: employee.assignedTasks.length,
-      overdueFollowUps: employee.assignedTasks.filter((task) => task.dueDate < todayStart).length,
-      activeNotifications: employee.notifications.length,
+      overdueFollowUps: employee.assignedTasks.filter((task) => task.dueDate < now).length,
+      // Counted by fact, the same rule her own badge counts by. This column read
+      // stored rows until the rail stopped doing so, which left the two screens
+      // disagreeing about the same person: one thread with five unanswered texts
+      // is 1 to her and was 5 here. That is the badge-against-list divergence
+      // this work exists to close, recreated between two screens instead of
+      // inside one, and it is a manager staffing a shift who acts on the
+      // overstated number.
+      activeNotifications: dedupeNotificationFacts(employee.notifications).length,
     })),
     aiOpsAnalytics,
   };
@@ -812,16 +822,12 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
 export async function getShellData(user: AppUser) {
   const scope = scopedConversationWhere(user);
   const userCanSeeAll = canSeeAll(user);
-  const notificationScope: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          ...(user.department ? [{ department: user.department as Department }] : []),
-        ],
-      };
+  // The rail's badge and the rail's list are the same question asked twice, so
+  // they ask it with the same clause: a number the list cannot account for is
+  // work the advisor has no way to reach.
+  const alertWhere = activeNotificationsWhere(user);
 
-  const [inboxCount, taskCount, commandCount, latestNotifications] = await Promise.all([
+  const [inboxCount, taskCount, alertCount, alerts] = await Promise.all([
     prisma.conversation.count({
       where: {
         AND: [
@@ -851,17 +857,11 @@ export async function getShellData(user: AppUser) {
 	            ],
 	          },
     }),
-    prisma.notification.count({
-      where: {
-        AND: [notificationScope, { status: NotificationStatus.UNREAD }],
-      },
-    }),
+    countNotificationFacts(user),
     prisma.notification.findMany({
-      where: {
-        AND: [notificationScope, { status: { not: NotificationStatus.RESOLVED } }],
-      },
+      where: alertWhere,
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: 5,
+      take: notificationScanLimit,
       include: {
         conversation: { include: { customer: true } },
         task: { include: { customer: true } },
@@ -873,9 +873,12 @@ export async function getShellData(user: AppUser) {
     counts: {
       inbox: inboxCount,
       tasks: taskCount,
-      command: commandCount,
+      command: alertCount,
     },
-    latestNotifications: latestNotifications.map((notification) => ({
+    // Every alert the scan reached, not a sample of them: the rail scrolls, so
+    // the only alerts it leaves out are the ones beyond the scan limit, and it
+    // says how many those are rather than dropping them silently.
+    latestNotifications: dedupeNotificationFacts(alerts, user.id).map((notification) => ({
       ...notification,
       href: notificationHref(notification),
     })),

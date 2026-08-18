@@ -10,15 +10,12 @@ import {
   TaskStatus,
   type Prisma,
 } from "@/generated/prisma/client";
-import { prisma } from "@/lib/prisma";
 import type { AppUser } from "@/lib/data";
+import { prisma } from "@/lib/prisma";
+import { activeNotificationWhere, notificationFactCountQuery } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
 
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
-
-const activeNotificationWhere = {
-  status: { in: [NotificationStatus.UNREAD, NotificationStatus.READ] },
-} satisfies Prisma.NotificationWhereInput;
 
 const managerWhere = {
   active: true,
@@ -37,6 +34,23 @@ function slaMinutesForDepartment(department: Department) {
     case Department.GENERAL:
       return 60;
   }
+}
+
+/**
+ * Count the operational facts a reader has waiting, not the rows that carry
+ * them. The database returns the number and nothing else, however many
+ * recipients each fact was copied to and however long the thread behind it has
+ * been running - this runs on every page load.
+ */
+export async function countNotificationFacts(
+  user: AppUser,
+  options: { type?: NotificationType } = {},
+) {
+  const [{ count }] = await prisma.$queryRaw<[{ count: bigint }]>(
+    notificationFactCountQuery(user, options.type),
+  );
+
+  return Number(count);
 }
 
 export function notificationHref(notification: {
@@ -252,6 +266,21 @@ export async function syncOperationalNotifications() {
         dueAt: task.dueDate,
       };
 
+      // A follow-up that has gone past its time is no longer merely due today,
+      // and the other way round after it has been moved. Withdraw the state it
+      // left behind, or the queue keeps an alert that is no longer true.
+      await prisma.notification.updateMany({
+        where: {
+          taskId: task.id,
+          type: overdue ? NotificationType.FOLLOW_UP_DUE : NotificationType.FOLLOW_UP_OVERDUE,
+          status: { not: NotificationStatus.RESOLVED },
+        },
+        data: {
+          status: NotificationStatus.RESOLVED,
+          resolvedAt: now,
+        },
+      });
+
       await notifyManagers(notification);
 
       if (task.assignedUserId) {
@@ -303,44 +332,4 @@ export async function syncOperationalNotifications() {
       });
     }),
   );
-}
-
-export async function getNotificationSummary(user: AppUser) {
-  await syncOperationalNotifications();
-
-  const userCanSeeAll = user.role === Role.ADMIN || user.role === Role.MANAGER;
-  const scopedWhere: Prisma.NotificationWhereInput = userCanSeeAll
-    ? {}
-    : {
-        OR: [
-          { recipientUserId: user.id },
-          user.department ? { department: user.department as Department } : {},
-        ],
-      };
-
-  const [unreadCount, commandCount, latest] = await Promise.all([
-    prisma.notification.count({
-      where: {
-        AND: [scopedWhere, { status: NotificationStatus.UNREAD }],
-      },
-    }),
-    prisma.notification.count({
-      where: {
-        AND: [scopedWhere, activeNotificationWhere],
-      },
-    }),
-    prisma.notification.findMany({
-      where: {
-        AND: [scopedWhere, activeNotificationWhere],
-      },
-      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-      take: 8,
-      include: {
-        conversation: { include: { customer: true } },
-        task: { include: { customer: true } },
-      },
-    }),
-  ]);
-
-  return { unreadCount, commandCount, latest };
 }

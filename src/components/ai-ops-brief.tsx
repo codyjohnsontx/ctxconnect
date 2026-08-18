@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Department, Priority } from "@/generated/prisma/client";
+import { findMatchingFollowUp } from "@/lib/follow-ups";
 import { cn, labelize } from "@/lib/utils";
 
 type AiInsightAction = "ACCEPTED" | "DISMISSED" | "REPLY_COPIED";
@@ -36,9 +37,23 @@ type AiOpsBriefInsight = {
   dismissedAt?: string | Date | null;
 };
 
+type OpenFollowUp = {
+  id: string;
+  title: string;
+  /** Pre-formatted on the server so it reads the same as the follow-up list. */
+  dueLabel: string;
+};
+
 type AiOpsBriefProps = {
   conversationId: string;
   initialInsight?: AiOpsBriefInsight | null;
+  /**
+   * The thread's still-open follow-ups. The brief recommends a follow-up from
+   * the same thread history that produced them, so it regularly recommends one
+   * that is already on the board; without this the panel would happily stack a
+   * second copy of it.
+   */
+  openFollowUps?: readonly OpenFollowUp[];
   /**
    * Whether `initialInsight` still describes the thread's newest activity. The
    * verdict is threaded as a value rather than computed here: it comes from the
@@ -63,6 +78,7 @@ function riskReasons(value: unknown) {
 export function AiOpsBrief({
   conversationId,
   initialInsight = null,
+  openFollowUps = [],
   briefIsCurrent = true,
 }: AiOpsBriefProps) {
   const router = useRouter();
@@ -74,6 +90,7 @@ export function AiOpsBrief({
   // has just read the whole thread, so it is current until the next server
   // render says otherwise.
   const showsEarlierBrief = insight?.id === initialInsight?.id && !briefIsCurrent;
+  const trackedFollowUp = findMatchingFollowUp(insight?.suggestedTaskTitle, openFollowUps);
 
   async function generateBrief() {
     setError(null);
@@ -213,7 +230,7 @@ export function AiOpsBrief({
   }
 
   function useAsFollowUp() {
-    if (!insight?.suggestedTaskTitle) {
+    if (!insight?.suggestedTaskTitle || trackedFollowUp) {
       return;
     }
 
@@ -305,7 +322,11 @@ export function AiOpsBrief({
             }
           />
           <BriefField label="Suggested reply" value={insight.suggestedReply ?? "No customer reply recommended."} />
-          <BriefField label="Suggested follow-up" value={insight.suggestedTaskTitle ?? "No follow-up task recommended."} />
+          <BriefField
+            label="Suggested follow-up"
+            value={insight.suggestedTaskTitle ?? "No follow-up task recommended."}
+            note={trackedFollowUp ? `Already on this thread, due ${trackedFollowUp.dueLabel}.` : null}
+          />
 
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={accept} disabled={isPending || Boolean(insight.acceptedAt)} variant="secondary" size="sm">
@@ -324,10 +345,30 @@ export function AiOpsBrief({
               <StickyNote className="h-3.5 w-3.5" />
               Use note
             </Button>
-            <Button onClick={useAsFollowUp} disabled={isPending || !insight.suggestedTaskTitle} variant="secondary" size="sm" className="col-span-2">
-              <Clipboard className="h-3.5 w-3.5" />
-              Use as follow-up
-            </Button>
+            {/* Not a disabled button: "there is already one of these" is only
+                useful if she can get to the one that exists, read its due date
+                and see who owns it. It is on this same panel, so the control
+                takes her to it rather than going dead. */}
+            {trackedFollowUp ? (
+              <a
+                href={`#follow-up-${trackedFollowUp.id}`}
+                className="col-span-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
+              >
+                <Check className="h-3.5 w-3.5" />
+                See the follow-up
+              </a>
+            ) : (
+              <Button
+                onClick={useAsFollowUp}
+                disabled={isPending || !insight.suggestedTaskTitle}
+                variant="secondary"
+                size="sm"
+                className="col-span-2"
+              >
+                <Clipboard className="h-3.5 w-3.5" />
+                Use as follow-up
+              </Button>
+            )}
           </div>
 
           <Button onClick={generateBrief} disabled={isPending} variant="ghost" size="sm" className="w-full">
@@ -354,11 +395,12 @@ export function AiOpsBrief({
   );
 }
 
-function BriefField({ label, value }: { label: string; value: string }) {
+function BriefField({ label, value, note = null }: { label: string; value: string; note?: string | null }) {
   return (
     <div>
       <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</div>
       <p className="rounded-md bg-white p-2 leading-5 text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">{value}</p>
+      {note ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">{note}</p> : null}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
-import { addInternalNote, createTask, updateConversation } from "@/app/actions";
+import { AlertTriangle, ArrowLeft, ArrowRightLeft, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
+import { addInternalNote, createTask } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
+import { ConversationControls } from "@/components/conversation-controls";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
 import { Badge } from "@/components/ui/badge";
@@ -10,13 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
-import type { getInboxData } from "@/lib/data";
+import { handOffReasons } from "@/lib/conversation-controls-state";
+import type { AppUser, getInboxData } from "@/lib/data";
+import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import {
   UNDELIVERED_HEADLINE,
   isUndelivered,
   lastUndeliveredOutbound,
   undeliveredDetail,
 } from "@/lib/message-delivery";
+import { type PreviewAuthor, previewAttribution } from "@/lib/message-preview";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
 type InboxData = Awaited<ReturnType<typeof getInboxData>>;
@@ -33,6 +37,14 @@ const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "re
   CLOSED: "green",
 };
 
+// A previewed message that is not the customer's gets a label in the voice's
+// own colour: amber for a note, matching the amber note bubble in the thread,
+// and plain zinc for a staff reply, which is ordinary rather than notable.
+const authorTone: Record<PreviewAuthor, string> = {
+  staff: "text-zinc-500 dark:text-zinc-400",
+  note: "text-amber-700 dark:text-amber-400",
+};
+
 const aiRiskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
   LOW: "green",
   NORMAL: "blue",
@@ -44,6 +56,7 @@ type InboxViewProps = InboxData & {
   selectedId?: string;
   searchParams: Record<string, string | undefined>;
   isDemo?: boolean;
+  currentUser: AppUser;
 };
 
 // Origins that a conversation can be opened from, with the label/href for the
@@ -53,12 +66,18 @@ const BACK_TARGETS: Record<string, { href: string; label: string }> = {
   customers: { href: "/customers", label: "Back to customers" },
 };
 
+// Query keys that describe one navigation or one save rather than a filter, so
+// a link to another thread has to leave them behind: `from` because clicking a
+// sibling thread in the list means she is navigating within the inbox and not
+// still coming from tasks/customers, and the hand-off pair because they describe
+// the save she just made and would otherwise re-assert that notice on every
+// thread she opens afterwards.
+const ONE_SAVE_PARAMS = new Set(["from", "movedTo", "handOff"]);
+
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
-    // Drop the origin marker: clicking a sibling thread in the list means the
-    // user is navigating within the inbox, not still coming from tasks/customers.
-    if (value && key !== "from") {
+    if (value && !ONE_SAVE_PARAMS.has(key)) {
       params.set(key, value);
     }
   }
@@ -76,6 +95,7 @@ export function InboxView({
   queueStatus,
   searchParams,
   isDemo,
+  currentUser,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
   // null rather than a stand-in word: a template that names the bike should ask
@@ -86,6 +106,20 @@ export function InboxView({
   const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
   const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
+  // Validated against the enum rather than printed: it arrives on the URL, and
+  // the banner should never render whatever a hand-typed query string says. The
+  // reason is checked the same way, and an unrecognised one reads as the
+  // department move the named department already points at.
+  const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
+  const movedWhy = handOffReasons.find((reason) => reason === searchParams.handOff) ?? "department";
+  // Formatted here rather than in the brief panel so the duplicate warning and
+  // the "Open follow-ups" list below it read the same due date the same way.
+  const openFollowUps = (selectedConversation?.tasks ?? []).map((task) => ({
+    id: task.id,
+    title: task.title,
+    dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
+  }));
+  const defaultDueDate = defaultFollowUpDueDate(new Date());
 
   return (
     <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
@@ -100,6 +134,22 @@ export function InboxView({
             </div>
             <Badge variant="blue">Shared</Badge>
           </div>
+          {/* Set by a save that moved a thread out of this advisor's reach.
+              Without it the save silently swaps her open conversation for a bare
+              404, which reads like the app lost her place. It says which of the
+              two things happened for the same reason the panel's warning does:
+              an assignment can carry the thread off without the department
+              moving anywhere. */}
+          {movedTo ? (
+            <p className="mb-3 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+              <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                {movedWhy === "department"
+                  ? `Handed off to ${labelize(movedTo)}. That conversation has left your inbox.`
+                  : "That conversation was taken off you. It has left your inbox."}
+              </span>
+            </p>
+          ) : null}
           <QueueStatus status={queueStatus} />
           <form className="grid grid-cols-2 gap-2" action="/inbox">
             <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
@@ -164,6 +214,15 @@ export function InboxView({
                 // that never reached the customer. Left unmarked it reads as an
                 // answer already given, and the row is where she decides to skip.
                 const previewUndelivered = lastMessage ? isUndelivered(lastMessage) : false;
+                // Whose words the preview is. An inbound message gets nothing:
+                // the customer's voice is what a row is read as by default, and
+                // her name is already in bold on the line above. Skipped when the
+                // reply failed - "Not delivered:" is both the more urgent fact and
+                // already proof that staff wrote it, and two labels on one row
+                // would fight for a two-line clamp.
+                const previewAuthor = previewUndelivered
+                  ? null
+                  : previewAttribution(lastMessage, currentUser.id);
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
                 const insight = conversation.aiInsights[0];
@@ -200,6 +259,11 @@ export function InboxView({
                         // label and the message do not run together when the row is
                         // read aloud or copied.
                         <span className="font-semibold text-red-600 dark:text-red-400">Not delivered: </span>
+                      ) : null}
+                      {previewAuthor ? (
+                        <span className={cn("font-semibold", authorTone[previewAuthor.author])}>
+                          {previewAuthor.label}{" "}
+                        </span>
                       ) : null}
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
@@ -368,7 +432,9 @@ export function InboxView({
             </div>
 
             <MessageComposer
+              key={selectedConversation.id}
               conversationId={selectedConversation.id}
+              userId={currentUser.id}
               customerName={selectedConversation.customer.name}
               advisorName={advisorName}
               dealershipName={dealershipSettings.dealershipName}
@@ -387,60 +453,24 @@ export function InboxView({
                 key={selectedConversation.id}
                 conversationId={selectedConversation.id}
                 initialInsight={selectedConversation.aiInsights[0] ?? null}
+                openFollowUps={openFollowUps}
                 briefIsCurrent={selectedBriefIsCurrent}
               />
 
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Conversation controls</h3>
-                <form action={updateConversation} className="space-y-3">
-                  <input type="hidden" name="conversationId" value={selectedConversation.id} />
-                  <div className="space-y-1.5">
-                    <Label>Assignee</Label>
-                    <Select name="assignedUserId" defaultValue={selectedConversation.assignedUserId ?? "unassigned"}>
-                      <option value="unassigned">Unassigned</option>
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5">
-                      <Label>Status</Label>
-                      <Select name="status" defaultValue={selectedConversation.status}>
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>
-                            {labelize(status)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Priority</Label>
-                      <Select name="priority" defaultValue={selectedConversation.priority}>
-                        {priorities.map((priority) => (
-                          <option key={priority} value={priority}>
-                            {labelize(priority)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Department</Label>
-                    <Select name="department" defaultValue={selectedConversation.department}>
-                      {departments.map((department) => (
-                        <option key={department} value={department}>
-                          {labelize(department)}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <Button type="submit" variant="secondary" className="w-full">
-                    Save controls
-                  </Button>
-                </form>
+                <ConversationControls
+                  key={selectedConversation.id}
+                  conversationId={selectedConversation.id}
+                  users={users}
+                  saved={{
+                    assignedUserId: selectedConversation.assignedUserId ?? "unassigned",
+                    status: selectedConversation.status,
+                    priority: selectedConversation.priority,
+                    department: selectedConversation.department,
+                  }}
+                  currentUser={currentUser}
+                />
               </section>
 
               <section>
@@ -495,7 +525,13 @@ export function InboxView({
                     <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">No open follow-ups.</p>
                   ) : (
                     selectedConversation.tasks.map((task) => (
-                      <div key={task.id} className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+                      // The brief's "See the follow-up" lands here, so the card
+                      // needs an anchor and room to clear the sticky header.
+                      <div
+                        key={task.id}
+                        id={`follow-up-${task.id}`}
+                        className="scroll-mt-6 rounded-lg border border-zinc-200 p-3 text-sm target:border-amber-400 target:bg-amber-50 dark:border-zinc-800 dark:target:border-amber-600 dark:target:bg-amber-950/40"
+                      >
                         <div className="font-medium">{task.title}</div>
                         <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                           Due {formatDistanceToNow(task.dueDate, { addSuffix: true })} · {task.assignedUser?.name ?? "Unassigned"}
@@ -550,7 +586,16 @@ export function InboxView({
                       ))}
                     </Select>
                   </div>
-                  <Input name="dueDate" type="datetime-local" required />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="follow-up-due-date">Due</Label>
+                    <Input
+                      id="follow-up-due-date"
+                      name="dueDate"
+                      type="datetime-local"
+                      required
+                      defaultValue={defaultDueDate}
+                    />
+                  </div>
                   <Button type="submit" variant="secondary" className="w-full">
                     Add follow-up
                   </Button>

@@ -25,8 +25,14 @@ import {
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
+import { handOffReason } from "@/lib/conversation-controls-state";
 import { scopedConversationWhere } from "@/lib/data";
-import { requireAdmin, requireConversationAccess, requireCustomerAccess } from "@/lib/permissions";
+import {
+  canAccessConversation,
+  requireAdmin,
+  requireConversationAccess,
+  requireCustomerAccess,
+} from "@/lib/permissions";
 import { PASSWORD_CHANGED_REASON, requireUser } from "@/lib/session";
 
 async function recordAiInsightFormEvent({
@@ -158,6 +164,19 @@ export async function updateConversation(formData: FormData) {
 
   revalidatePath("/inbox");
   revalidatePath("/command-center");
+
+  // Routing a thread to another department is a normal hand-off, and it is also
+  // the one save that can take the thread away from the person making it. Left
+  // alone, the thread page she is standing on turns into a bare 404 the moment
+  // it re-renders. Send her back to the queue with the hand-off named instead,
+  // carrying the same reason the panel warned her with: access can also go with
+  // the assignment alone, and the banner must not then claim a department move
+  // that never happened.
+  if (!canAccessConversation(user, updated)) {
+    const reason = handOffReason(updated, previous);
+
+    redirect(`/inbox?movedTo=${updated.department}&handOff=${reason}`);
+  }
 }
 
 export async function addInternalNote(formData: FormData) {

@@ -45,6 +45,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
     responseHealth,
     visibleConversations,
     latestNotifications,
+    notificationCount,
     selectedFocus,
     focusItems,
     needsAction,
@@ -219,10 +220,20 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           </div>
         </section>
 
-        <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <section
+          id="alerts"
+          className="scroll-mt-6 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+        >
           <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-            <h2 className="font-semibold">Latest notifications</h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Newest updates in your scope.</p>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-semibold">Alerts</h2>
+              <Badge variant={notificationCount > 0 ? "amber" : "green"}>{notificationCount}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {notificationCount > latestNotifications.length
+                ? `The ${latestNotifications.length} most urgent of ${notificationCount} in your scope.`
+                : "Everything still waiting on you."}
+            </p>
           </div>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {latestNotifications.length === 0 ? (

@@ -1266,6 +1266,23 @@ Background: [content/decisions/2026-08-02-service-advisor-is-the-primary-user.md
 name: [content/decisions/2026-08-03-product-renamed-to-attend.md](./content/decisions/2026-08-03-product-renamed-to-attend.md),
 demo path: [docs/demo-script.md](./docs/demo-script.md).
 
+## Shared Rules Behind the Screens
+
+Several surfaces have to agree about the same question, so the rule lives in one
+database-free module in `src/lib` with its own unit test, and every caller reads it
+from there. Read the module before changing a surface that depends on it; a second
+copy of one of these rules is how the screen and the database end up disagreeing.
+
+* Who may open a conversation: [`src/lib/conversation-access.ts`](./src/lib/conversation-access.ts). The queue query, the server-side guard and the controls panel all read it, because a department hand-off can take a thread out of the advisor making it.
+* What counts as one alert: [`src/lib/notification-facts.ts`](./src/lib/notification-facts.ts). A `Notification` row is stored **once per recipient**, so a badge that counts rows overstates the work. The same module owns the scope-and-status rule behind the rail's badge and the rail's list, in the two forms they need: a Prisma clause the list filters with, and SQL the badge counts distinct facts with. Both are built there from one pair of lists, and the SQL is why this one module is server-only.
+* Whose voice a queue row is previewing: [`src/lib/message-preview.ts`](./src/lib/message-preview.ts).
+* Whether the brief's suggested follow-up already exists: [`src/lib/follow-ups.ts`](./src/lib/follow-ups.ts).
+
+Two habits this repo has paid for more than once:
+
+* **Reproduce in the running app before fixing, and verify there afterwards.** A green test over an assumption is how several defects here were "fixed" twice. See [`.claude/skills/verify`](./.claude/skills/verify) for driving the app locally.
+* **A form whose fields are uncontrolled inside a `<form action={serverAction}>` resets to its mounted values when the action resolves.** That reads as a failed save and invites a second press that writes the stale values back. Hold the values in state and offer the submit only while they differ from the server's.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
