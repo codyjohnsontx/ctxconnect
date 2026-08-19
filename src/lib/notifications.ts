@@ -12,10 +12,53 @@ import {
 } from "@/generated/prisma/client";
 import type { AppUser } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
-import { activeNotificationWhere, notificationFactCountQuery } from "@/lib/notification-facts";
+import {
+  activeNotificationWhere,
+  notificationFactCountQuery,
+  notificationSubjectColumns,
+  type NotificationSubject,
+} from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
 
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
+
+/**
+ * Everything about an alert that is not what it is about: the wording the
+ * writer chose, and how it should be ranked. These are the writer's own, and
+ * the two writers of an unowned thread legitimately differ here - the webhook
+ * can quote the text that just arrived, the sweep only knows the thread has
+ * been sitting there. What they may not differ about is the subject, which is
+ * why that half comes from `NotificationSubject` instead.
+ */
+type NotificationDetails = {
+  title: string;
+  body?: string | null;
+  actorUserId?: string | null;
+  department?: Department | null;
+  priority?: Priority;
+  dueAt?: Date | null;
+};
+
+type NotificationDraft = NotificationSubject & NotificationDetails;
+type AddressedNotificationDraft = NotificationDraft & { recipientUserId: string };
+
+/**
+ * The one place a draft becomes a row. Built field by field rather than spread,
+ * so a writer cannot reach past the draft into a column this module has not
+ * agreed to.
+ */
+function notificationRow(draft: AddressedNotificationDraft): Prisma.NotificationUncheckedCreateInput {
+  return {
+    ...notificationSubjectColumns(draft),
+    recipientUserId: draft.recipientUserId,
+    title: draft.title,
+    body: draft.body,
+    actorUserId: draft.actorUserId,
+    department: draft.department,
+    priority: draft.priority,
+    dueAt: draft.dueAt,
+  };
+}
 
 const managerWhere = {
   active: true,
@@ -70,8 +113,9 @@ export function notificationHref(notification: {
 
 async function createIfMissingWithClient(
   client: NotificationDbClient,
-  data: Prisma.NotificationUncheckedCreateInput,
+  draft: AddressedNotificationDraft,
 ) {
+  const data = notificationRow(draft);
   const existing = await client.notification.findFirst({
     where: {
       type: data.type,
@@ -90,10 +134,7 @@ async function createIfMissingWithClient(
   return client.notification.create({ data });
 }
 
-async function notifyManagersWithClient(
-  client: NotificationDbClient,
-  data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">,
-) {
+async function notifyManagersWithClient(client: NotificationDbClient, draft: NotificationDraft) {
   const managers = await client.user.findMany({
     where: managerWhere,
     select: { id: true },
@@ -102,19 +143,11 @@ async function notifyManagersWithClient(
   await Promise.all(
     managers.map((manager) =>
       createIfMissingWithClient(client, {
-        ...data,
+        ...draft,
         recipientUserId: manager.id,
       }),
     ),
   );
-}
-
-async function notifyAssigneeWithClient(client: NotificationDbClient, data: Prisma.NotificationUncheckedCreateInput) {
-  if (!data.recipientUserId) {
-    return;
-  }
-
-  await createIfMissingWithClient(client, data);
 }
 
 async function resolveConversationNotificationsWithClient(
@@ -135,27 +168,27 @@ async function resolveConversationNotificationsWithClient(
   });
 }
 
-export async function notifyManagers(data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">) {
-  await notifyManagersWithClient(prisma, data);
+export async function notifyManagers(draft: NotificationDraft) {
+  await notifyManagersWithClient(prisma, draft);
 }
 
-export async function notifyAssignee(data: Prisma.NotificationUncheckedCreateInput) {
-  await notifyAssigneeWithClient(prisma, data);
+export async function notifyAssignee(draft: AddressedNotificationDraft) {
+  await createIfMissingWithClient(prisma, draft);
 }
 
 export async function resolveConversationNotifications(conversationId: string, types?: NotificationType[]) {
   await resolveConversationNotificationsWithClient(prisma, conversationId, types);
 }
 
-export async function notifyManagersTx(
-  client: Prisma.TransactionClient,
-  data: Omit<Prisma.NotificationUncheckedCreateInput, "recipientUserId">,
-) {
-  await notifyManagersWithClient(client, data);
+export async function notifyManagersTx(client: Prisma.TransactionClient, draft: NotificationDraft) {
+  await notifyManagersWithClient(client, draft);
 }
 
-export async function notifyAssigneeTx(client: Prisma.TransactionClient, data: Prisma.NotificationUncheckedCreateInput) {
-  await notifyAssigneeWithClient(client, data);
+export async function notifyAssigneeTx(
+  client: Prisma.TransactionClient,
+  draft: AddressedNotificationDraft,
+) {
+  await createIfMissingWithClient(client, draft);
 }
 
 export async function resolveConversationNotificationsTx(

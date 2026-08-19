@@ -30,6 +30,7 @@ import {
   redactProviderSecrets,
 } from "./ai/ops-brief";
 import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
+import { notificationSubjectColumns } from "./notification-facts";
 
 const dealershipName = defaultDealershipSettings.dealershipName;
 
@@ -897,22 +898,26 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
     await prisma.notification.createMany({
       data: [
         {
-          type: NotificationType.SLA_MISSED,
+          ...notificationSubjectColumns({
+            type: NotificationType.SLA_MISSED,
+            conversationId: panigaleLead.id,
+          }),
           title: "Sales response SLA missed",
           body: `${panigaleLead.customer.name} asked for an OTD number and still needs a staff response.`,
           recipientUserId: manager.id,
-          conversationId: panigaleLead.id,
           department: panigaleLead.department,
           priority: Priority.URGENT,
           dueAt: hoursFromNow(-1),
         },
         {
-          type: NotificationType.NEW_INBOUND_MESSAGE,
+          ...notificationSubjectColumns({
+            type: NotificationType.NEW_INBOUND_MESSAGE,
+            conversationId: panigaleLead.id,
+            raisedByMessageId: panigaleLead.messages.at(-1)?.id,
+          }),
           title: "New customer message",
           body: `${panigaleLead.customer.name}: Can you send the OTD number?`,
           recipientUserId: sales.id,
-          conversationId: panigaleLead.id,
-          messageId: panigaleLead.messages.at(-1)?.id,
           department: panigaleLead.department,
           priority: Priority.HIGH,
         },
@@ -923,12 +928,14 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
   if (tigerService?.tasks[0]) {
     await prisma.notification.create({
       data: {
-        type: NotificationType.FOLLOW_UP_OVERDUE,
+        ...notificationSubjectColumns({
+          type: NotificationType.FOLLOW_UP_OVERDUE,
+          taskId: tigerService.tasks[0].id,
+          conversationId: tigerService.id,
+        }),
         title: "Follow-up overdue",
         body: `${tigerService.customer.name} needs estimate approval on RO 48219.`,
         recipientUserId: service.id,
-        conversationId: tigerService.id,
-        taskId: tigerService.tasks[0].id,
         department: tigerService.department,
         priority: Priority.HIGH,
         dueAt: tigerService.tasks[0].dueDate,
@@ -939,11 +946,13 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
   if (mvTestRide) {
     await prisma.notification.create({
       data: {
-        type: NotificationType.UNASSIGNED_CONVERSATION,
+        ...notificationSubjectColumns({
+          type: NotificationType.UNASSIGNED_CONVERSATION,
+          conversationId: mvTestRide.id,
+        }),
         title: "Unassigned sales lead",
         body: `${mvTestRide.customer.name} asked about an MV Agusta Brutale test ride.`,
         recipientUserId: manager.id,
-        conversationId: mvTestRide.id,
         department: mvTestRide.department,
         priority: Priority.HIGH,
         dueAt: hoursFromNow(-2),
@@ -961,12 +970,14 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
     });
     await prisma.notification.create({
       data: {
-        type: NotificationType.MESSAGE_FAILED,
+        ...notificationSubjectColumns({
+          type: NotificationType.MESSAGE_FAILED,
+          conversationId: tiresParts.id,
+          messageId: tiresParts.messages[1].id,
+        }),
         title: "Message failed",
         body: `${tiresParts.customer.name}: Carrier rejected message: unreachable destination.`,
         recipientUserId: manager.id,
-        conversationId: tiresParts.id,
-        messageId: tiresParts.messages[1].id,
         department: tiresParts.department,
         priority: Priority.HIGH,
       },

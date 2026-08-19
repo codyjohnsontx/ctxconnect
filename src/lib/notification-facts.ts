@@ -21,10 +21,12 @@
  * messages. The single exception is a text that failed to send: two failed
  * texts on one thread are two things to fix, so those keep the message.
  *
- * That rule is needed in two forms, because a list is collapsed after its rows
- * are read while a badge must be one number the database works out on its own.
- * Both forms are built here, from the same two lists, so nothing can teach one
- * of them a rule the other has not learned.
+ * That rule is needed in three forms, because a list is collapsed after its
+ * rows are read, a badge must be one number the database works out on its own,
+ * and a row has to be written with the subject the other two will read back.
+ * All three are built here, from the same two lists, so nothing can teach one
+ * of them a rule the others have not learned - and the write form is a type,
+ * so a writer that has not learned it does not compile.
  */
 
 import { type Department, Prisma } from "@/generated/prisma/client";
@@ -48,25 +50,101 @@ export const followUpSubject = "FOLLOW_UP";
 // passes the due date and only withdraws the "due today" row the next time it
 // runs, so the two have to read as one alert in between or the advisor is
 // told a follow-up is both still coming and already late.
-export const followUpTypes: string[] = [
+export const followUpTypes = [
   NotificationType.FOLLOW_UP_DUE,
   NotificationType.FOLLOW_UP_OVERDUE,
-];
+] as const;
 
 // The alerts whose fact really is one message rather than the thread: two
 // texts that failed to send on one thread are two things to fix and must not
 // collapse into one. Every other alert describes the thread itself - it has no
 // owner, it has an unanswered customer message, it missed its SLA - so the
-// message it happened to be raised from stays out of the key. Writers disagree
-// about whether they attach one at all, and keying on it splits one unowned
-// thread into two alerts and one busy thread into an alert per text.
-export const perMessageTypes: string[] = [NotificationType.MESSAGE_FAILED];
+// message it happened to be raised from stays out of the key, and is named
+// apart from it in `NotificationSubject` below so a writer cannot put one
+// there. Keying on it splits one unowned thread into two alerts and one busy
+// thread into an alert per text.
+export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
+
+// The two lists are fixed tuples so the shapes a writer may build can be
+// derived from them below. A stored row's `type` arrives here as a plain
+// string, though, so widen them again to ask whether it is in one.
+function names(types: readonly NotificationType[]): readonly string[] {
+  return types;
+}
 
 export function notificationFactKey(notification: NotificationFact): string {
-  const subject = followUpTypes.includes(notification.type) ? followUpSubject : notification.type;
-  const message = perMessageTypes.includes(notification.type) ? (notification.messageId ?? "") : "";
+  const subject = names(followUpTypes).includes(notification.type)
+    ? followUpSubject
+    : notification.type;
+  const message = names(perMessageTypes).includes(notification.type)
+    ? (notification.messageId ?? "")
+    : "";
 
   return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
+}
+
+/** The three kinds of subject an alert can have, read off the two lists above. */
+export type PerMessageNotificationType = (typeof perMessageTypes)[number];
+export type FollowUpNotificationType = (typeof followUpTypes)[number];
+export type ThreadNotificationType = Exclude<
+  NotificationType,
+  PerMessageNotificationType | FollowUpNotificationType
+>;
+
+/**
+ * What an alert is about, in the only shapes the key above can read. A writer
+ * names the subject; which columns that subject occupies is the type's
+ * business, not the writer's.
+ *
+ * A per-message alert is about one text, a follow-up is about one task, and
+ * every other alert is about one thread. A thread alert may still record the
+ * text it happened to be raised from - the sweep has none to give, the webhook
+ * does - but it names it `raisedByMessageId`, because that is provenance and
+ * the key does not read it. `messageId` on a thread alert is a compile error,
+ * which is what stops one unowned thread being written under two keys and
+ * listed twice.
+ */
+export type NotificationSubject =
+  | {
+      type: PerMessageNotificationType;
+      conversationId: string;
+      messageId: string;
+      taskId?: never;
+      raisedByMessageId?: never;
+    }
+  | {
+      type: FollowUpNotificationType;
+      taskId: string;
+      conversationId?: string | null;
+      messageId?: never;
+      raisedByMessageId?: never;
+    }
+  | {
+      type: ThreadNotificationType;
+      conversationId: string;
+      raisedByMessageId?: string | null;
+      messageId?: never;
+      taskId?: never;
+    };
+
+/**
+ * That subject as the columns a row stores it in - the one place any writer's
+ * ids become a `Notification`.
+ *
+ * The `messageId` column carries two different things, which is the confusion
+ * underneath the double-count: for a per-message alert it is part of what the
+ * alert *is* and the key reads it, while for every other alert it is only the
+ * text the copy was raised from and the key ignores it. The type above keeps
+ * them apart at the call site; this is the single line that puts them back in
+ * one column, rather than each writer deciding for itself.
+ */
+export function notificationSubjectColumns(subject: NotificationSubject) {
+  return {
+    type: subject.type,
+    conversationId: subject.conversationId ?? null,
+    taskId: subject.taskId ?? null,
+    messageId: subject.messageId ?? subject.raisedByMessageId ?? null,
+  };
 }
 
 /**

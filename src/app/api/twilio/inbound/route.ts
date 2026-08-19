@@ -153,7 +153,7 @@ export async function POST(request: Request) {
           body: `${customer.name}: ${body}`,
           recipientUserId: conversation.assignedUserId,
           conversationId: conversation.id,
-          messageId: message.id,
+          raisedByMessageId: message.id,
           department: conversation.department,
           priority: conversation.priority,
         });
@@ -163,7 +163,7 @@ export async function POST(request: Request) {
           title: "New unassigned customer message",
           body: `${customer.name}: ${body}`,
           conversationId: conversation.id,
-          messageId: message.id,
+          raisedByMessageId: message.id,
           department: conversation.department,
           priority: Priority.HIGH,
         });
