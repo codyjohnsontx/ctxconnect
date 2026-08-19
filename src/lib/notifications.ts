@@ -111,6 +111,17 @@ export function notificationHref(notification: {
   return "/command-center";
 }
 
+/**
+ * Raise one recipient's row unless an active one already carries the same fact.
+ * One shape for the subject makes the two writers of an unowned thread look
+ * interchangeable, and they are not: this returns the existing row rather than
+ * updating it, so whichever writer gets there first fixes that fact's priority
+ * for good - the webhook hard-codes `Priority.HIGH` where the sweep uses
+ * `conversation.priority`, so a low-priority thread whose text arrives at the
+ * webhook keeps a HIGH row the sweep never corrects. The key and the badge
+ * cannot see it, because priority orders the rows rather than identifying the
+ * fact. Pre-existing, deliberately unchanged here, and filed separately.
+ */
 async function createIfMissingWithClient(
   client: NotificationDbClient,
   draft: AddressedNotificationDraft,

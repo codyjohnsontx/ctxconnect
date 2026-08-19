@@ -103,6 +103,10 @@ export type ThreadNotificationType = Exclude<
  * the key does not read it. `messageId` on a thread alert is a compile error,
  * which is what stops one unowned thread being written under two keys and
  * listed twice.
+ *
+ * Why a thread alert still stores that text at all, rather than dropping it and
+ * holding one row per recipient, is decided in
+ * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md.
  */
 export type NotificationSubject =
   | {
@@ -213,7 +217,9 @@ export function dedupeNotificationFacts<T extends NotificationFact>(
  * Center" row. The screen stays honest either way, because that row is the
  * difference between the badge and the list rather than a silent shortfall.
  * The bound that would fix it belongs on the write side, where an answered
- * thread should stop holding an alert per text, and that is filed separately.
+ * thread should stop holding an alert per text, and is filed separately for the
+ * reason in
+ * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md.
  */
 export const notificationScanLimit = 60;
 
