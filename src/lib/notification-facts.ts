@@ -11,7 +11,7 @@
  * These helpers collapse the rows back down to the facts before anything is
  * listed or counted, so the alert rail, the Command Center and their counters
  * share one rule. Nothing here opens a connection, so the rule can be worked
- * out and tested without a database. It is still server-only: one of the two
+ * out and tested without a database. It is still server-only: one of the three
  * forms below is built with `Prisma.sql`, which carries the client runtime, and
  * a client component that imports this module fails the build.
  *
