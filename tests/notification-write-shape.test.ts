@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
@@ -37,6 +37,17 @@ function sourceFiles(dir: string): string[] {
 
     return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
   });
+}
+
+// Alerts are raised from src/, but prisma/ and scripts/ hold code that writes to
+// the same database, so a writer added beside prisma/seed.ts or
+// scripts/twilio-replay.ts has to be visible here too.
+const scannedDirs = ["src", "prisma", "scripts"];
+
+function scannedSourceFiles(): string[] {
+  return scannedDirs
+    .filter((dir) => existsSync(join(repoRoot, dir)))
+    .flatMap((dir) => sourceFiles(join(repoRoot, dir)));
 }
 
 /** Whole enum members, so a new one has to be sorted rather than defaulting. */
@@ -191,13 +202,18 @@ describe("the wrong shape does not compile", () => {
 // calls as they are written today, so a writer using raw SQL or an aliased
 // client would slip past. Catching that would mean parsing TypeScript, which is
 // not worth it here - the point is that the obvious way to add a writer fails.
+// The constructor check is per file rather than per call, so a second hand-built
+// create added inside a file that already calls the constructor is not caught.
 describe("nothing builds a notification row on its own", () => {
   const creates = /\bnotification\.(create|createMany|createManyAndReturn|upsert)\b/;
   const constructor = /\bnotificationSubjectColumns\b/;
 
-  const writers = sourceFiles(join(repoRoot, "src"))
+  // Sorted, because readdirSync returns filesystem order rather than
+  // alphabetical order and that differs between machines.
+  const writers = scannedSourceFiles()
     .map((path) => relative(repoRoot, path))
-    .filter((path) => creates.test(readFileSync(join(repoRoot, path), "utf8")));
+    .filter((path) => creates.test(readFileSync(join(repoRoot, path), "utf8")))
+    .sort();
 
   it("finds the writers where they are expected", () => {
     // Two: the module every runtime alert is raised through, and the demo seed,
