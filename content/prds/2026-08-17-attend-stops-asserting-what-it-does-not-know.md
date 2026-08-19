@@ -13,24 +13,14 @@ See
 [The Length Guard Reads the Reply](./2026-08-18-the-length-guard-reads-the-reply.md).
 That change left the template blanks and the undelivered reply alone.
 
-**The queue row marks the conversation, not the message it is previewing.** The
-row described below prefixes the preview with a red **Not delivered:**. It no
-longer does. It renders `UNDELIVERED_ROW_LABEL` - "Reply not delivered" - with
-the alert icon on its own line above the preview, and it asks whether the newest
-reply staff sent is still undelivered rather than whether the message the row
-happens to be previewing is the failed one. A prefix keyed to the previewed
-message disappears the moment a later message becomes the preview - the seeded
-Marco Silva thread, where an internal note follows the failed reply - and where
-it did show, it read as though the previewed text was what failed to send.
-Because the marker no longer competes for the preview line, the preview now
-keeps its author label, which the old code suppressed when the reply had failed.
-
-The thread bubble, the composer banner, the template blanks and the length guard
-are unchanged; the rule they share still lives in `src/lib/message-delivery.ts`.
-The **Failed** inbox filter was deliberately left matching any conversation that
-has ever had a delivery failure rather than narrowed to one still undelivered,
-so it can surface a row that is now unmarked - narrowing it is a separate
-product decision about what that filter means.
+**The queue row marker described below is keyed to the wrong message.** The row
+prefixed the preview with a red **Not delivered:**, which vanished as soon as
+anything was written after the failed reply. It now marks the conversation -
+whether the newest reply staff sent is still undelivered - on its own line above
+the preview, and the preview keeps its author label. See
+[The Queue Row Marks the Conversation, Not the Preview](./2026-08-19-the-queue-row-marks-the-conversation.md).
+That change left the thread bubble, the composer banner, the template blanks and
+the length guard alone.
 
 ## Date
 
@@ -152,10 +142,10 @@ back while the box is still empty, and a failed send refreshes the thread so the
 attempt is visible immediately. The Twilio-not-configured failure was reworded
 to name who can fix it rather than the vendor behind it.
 
-**Superseded 2026-08-19.** The row does not prefix the preview. It marks the
-conversation - whether the newest reply staff sent is still undelivered - on its
-own line above the preview, reading "Reply not delivered", and the preview keeps
-its author label. See [Status](#status). The rest of this paragraph stands.
+**Superseded 2026-08-19.** The row does not prefix the preview; it marks the
+conversation on its own line above it. See
+[The Queue Row Marks the Conversation, Not the Preview](./2026-08-19-the-queue-row-marks-the-conversation.md).
+The rest of this paragraph stands.
 
 **Over-length is refused before Send.** `src/lib/sms-length.ts` holds the limit
 and the sentence, shared by the box and the route so both refuse in the same
@@ -194,10 +184,10 @@ unbroken word - an ordinary photo link - overflowed its bubble at every width
    bubble reading "Not delivered - the customer never got this."
 5. She returns to the queue. The row reads **Reply not delivered** above the
    preview, so she knows the customer is still waiting - and it keeps saying so
-   after she adds an internal note that takes over the preview line. Superseded
-   2026-08-19: as first built this step read "The row reads **Not delivered:**
-   before her text", which only held while the failure was the last word in the
-   thread.
+   after she adds an internal note that takes over the preview line. As first
+   built this step read "the row reads **Not delivered:** before her text", which
+   only held while the failure was the last word in the thread; superseded
+   2026-08-19.
 6. Later she writes a long reply. Past 1600 characters the box tells her how many
    to cut and disables Send, before she presses it.
 
@@ -231,11 +221,9 @@ unbroken word - an ordinary photo link - overflowed its bubble at every width
   never got it.
 - Given a conversation whose newest reply is undelivered, when she views the
   queue, then the row is marked **Reply not delivered** above the preview -
-  whatever message is currently previewing, including a later internal note.
-  Superseded 2026-08-19: this read "Given a failed reply is the newest message,
-  when she views the queue, then the row preview is prefixed **Not delivered:**",
-  which passed while the failure was the newest message and said nothing about
-  the ordering that broke it.
+  whatever message is currently previewing, including a later internal note. As
+  first written this criterion only covered a failed reply that was the newest
+  message, which is the case that never broke; superseded 2026-08-19.
 - Given a failed reply and an empty box, when she opens the thread, then she is
   offered the unsent text back.
 - Given a later reply that did reach the customer, when she opens the thread,
