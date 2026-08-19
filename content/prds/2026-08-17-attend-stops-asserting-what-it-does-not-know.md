@@ -2,7 +2,15 @@
 
 ## Status
 
-Built
+Built, with the length limit superseded on 2026-08-18.
+
+**The 1600-character limit named below is the GSM-7 limit only.** One emoji or a
+pasted curly quote moves the reply to UCS-2, where Twilio takes 700, so the
+guard now reads the body for its encoding rather than counting every reply
+against one number, and the refusal names how much to cut rather than a ceiling.
+See
+[The Length Guard Reads the Reply](./2026-08-18-the-length-guard-reads-the-reply.md).
+The template blanks and the undelivered reply are unchanged.
 
 ## Date
 

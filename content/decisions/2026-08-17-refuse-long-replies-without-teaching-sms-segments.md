@@ -70,7 +70,11 @@ than that Attend broke.
 - **Given up: the emoji surprise.** A pasted curly apostrophe silently more than
   doubles the parts a reply costs. The advisor still cannot see that.
 - **Kept: a much smaller surface.** ~30 lines instead of ~400, with no GSM
-  alphabet table to keep correct.
+  alphabet table to keep correct. Superseded on 2026-08-18: the table is in
+  `src/lib/sms-length.ts` after all, because which cap Twilio applies to a reply
+  cannot be answered without it. What this decision decided is intact - nothing
+  on screen tells the advisor how many texts a reply becomes. See
+  [The Length Guard Reads the Reply](../prds/2026-08-18-the-length-guard-reads-the-reply.md).
 
 ## Portfolio Notes
 
