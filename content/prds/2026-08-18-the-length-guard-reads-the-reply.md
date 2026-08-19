@@ -58,23 +58,30 @@ into it.
 **The guard reads the body.** `src/lib/sms-length.ts` carries the GSM 03.38
 alphabet - the basic set, plus the extension set whose characters cost two
 septets each - and works out from the body which encoding Twilio will use, how
-long the reply is in that encoding's units, and how much of it would get
-through. Both callers changed to one call, `smsTooLong(body)`, which returns the
-overage and the sentence together or null, so the number under the box and the
-disabled Send button cannot end up reading the body differently.
+much of it would get through, and whether the encoding is what stopped it. Both
+callers changed to one call, `smsTooLong(body)`, which returns the overage and
+the sentence together or null, so the number under the box and the disabled Send
+button cannot end up reading the body differently.
 
-**The refusal names a target she can reach.** The old sentence always said
+**The refusal names the lever, not a ceiling.** The old sentence always said
 "trim it to 1600 characters or fewer". That is wrong twice over: for a reply
-carrying an emoji the number is 700, and for a reply full of brackets - which is
-how a template leaves a blank - 1600 characters can still be 3200 septets and
-still be refused. The number in the sentence is now the length that actually
-fits.
+carrying an emoji the ceiling is 700, and for a reply full of brackets - which
+is how a template leaves a blank - 1600 characters can still be 3200 septets and
+still be refused. Naming the ceiling that currently applies is no better,
+because it moves as she edits: delete two characters out of the middle of a
+reply held at 899 by a trailing emoji and the ceiling drops to 700. So the
+refusal says how much to cut - "Cut about 140 characters." - which is what the
+guard actually knows, and says "about" because it is exact only for a delete
+from the end.
 
-**A shortened limit says it is shortened.** When the encoding is the reason,
-the refusal adds one sentence: "An emoji or special character in it shortens
-what one text holds." Without it the advisor reads "trim it to 700" over a reply
-she has watched sit happily at 1500 all week, with nothing on screen accounting
-for the change. See
+**A shortened limit says it is shortened, and only when it is.** When the reply
+would have fitted had nothing in it forced the shorter alphabet, the refusal
+names that and offers the cheaper lever instead: "An emoji or special character
+in it shortens what one text holds - take that out, or cut about 200
+characters." A reply already too long without the special character does not get
+that sentence, because there the special character is not the reason and
+pointing at it would send her hunting for an invisible glyph that changes
+nothing. See
 [the decision log](../decisions/2026-08-18-name-the-thing-that-shortened-the-reply.md).
 
 ## Non-Goals
@@ -95,14 +102,18 @@ for the change. See
 ## Acceptance Criteria
 
 - Given a 900-character reply with one emoji in it, when the advisor has typed
-  it, then Send is disabled and the notice names 700 as the target - before Send
-  is pressed.
+  it, then Send is disabled and the notice offers both levers - take the emoji
+  out, or cut about 200 characters - before Send is pressed.
 - Given the same reply with the emoji deleted, when the keystroke lands, then
   the notice clears and Send re-enables in the same render.
 - Given a 1740-character reply with no character outside GSM-7, when she has
-  typed it, then the notice still names 1600, unchanged from before.
-- Given a reply of 900 brackets, when she has typed it, then the notice names
-  800 - the length that fits - rather than 1600.
+  typed it, then the notice says to cut about 140 characters and says nothing
+  about emoji or special characters.
+- Given a 1700-character reply with one emoji on the end, when she has typed it,
+  then the notice says to cut about 102 characters and still says nothing about
+  emoji or special characters, because the reply was too long without it.
+- Given a reply of 900 brackets, when she has typed it, then the notice says to
+  cut about 100 characters, rather than treating 900 characters as under 1600.
 - Given a reply carrying an accented character GSM-7 does have (`é`, `à`, `ñ`),
   when she has typed 1500 of them, then nothing is refused.
 - Given an over-long reply that reaches the route anyway, when the route

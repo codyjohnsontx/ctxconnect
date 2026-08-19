@@ -129,39 +129,62 @@ describe("smsTooLong on GSM-7 extension characters", () => {
     assert.equal(smsTooLong("A" + "\f".repeat(GSM7.body / 2) + "B")?.overBy, 2);
   });
 
-  it("names a target the advisor can actually reach", () => {
-    // 900 braces are 1800 septets. Telling her to trim to 1600 characters would
-    // be advice that still does not send; 800 is the number that does.
+  it("counts what she has to cut, not what a character count would say", () => {
+    // 900 braces are 1800 septets. Read as 1600 characters this reply looks
+    // fine; the number that actually sends is 100 characters fewer.
     const tooLong = smsTooLong("{".repeat(900));
 
     assert.equal(tooLong?.overBy, 100);
-    assert.match(tooLong?.message ?? "", /Trim it to 800 characters or fewer\./);
+    assert.match(tooLong?.message ?? "", /Cut about 100 characters\./);
   });
 });
 
 describe("smsTooLong message", () => {
-  it("names how much to cut and where the line is", () => {
-    const tooLong = smsTooLong("A".repeat(1740));
-
-    assert.match(tooLong?.message ?? "", /140 characters too long/);
-    assert.match(tooLong?.message ?? "", new RegExp(`Trim it to ${GSM7.body} characters or fewer`));
+  // How much to cut, not what ceiling to land under. The ceiling moves with the
+  // body - deleting two characters from the middle of a reply held at 899 by a
+  // trailing emoji drops it to 700 - so naming one asserts something the guard
+  // cannot know about where she will cut.
+  it("names how much to cut", () => {
+    assert.match(smsTooLong("A".repeat(1740))?.message ?? "", /Cut about 140 characters\./);
+    assert.doesNotMatch(smsTooLong("A".repeat(1740))?.message ?? "", /or fewer/);
   });
 
   it("reads correctly when it is over by one", () => {
-    assert.match(smsTooLong("A".repeat(GSM7.body + 1))?.message ?? "", /1 character too long/);
+    assert.match(smsTooLong("A".repeat(GSM7.body + 1))?.message ?? "", /Cut one more character\./);
   });
 
-  // Otherwise the advisor reads "trim it to 700" over a reply she has watched
-  // sit happily at 1500 all week, with nothing on screen accounting for it.
+  // Otherwise the advisor reads "cut 200 characters" over a reply she has
+  // watched sit happily at 1500 all week, with nothing on screen accounting for
+  // it, and the cheaper move - delete one character - stays invisible.
   it("says an emoji or special character is what shortened the reply", () => {
     const tooLong = smsTooLong(EMOJI + "A".repeat(898));
 
-    assert.match(tooLong?.message ?? "", /Trim it to 700 characters or fewer/);
     assert.match(tooLong?.message ?? "", /emoji or special character/i);
+    assert.match(tooLong?.message ?? "", /take that out, or cut about 200 characters\./);
   });
 
   it("does not blame an emoji when there is not one", () => {
     assert.doesNotMatch(smsTooLong("A".repeat(1740))?.message ?? "", /emoji/i);
+  });
+
+  // The caveat is only true when the special character is what stopped the
+  // send. 1700 plain characters are already 100 over on their own, so blaming
+  // the emoji would contradict the count and send her hunting for a glyph that
+  // is not the reason.
+  it("does not blame a special character for a reply too long without it", () => {
+    const tooLong = smsTooLong("A".repeat(1700) + EMOJI);
+
+    assert.equal(tooLong?.overBy, 102);
+    assert.doesNotMatch(tooLong?.message ?? "", /emoji|special character/i);
+    assert.match(tooLong?.message ?? "", /Cut about 102 characters\./);
+  });
+
+  // Both sides of the same reply, one character apart: at 1599 deleting the
+  // emoji sends it, so the caveat is the cheapest thing she can be told. At
+  // 1601 deleting it changes nothing, so saying it would be a wrong answer.
+  it("blames the special character only when taking it out would send the reply", () => {
+    assert.match(smsTooLong("A".repeat(GSM7.body - 1) + EMOJI)?.message ?? "", /emoji/i);
+    assert.doesNotMatch(smsTooLong("A".repeat(GSM7.body + 1) + EMOJI)?.message ?? "", /emoji/i);
   });
 
   // The advisor cannot act on how many texts the carrier will bill for, so the

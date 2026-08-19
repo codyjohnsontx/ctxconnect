@@ -33,6 +33,14 @@ export type SmsEncoding = "GSM-7" | "UCS-2";
  * outright past it, and for non-GSM-7 characters reaching that limit sooner.
  * The 700-character UCS-2 maximum is the same budget measured in UCS-2:
  * 1600 septets of room is 700 sixteen-bit characters.
+ *
+ * Twilio states that maximum in characters. This module spends it as a septet
+ * budget instead, so a two-septet extension character - a bracket out of a
+ * template blank - consumes two of the 1600, and 900 brackets are already past
+ * it at 900 characters. The two readings part company only on bodies carrying
+ * extension characters, and only in the direction of refusing a reply Twilio
+ * might have taken rather than promising one it will refuse, which is the
+ * direction this module is required to err in.
  */
 export const SMS_LIMITS = {
   "GSM-7": { singleSegment: 160, perConcatenatedSegment: 153, body: 1600 },
@@ -85,16 +93,20 @@ function gsm7Cost(character: string): number {
 
 type SmsMeasure = {
   encoding: SmsEncoding;
-  /** Encoded length, in the units its encoding is capped in. */
-  length: number;
   /** How many characters from the front of it Twilio would take. */
   fits: number;
+  /**
+   * What it would have cost in septets had every character GSM-7 cannot carry
+   * been an ordinary one. Over 1600 here and the reply was too long whatever
+   * alphabet it landed in, so the encoding is not what stopped it.
+   */
+  septetsIfGsm7: number;
 };
 
 /**
- * Reads the body once and answers all three questions it can only answer
- * together: which alphabet it forces, how long it is in that alphabet's units,
- * and how much of it would get through.
+ * Reads the body once and answers the questions it can only answer together:
+ * which alphabet it forces, how much of it would get through, and what it would
+ * have measured had nothing in it forced the shorter alphabet.
  *
  * Characters are counted in UTF-16 code units, which is what a JavaScript
  * string length is and also what UCS-2 counts - an emoji outside the basic
@@ -107,6 +119,7 @@ type SmsMeasure = {
  */
 function measureSms(body: string): SmsMeasure {
   let septets = 0;
+  let septetsIfGsm7 = 0;
   let units = 0;
   let forcesUcs2 = false;
   let fits = 0;
@@ -120,6 +133,7 @@ function measureSms(body: string): SmsMeasure {
       septets += cost;
     }
 
+    septetsIfGsm7 += cost || 1;
     units += character.length;
 
     const encoded = forcesUcs2 ? units : septets;
@@ -131,8 +145,8 @@ function measureSms(body: string): SmsMeasure {
 
   return {
     encoding: forcesUcs2 ? "UCS-2" : "GSM-7",
-    length: forcesUcs2 ? units : septets,
     fits,
+    septetsIfGsm7,
   };
 }
 
@@ -189,7 +203,11 @@ export function smsSegments(body: string): number {
 
 /** What the box and the route both refuse a too-long reply with. */
 export type SmsTooLong = {
-  /** Characters that have to come off the end before Twilio will take it. */
+  /**
+   * Characters that have to come off the end before Twilio will take it. Exact
+   * for a delete from the end and a guide anywhere else, because a character
+   * cut from the middle can be the one holding the shorter limit in place.
+   */
   overBy: number;
   message: string;
 };
@@ -203,19 +221,24 @@ export type SmsTooLong = {
  */
 export function smsTooLong(body: string): SmsTooLong | null {
   const trimmed = body.trim();
-  const { encoding, fits } = measureSms(trimmed);
+  const { encoding, fits, septetsIfGsm7 } = measureSms(trimmed);
   const overBy = trimmed.length - fits;
 
   if (overBy <= 0) {
     return null;
   }
 
-  const characters = overBy === 1 ? "character" : "characters";
-  const shortened =
-    encoding === "UCS-2" ? " An emoji or special character in it shortens what one text holds." : "";
+  const cut = overBy === 1 ? "one more character" : `about ${overBy} characters`;
+
+  if (encoding === "UCS-2" && septetsIfGsm7 <= SMS_LIMITS["GSM-7"].body) {
+    return {
+      overBy,
+      message: `That reply is too long to send as a text. An emoji or special character in it shortens what one text holds - take that out, or cut ${cut}.`,
+    };
+  }
 
   return {
     overBy,
-    message: `That reply is ${overBy} ${characters} too long to send as a text. Trim it to ${fits} characters or fewer.${shortened}`,
+    message: `That reply is too long to send as a text. Cut ${cut}.`,
   };
 }
