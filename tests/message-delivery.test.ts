@@ -4,8 +4,10 @@ import { DeliveryStatus, MessageDirection } from "../src/generated/prisma/client
 import {
   TEXTING_NOT_CONNECTED,
   UNDELIVERED_HEADLINE,
+  hasUndeliveredReply,
   isUndelivered,
   lastUndeliveredOutbound,
+  newestReply,
   undeliveredDetail,
 } from "../src/lib/message-delivery";
 
@@ -37,6 +39,58 @@ describe("isUndelivered", () => {
   it("is false for anything the advisor did not send to the customer", () => {
     assert.equal(isUndelivered(message(INBOUND, FAILED)), false);
     assert.equal(isUndelivered(message(INTERNAL, FAILED)), false);
+  });
+});
+
+// The seeded Marco Silva thread, which is where this went wrong on screen: a
+// reply the carrier rejected, and an internal note written an hour later.
+const supersededFailure = [
+  message(INBOUND, RECEIVED, "Did the Pirelli tires for my Tuareg arrive yet?"),
+  message(OUTBOUND, FAILED, "Front arrived this morning. Rear is still showing tomorrow."),
+  message(INTERNAL, INTERNAL_STATUS, "Rear tire ETA slipped from supplier; check alternate distributor."),
+];
+
+describe("newestReply", () => {
+  it("finds nothing when staff have never written to this customer", () => {
+    assert.equal(newestReply([]), null);
+    assert.equal(newestReply([message(INBOUND, RECEIVED), message(INTERNAL, INTERNAL_STATUS)]), null);
+  });
+
+  // The defect this covers: the queue row asked about the message it previews,
+  // which is the newest of any direction. A note written after a failed reply
+  // became the preview, and the row stopped saying the reply had failed while
+  // the thread bubble and the composer banner both still did.
+  it("is the last reply staff sent, not the last message written", () => {
+    assert.equal(newestReply(supersededFailure), supersededFailure[1]);
+  });
+
+  it("is the newest reply when several have gone out", () => {
+    const thread = [message(OUTBOUND, FAILED, "old"), message(INBOUND, RECEIVED), message(OUTBOUND, DELIVERED, "new")];
+
+    assert.equal(newestReply(thread), thread[2]);
+  });
+});
+
+describe("hasUndeliveredReply", () => {
+  it("is false when staff have never written to this customer", () => {
+    assert.equal(hasUndeliveredReply(null), false);
+    assert.equal(hasUndeliveredReply(undefined), false);
+  });
+
+  // The queue row's marker, on the ordering that used to un-mark it. The first
+  // assertion is the answer the row used to get, kept here so the two cannot be
+  // confused for the same question again.
+  it("still marks the conversation once a later note has taken over the preview", () => {
+    const preview = supersededFailure[supersededFailure.length - 1];
+
+    assert.equal(isUndelivered(preview), false);
+    assert.equal(hasUndeliveredReply(newestReply(supersededFailure)), true);
+  });
+
+  it("stops marking it once a later reply reached the customer", () => {
+    const thread = [message(OUTBOUND, FAILED, "old"), message(OUTBOUND, DELIVERED, "new")];
+
+    assert.equal(hasUndeliveredReply(newestReply(thread)), false);
   });
 });
 

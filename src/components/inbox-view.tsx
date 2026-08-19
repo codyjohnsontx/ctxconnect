@@ -16,6 +16,8 @@ import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import {
   UNDELIVERED_HEADLINE,
+  UNDELIVERED_ROW_LABEL,
+  hasUndeliveredReply,
   isUndelivered,
   lastUndeliveredOutbound,
   undeliveredDetail,
@@ -210,19 +212,16 @@ export function InboxView({
             <div className="divide-y divide-zinc-100">
               {conversations.map((conversation) => {
                 const lastMessage = conversation.messages[0];
-                // The preview is whatever was written last, which includes a reply
-                // that never reached the customer. Left unmarked it reads as an
-                // answer already given, and the row is where she decides to skip.
-                const previewUndelivered = lastMessage ? isUndelivered(lastMessage) : false;
+                // Asked of the last reply staff sent, not of the message being
+                // previewed. A note or a customer message written afterwards
+                // takes over the preview without undoing the failure, and a row
+                // that goes quiet then is worse than one that never spoke: this
+                // is the surface she scans to decide what to skip.
+                const undeliveredReply = hasUndeliveredReply(conversation.newestReply);
                 // Whose words the preview is. An inbound message gets nothing:
                 // the customer's voice is what a row is read as by default, and
-                // her name is already in bold on the line above. Skipped when the
-                // reply failed - "Not delivered:" is both the more urgent fact and
-                // already proof that staff wrote it, and two labels on one row
-                // would fight for a two-line clamp.
-                const previewAuthor = previewUndelivered
-                  ? null
-                  : previewAttribution(lastMessage, currentUser.id);
+                // her name is already in bold on the line above.
+                const previewAuthor = previewAttribution(lastMessage, currentUser.id);
                 const hasOpenTask = conversation.tasks.length > 0;
                 const selected = selectedConversation?.id === conversation.id;
                 const insight = conversation.aiInsights[0];
@@ -253,13 +252,17 @@ export function InboxView({
                         {formatDistanceToNow(conversation.lastMessageAt, { addSuffix: true })}
                       </span>
                     </div>
+                    {undeliveredReply ? (
+                      // Its own line above the preview rather than a prefix on it:
+                      // the failed reply is usually no longer the text being
+                      // previewed, and a prefix would read as though whatever is
+                      // previewed had failed.
+                      <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-600 dark:text-red-400">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        {UNDELIVERED_ROW_LABEL}
+                      </p>
+                    ) : null}
                     <p className="line-clamp-2 break-words text-sm text-zinc-600 dark:text-zinc-300">
-                      {previewUndelivered ? (
-                        // The space is a real text node rather than a margin so the
-                        // label and the message do not run together when the row is
-                        // read aloud or copied.
-                        <span className="font-semibold text-red-600 dark:text-red-400">Not delivered: </span>
-                      ) : null}
                       {previewAuthor ? (
                         <span className={cn("font-semibold", authorTone[previewAuthor.author])}>
                           {previewAuthor.label}{" "}
