@@ -2,6 +2,7 @@
 
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
+| 2026-08-18 | Built | [The Length Guard Reads the Reply](./2026-08-18-the-length-guard-reads-the-reply.md) | Inbox / Composer | The box told the advisor a 900-character reply would send when one emoji in it had already cut Twilio's real limit to 700; the guard now reads the body for its encoding and refuses against the limit that applies. |
 | 2026-08-17 | Built | [Attend Stops Asserting What It Does Not Know](./2026-08-17-attend-stops-asserting-what-it-does-not-know.md) | Inbox / Messaging | Templates leave a blank instead of texting a customer an appointment time the product cannot know, an undelivered reply reads as undelivered on the queue row and in the thread, and an over-long reply is refused before Send with the number of characters to cut. |
 | 2026-08-17 | Built | [Follow-Up in One Click](./2026-08-17-follow-up-in-one-click.md) | Inbox / AI | The brief's headline action stacked a second copy of a follow-up the thread already tracked; it now names the existing one and takes the advisor to it, and the form it fills can be submitted without opening a date picker. |
 | 2026-08-17 | Built | [The Alert Count Leads Somewhere](./2026-08-17-the-alert-count-leads-somewhere.md) | Alerts / Command Center | The rail counted 5 alerts and listed 3 with no route to the rest; the badge and the list now ask one question, the rail lists everything it counts and scrolls, and anything past its scan is a named link into Command Center. |
