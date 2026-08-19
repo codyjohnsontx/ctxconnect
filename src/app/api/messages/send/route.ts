@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getTwilioConfig } from "@/lib/env";
 import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
 import { prisma } from "@/lib/prisma";
-import { smsOverBy, smsTooLongMessage } from "@/lib/sms-length";
+import { smsTooLong } from "@/lib/sms-length";
 import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, Priority } from "@/generated/prisma/client";
 import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
@@ -38,10 +38,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid message payload." }, { status: 400 });
   }
 
-  const overBy = smsOverBy(parsed.data.body);
+  const tooLong = smsTooLong(parsed.data.body);
 
-  if (overBy > 0) {
-    return NextResponse.json({ error: smsTooLongMessage(overBy) }, { status: 400 });
+  if (tooLong) {
+    return NextResponse.json({ error: tooLong.message }, { status: 400 });
   }
 
   let conversation;

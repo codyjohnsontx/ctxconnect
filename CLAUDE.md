@@ -1277,6 +1277,7 @@ copy of one of these rules is how the screen and the database end up disagreeing
 * What counts as one alert: [`src/lib/notification-facts.ts`](./src/lib/notification-facts.ts). A `Notification` row is stored **once per recipient**, so a badge that counts rows overstates the work. The same module owns the scope-and-status rule behind the rail's badge and the rail's list, in the two forms they need: a Prisma clause the list filters with, and SQL the badge counts distinct facts with. Both are built there from one pair of lists, and the SQL is why this one module is server-only.
 * Whose voice a queue row is previewing: [`src/lib/message-preview.ts`](./src/lib/message-preview.ts).
 * Whether the brief's suggested follow-up already exists: [`src/lib/follow-ups.ts`](./src/lib/follow-ups.ts).
+* How long a reply may be, and what to refuse it with: [`src/lib/sms-length.ts`](./src/lib/sms-length.ts). There is no single limit. Twilio picks the encoding from the body, so one emoji or pasted curly quote moves a 1600-character reply to a 700-character one; the module carries the GSM 03.38 alphabet to work that out, and the box and the send route both call it. A constant here is the bug.
 
 Two habits this repo has paid for more than once:
 

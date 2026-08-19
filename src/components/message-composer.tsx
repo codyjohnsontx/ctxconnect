@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
-import { smsOverBy, smsTooLongMessage } from "@/lib/sms-length";
+import { smsTooLong } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
 import type { Department } from "@/generated/prisma/client";
 
@@ -130,7 +130,9 @@ export function MessageComposer({
 
   // Refused before Send rather than after it. The route refuses too, but by then
   // she has already pressed the button and the reply reads as broken software.
-  const overBy = smsOverBy(body);
+  // Read from the body on every render, because where the line is depends on
+  // what is in the box: one pasted emoji moves it from 1600 characters to 700.
+  const tooLong = smsTooLong(body);
 
   // The unsent reply is only worth offering back while the box is empty. Once
   // she has started typing, replacing what she wrote would cost more than the
@@ -189,7 +191,7 @@ export function MessageComposer({
   }
 
   async function sendMessage() {
-    if (!body.trim() || unfilled.length > 0 || overBy > 0) {
+    if (!body.trim() || unfilled.length > 0 || tooLong) {
       return;
     }
 
@@ -268,7 +270,7 @@ export function MessageComposer({
         <Button
           size="icon"
           onClick={sendMessage}
-          disabled={disabled || demoBlocked || isPending || !body.trim() || unfilled.length > 0 || overBy > 0}
+          disabled={disabled || demoBlocked || isPending || !body.trim() || unfilled.length > 0 || Boolean(tooLong)}
           title="Send message"
           className="mt-auto"
         >
@@ -281,7 +283,7 @@ export function MessageComposer({
           never guesses.
         </p>
       ) : null}
-      {overBy > 0 ? <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{smsTooLongMessage(overBy)}</p> : null}
+      {tooLong ? <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{tooLong.message}</p> : null}
       {demoBlocked ? (
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
