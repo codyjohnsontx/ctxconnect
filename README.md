@@ -312,5 +312,5 @@ Local and preview webhook setup:
 
 - `Stripe` payment flows
 - Stripe signature verification hardening
-- CI-driven migration automation
+- CI-driven migration automation against preview or production
 - Branch-per-preview Neon automation
