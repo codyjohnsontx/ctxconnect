@@ -44,7 +44,7 @@ export type SmsEncoding = "GSM-7" | "UCS-2";
  */
 export const SMS_LIMITS = {
   "GSM-7": { singleSegment: 160, perConcatenatedSegment: 153, body: 1600 },
-  "UCS-2": { singleSegment: 70, perConcatenatedSegment: 67, body: 700 },
+  "UCS-2": { singleSegment: 70, perConcatenatedSegment: 67, body: 1600 },
 } as const;
 
 /**
