@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel a pull-request run that a newer push has superseded, because its
+# result is about to be irrelevant. Never cancel on the default branch: that
+# would leave a commit on main with no completed verification.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # No .nvmrc and no engines field in the repo. next@16.2.4 requires >=20.9.0
+  # and a transitive dep requires ^20.19 || ^22.12 || >=24; 22 is what the repo
+  # is developed on.
+  NODE_VERSION: "22"
+
+jobs:
+  verify:
+    name: Lint, typecheck, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # No version input here: the pnpm version comes from package.json's
+      # packageManager field, which is the single source of truth for CI and
+      # local development alike. 9.12.3 is what wrote pnpm-lock.yaml
+      # (lockfileVersion 9.0).
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # src/generated/prisma is gitignored, so it is absent on a clean
+      # checkout, and lint, typecheck and test all import from it. Generating
+      # reads the schema only, touching no database, which is why this job has
+      # no Postgres service.
+      - name: Generate Prisma client
+        id: prisma
+        run: pnpm exec prisma generate
+
+      - name: Lint
+        run: pnpm run lint
+
+      # Run these even when an earlier check failed, so one red step does not
+      # hide the other two: a lint failure still reports the typecheck and test
+      # results in the same run, and the job still fails. Gated on the Prisma
+      # client existing, since without it every check fails for one reason.
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.prisma.outcome == 'success' }}
+        run: pnpm exec tsc --noEmit
+
+      - name: Test
+        if: ${{ !cancelled() && steps.prisma.outcome == 'success' }}
+        run: pnpm run test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # `pnpm build` is `prisma generate && prisma migrate deploy && next build`.
+    # CI runs that script unchanged against a throwaway Postgres rather than
+    # splitting the migrate out, for two reasons: the command CI proves stays
+    # the command Vercel runs, and applying the migration history to an empty
+    # database is coverage worth having, so a migration that no longer applies
+    # from scratch fails here instead of on a deploy.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: attend
+          POSTGRES_PASSWORD: attend
+          POSTGRES_DB: attend_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attend -d attend_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # 127.0.0.1 rather than localhost: localhost can resolve to ::1 on the
+      # runner while the service port is published on IPv4 only.
+      # prisma.config.ts falls back to DATABASE_URL when DIRECT_URL is unset,
+      # and src/lib/prisma.ts reads DATABASE_URL, so this one variable covers
+      # both the migrate and the next build.
+      DATABASE_URL: postgresql://attend:attend@127.0.0.1:5432/attend_ci
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The container health check can pass while Postgres is still on the
+      # socket-only server it runs during initdb, so confirm the published TCP
+      # port answers before handing it to `prisma migrate deploy`.
+      - name: Wait for Postgres
+        run: |
+          for _ in $(seq 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U attend -d attend_ci; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres never accepted a connection on 127.0.0.1:5432" >&2
+          exit 1
+
+      - name: Build
+        run: pnpm run build
