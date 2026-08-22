@@ -150,6 +150,7 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
 
   const [
     conversations,
+    newestReplies,
     selectedConversation,
     users,
     tags,
@@ -178,6 +179,19 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
           take: 1,
         },
       },
+    }),
+    // The newest message staff sent in each of those conversations, which is a
+    // different message from the one the row previews as soon as anyone writes
+    // anything afterwards. The row's undelivered marker has to be asked of this
+    // one - see hasUndeliveredReply - and the preview include above cannot also
+    // carry it, because one relation can only be included once.
+    prisma.message.findMany({
+      where: { conversation: where, direction: MessageDirection.OUTBOUND },
+      // `distinct` keeps the first row per conversation, so the conversation has
+      // to lead the ordering for Postgres to answer this with DISTINCT ON.
+      orderBy: [{ conversationId: "asc" }, { createdAt: "desc" }],
+      distinct: ["conversationId"],
+      select: { conversationId: true, direction: true, deliveryStatus: true },
     }),
     selectedId
       ? prisma.conversation.findFirst({
@@ -231,9 +245,14 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     getQueueBriefCoverage(scopedConversationWhere(user)),
   ]);
 
+  const newestReplyByConversation = new Map(newestReplies.map((reply) => [reply.conversationId, reply]));
+
   // The list query orders by recency; the AI pass decides what actually matters,
   // so the queue the advisor sees is ranked by its output. See queue-rank.ts.
-  const rankedConversations = rankConversationQueue(conversations);
+  const rankedConversations = rankConversationQueue(conversations).map((conversation) => ({
+    ...conversation,
+    newestReply: newestReplyByConversation.get(conversation.id) ?? null,
+  }));
 
   return {
     conversations: rankedConversations,
