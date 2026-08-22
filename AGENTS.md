@@ -1206,6 +1206,20 @@ the send path. They are documented in
 [`.claude/skills/verify/SKILL.md`](./.claude/skills/verify/SKILL.md); read it before
 driving the app end to end, and add anything new you learn there rather than here.
 
+The lockfile is `pnpm-lock.yaml`, so the package manager is **pnpm**; the `npm run` forms
+above only work because `npm run` executes a script without touching the lockfile. Never
+run `npm install` here.
+
+`src/generated/prisma` is gitignored, so on a clean checkout **`prisma generate` has to run
+before lint, typecheck or test** - all three import from it, and none of them need a
+database. Only `build` does: `pnpm build` is `prisma generate && prisma migrate deploy &&
+next build`, so it wants a real Postgres and `DATABASE_URL` in the environment.
+
+CI is [`.github/workflows/ci.yml`](./.github/workflows/ci.yml), on pull requests and pushes
+to `main`: a `verify` job (lint, typecheck, test) and a `build` job that runs the real build
+script against a throwaway Postgres service container. Add a check there rather than
+inventing a second pipeline.
+
 ## Final Response After Work
 
 After completing product planning or implementation work, summarize in a product-aware way.
