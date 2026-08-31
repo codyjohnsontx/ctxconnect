@@ -2,18 +2,16 @@ import { Role, type Department, type Prisma } from "@/generated/prisma/client";
 import type { AppUser } from "@/lib/data";
 import { canAccessConversation } from "@/lib/conversation-access";
 import { prisma } from "@/lib/prisma";
+import { canUpdateTask, isManagerOrAdmin, scopedTaskWhere } from "@/lib/task-access";
 
-// The conversation access rule lives in a database-free module so it can be
-// tested directly and read by the controls panel in the browser; it stays
-// exported from here so callers keep one place to ask about permissions.
-export { canAccessConversation };
+// The conversation and follow-up access rules live in database-free modules so
+// they can be tested directly and read by the panels that render in the
+// browser; they stay exported from here so callers keep one place to ask about
+// permissions.
+export { canAccessConversation, canUpdateTask, isManagerOrAdmin, scopedTaskWhere };
 
 export function isAdmin(user: AppUser) {
   return user.role === Role.ADMIN;
-}
-
-export function isManagerOrAdmin(user: AppUser) {
-  return user.role === Role.ADMIN || user.role === Role.MANAGER;
 }
 
 export function requireAdmin(user: AppUser) {
@@ -26,22 +24,6 @@ export function requireManagerOrAdmin(user: AppUser) {
   if (!isManagerOrAdmin(user)) {
     throw new Error("Manager or admin access required.");
   }
-}
-
-export function scopedTaskWhere(user: AppUser): Prisma.TaskWhereInput {
-  if (isManagerOrAdmin(user)) {
-    return {};
-  }
-
-  const orFilters: Prisma.TaskWhereInput[] = [{ assignedUserId: user.id }];
-
-  if (user.department) {
-    orFilters.push({ department: user.department as Department });
-  }
-
-  return {
-    OR: orFilters,
-  };
 }
 
 export async function requireConversationAccess(user: AppUser, conversationId: string) {

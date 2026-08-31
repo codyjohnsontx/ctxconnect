@@ -2,6 +2,7 @@
 
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
+| 2026-08-31 | Built | [Close a Follow-Up Where the Work Happened](./2026-08-31-close-a-follow-up-where-the-work-happened.md) | Inbox / Follow-ups | A follow-up could only be finished on the Tasks page behind a dropdown, so the queue filled with work that was already done; the thread now closes it in one press and marks an overdue one the way Tasks already did. |
 | 2026-08-31 | Built | [Attend Works on the Shop Floor](./2026-08-31-attend-works-on-the-shop-floor.md) | Inbox / Mobile | The product on a phone: the conversation filled a 287px porthole and opened on its oldest message, there was no way to see or leave the signed-in account, and the filters buried the ranked queue with no exit from a filter that matched nothing. |
 | 2026-08-19 | Built | [The Queue Row Marks the Conversation, Not the Preview](./2026-08-19-the-queue-row-marks-the-conversation.md) | Inbox / Queue | A reply the customer never got stopped reading as failed on the queue row as soon as a later message became the row's preview, while the thread and the composer still warned; the row now marks the conversation and says so above the preview. |
 | 2026-08-18 | Built | [The Length Guard Reads the Reply](./2026-08-18-the-length-guard-reads-the-reply.md) | Inbox / Composer | The box told the advisor a 900-character reply would send when one emoji in it had already cut Twilio's real limit to 700; the guard now reads the body for its encoding and refuses against the limit that applies. |

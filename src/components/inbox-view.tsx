@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
-import { addInternalNote, createTask } from "@/app/actions";
+import { addInternalNote, createTask, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
 import { MessageComposer } from "@/components/message-composer";
@@ -10,12 +10,13 @@ import { ThreadMessages } from "@/components/thread-messages";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
-import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
+import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
+import { canUpdateTask } from "@/lib/permissions";
 import {
   UNDELIVERED_HEADLINE,
   UNDELIVERED_ROW_LABEL,
@@ -79,6 +80,13 @@ const BACK_TARGETS: Record<string, { href: string; label: string }> = {
 // thread she opens afterwards.
 const ONE_SAVE_PARAMS = new Set(["from", "movedTo", "handOff"]);
 
+// Read the clock once per request, outside any component render, so every
+// follow-up is compared against the same instant and the render stays pure.
+// Same reason and same shape as the tasks page's overdue check.
+function nowTimestamp() {
+  return Date.now();
+}
+
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
@@ -117,12 +125,21 @@ export function InboxView({
   // department move the named department already points at.
   const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
   const movedWhy = handOffReasons.find((reason) => reason === searchParams.handOff) ?? "department";
+  const now = nowTimestamp();
   // Formatted here rather than in the brief panel so the duplicate warning and
   // the "Open follow-ups" list below it read the same due date the same way.
   const openFollowUps = (selectedConversation?.tasks ?? []).map((task) => ({
     id: task.id,
     title: task.title,
     dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
+    // Every follow-up in this list is still open, so a due date in the past is
+    // overdue with nothing else to ask.
+    isOverdue: task.dueDate.getTime() < now,
+    assigneeName: task.assignedUser?.name ?? "Unassigned",
+    department: task.department,
+    // A thread can carry a follow-up another department owns, and offering a
+    // button the write would refuse is worse than not offering one.
+    canComplete: canUpdateTask(currentUser, task),
   }));
   const defaultDueDate = defaultFollowUpDueDate(new Date());
   const activeFilterCount = countActiveFilters(searchParams);
@@ -612,21 +629,46 @@ export function InboxView({
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Open follow-ups</h3>
                 <div className="space-y-2">
-                  {selectedConversation.tasks.length === 0 ? (
+                  {openFollowUps.length === 0 ? (
                     <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">No open follow-ups.</p>
                   ) : (
-                    selectedConversation.tasks.map((task) => (
+                    openFollowUps.map((followUp) => (
                       // The brief's "See the follow-up" lands here, so the card
                       // needs an anchor and room to clear the sticky header.
                       <div
-                        key={task.id}
-                        id={`follow-up-${task.id}`}
+                        key={followUp.id}
+                        id={`follow-up-${followUp.id}`}
                         className="scroll-mt-6 rounded-lg border border-zinc-200 p-3 text-sm target:border-amber-400 target:bg-amber-50 dark:border-zinc-800 dark:target:border-amber-600 dark:target:bg-amber-950/40"
                       >
-                        <div className="font-medium">{task.title}</div>
-                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          Due {formatDistanceToNow(task.dueDate, { addSuffix: true })} · {task.assignedUser?.name ?? "Unassigned"}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{followUp.title}</span>
+                          {followUp.isOverdue ? <Badge variant="red">Overdue</Badge> : null}
                         </div>
+                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          <span
+                            className={followUp.isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}
+                          >
+                            Due {followUp.dueLabel}
+                          </span>{" "}
+                          · {followUp.assigneeName}
+                        </div>
+                        {followUp.canComplete ? (
+                          // Closing the loop belongs where the work happens.
+                          // Sending her to the tasks list to find this row again
+                          // is how a finished follow-up stays open and the queue
+                          // stops meaning anything.
+                          <form action={updateTaskStatus} className="mt-2">
+                            <input type="hidden" name="taskId" value={followUp.id} />
+                            <input type="hidden" name="status" value={TaskStatus.DONE} />
+                            <Button type="submit" variant="secondary" size="sm">
+                              Mark done
+                            </Button>
+                          </form>
+                        ) : (
+                          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                            {labelize(followUp.department)} closes this one.
+                          </p>
+                        )}
                       </div>
                     ))
                   )}

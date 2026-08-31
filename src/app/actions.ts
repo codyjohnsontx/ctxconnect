@@ -29,6 +29,7 @@ import { handOffReason } from "@/lib/conversation-controls-state";
 import { scopedConversationWhere } from "@/lib/data";
 import {
   canAccessConversation,
+  canUpdateTask,
   requireAdmin,
   requireConversationAccess,
   requireCustomerAccess,
@@ -327,12 +328,7 @@ export async function updateTaskStatus(formData: FormData) {
     throw new Error("Task not found.");
   }
 
-  if (
-    user.role !== Role.ADMIN &&
-    user.role !== Role.MANAGER &&
-    task.assignedUserId !== user.id &&
-    task.department !== user.department
-  ) {
+  if (!canUpdateTask(user, task)) {
     throw new Error("Task not found or access denied.");
   }
 
