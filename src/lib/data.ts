@@ -17,6 +17,7 @@ import {
   canAccessConversation,
   canSeeAll,
   scopedConversationWhere,
+  unreachableDepartments,
 } from "@/lib/conversation-access";
 import { getIntegrationHealth } from "@/lib/env";
 import {
@@ -34,6 +35,12 @@ import {
 } from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import {
+  conversationQueryWhere,
+  escapeLikeWildcards,
+  matchSnippet,
+  normalizeSearchTerm,
+} from "@/lib/search";
 
 export type AppUser = {
   id: string;
@@ -42,6 +49,7 @@ export type AppUser = {
 };
 
 export type InboxFilters = {
+  q?: string;
   department?: string;
   status?: string;
   assigned?: string;
@@ -144,9 +152,14 @@ function filterWhere(filters: InboxFilters): Prisma.ConversationWhereInput {
 }
 
 export async function getInboxData(user: AppUser, filters: InboxFilters, selectedId?: string) {
-  const where = {
-    AND: [scopedConversationWhere(user), filterWhere(filters)],
-  } satisfies Prisma.ConversationWhereInput;
+  const searchTerm = normalizeSearchTerm(filters.q);
+  // Scope, filters and search, ANDed in one place - see conversationQueryWhere
+  // for why the search must not join the filters' own OR.
+  const where = conversationQueryWhere(
+    scopedConversationWhere(user),
+    filterWhere(filters),
+    searchTerm,
+  );
 
   const [
     conversations,
@@ -254,8 +267,35 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     newestReply: newestReplyByConversation.get(conversation.id) ?? null,
   }));
 
+  // A row can match on message text alone, and the preview shows the newest
+  // message rather than the matching one. Without the matching line on the row,
+  // that hit reads as a result the search invented. The relation is already
+  // included once for the preview, so this is a second read rather than a
+  // second `messages` include, and it only runs while she is searching. The
+  // ids come from the scoped list above, so it needs no scope of its own.
+  const searchSnippets: Record<string, string> = {};
+
+  if (searchTerm && rankedConversations.length > 0) {
+    const matches = await prisma.message.findMany({
+      where: {
+        conversationId: { in: rankedConversations.map((conversation) => conversation.id) },
+        // Escaped for the same reason as the queue query: this has to find the
+        // literal the advisor typed, not read it as a LIKE pattern.
+        body: { contains: escapeLikeWildcards(searchTerm), mode: "insensitive" },
+      },
+      orderBy: [{ conversationId: "asc" }, { createdAt: "desc" }],
+      distinct: ["conversationId"],
+      select: { conversationId: true, body: true },
+    });
+
+    for (const match of matches) {
+      searchSnippets[match.conversationId] = matchSnippet(match.body, searchTerm);
+    }
+  }
+
   return {
     conversations: rankedConversations,
+    search: { term: searchTerm, snippets: searchSnippets },
     selectedConversation,
     users,
     tags,
@@ -905,24 +945,60 @@ export async function getShellData(user: AppUser) {
 }
 
 export async function getCustomers(user: AppUser) {
-  return prisma.customer.findMany({
-    where: canSeeAll(user)
-      ? {}
-      : {
-          conversations: {
-            some: scopedConversationWhere(user),
-          },
-        },
+  const readerScope = scopedConversationWhere(user);
+  const customers = await prisma.customer.findMany({
+    where: canSeeAll(user) ? {} : { conversations: { some: readerScope } },
     orderBy: { updatedAt: "desc" },
     include: {
       vehicles: true,
+      // Scoped to the reader, because the row links to this conversation: the
+      // newest thread overall can belong to a department she cannot open, and
+      // that link lands on a bare 404.
       conversations: {
+        where: readerScope,
         orderBy: { lastMessageAt: "desc" },
         take: 1,
-        include: { assignedUser: true },
+        select: { id: true, department: true, status: true },
       },
     },
   });
+
+  // Which of these customers another department is also working. Nothing here
+  // is out of the reader's reach for a manager or an admin, so the extra read
+  // only happens for the accounts that can lose sight of a thread.
+  if (canSeeAll(user) || customers.length === 0) {
+    return customers.map((customer) => ({ ...customer, otherDepartments: [] as string[] }));
+  }
+
+  const everyThread = await prisma.conversation.findMany({
+    where: { customerId: { in: customers.map((customer) => customer.id) } },
+    orderBy: { lastMessageAt: "desc" },
+    select: { customerId: true, department: true, assignedUserId: true },
+  });
+
+  // Grouped once rather than re-scanned per customer, which is the whole list
+  // of threads walked again for every row on the page. Insertion order is the
+  // query's own, so each customer's threads stay newest-first.
+  const threadsByCustomer = new Map<string, typeof everyThread>();
+
+  for (const thread of everyThread) {
+    const threads = threadsByCustomer.get(thread.customerId);
+
+    if (threads) {
+      threads.push(thread);
+    } else {
+      threadsByCustomer.set(thread.customerId, [thread]);
+    }
+  }
+
+  // Filtered here rather than with a negated Prisma clause: an unassigned
+  // thread has a null assignedUserId, and `NOT (assignedUserId = x OR ...)` is
+  // unknown rather than true for a null in SQL, which would drop exactly the
+  // unclaimed threads this line exists to report.
+  return customers.map((customer) => ({
+    ...customer,
+    otherDepartments: unreachableDepartments(user, threadsByCustomer.get(customer.id) ?? []),
+  }));
 }
 
 export async function getTasks(user: AppUser) {

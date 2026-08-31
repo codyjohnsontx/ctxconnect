@@ -15,6 +15,7 @@ simply by which message arrived last.
 - Shared customer texting across the dealership
 - AI-generated conversation summaries and next steps
 - Prioritized inbox for service advisors
+- Search over customer names, phone numbers in any format, and message text
 - Follow-up tasks and team assignments
 - Built-in SMS compliance and opt-out handling
 

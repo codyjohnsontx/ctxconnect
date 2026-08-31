@@ -22,13 +22,21 @@ import {
 import {
   notifyAssignee,
   notifyManagers,
+  reopenConversationNotifications,
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import {
+  type CustomerProfileSaveResult,
+  checkCustomerProfile,
+} from "@/lib/customer-identity";
+import { readResolvesNotificationTypes } from "@/lib/notification-facts";
+import { instantFromZonedIso } from "@/lib/follow-ups";
 import { scopedConversationWhere } from "@/lib/data";
 import {
   canAccessConversation,
+  canUpdateTask,
   requireAdmin,
   requireConversationAccess,
   requireCustomerAccess,
@@ -77,6 +85,64 @@ async function recordAiInsightFormEvent({
       },
     },
   });
+}
+
+/**
+ * Opening a thread is what makes it read. Until this existed the marker could
+ * only be cleared by replying or by pressing Save controls, so a thread the
+ * advisor read and decided needed nothing kept its blue dot, its place in the
+ * Inbox count, its seat in `Needs action` and its row on the Command Center -
+ * for good. Called from the thread pane once the conversation is actually on
+ * her screen, never from a render, because a link prefetch is not reading.
+ */
+export async function markConversationRead(conversationId: string) {
+  const user = await requireUser();
+  await requireConversationAccess(user, conversationId);
+
+  // Conditional on `unread` so re-opening a thread she has already read is a
+  // read with no write and no revalidation behind it.
+  const { count } = await prisma.conversation.updateMany({
+    where: { id: conversationId, unread: true },
+    data: { unread: false },
+  });
+
+  if (count === 0) {
+    return;
+  }
+
+  await resolveConversationNotifications(conversationId, readResolvesNotificationTypes);
+
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * The way back out. The queue is shared, and leaving a thread flagged is how an
+ * advisor hands work she cannot take right now back to the floor - so reading
+ * clearing the marker must not be the end of the story.
+ *
+ * Which means putting back everything the read withdrew, not just the marker:
+ * the same `readResolvesNotificationTypes` list, so the two cannot learn
+ * different answers about what opening a thread silences.
+ */
+export async function markConversationUnread(formData: FormData) {
+  const user = await requireUser();
+  const conversationId = String(formData.get("conversationId") ?? "");
+  await requireConversationAccess(user, conversationId);
+
+  const { count } = await prisma.conversation.updateMany({
+    where: { id: conversationId, unread: false },
+    data: { unread: true },
+  });
+
+  if (count === 0) {
+    return;
+  }
+
+  await reopenConversationNotifications(conversationId, readResolvesNotificationTypes);
+
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
 }
 
 export async function updateConversation(formData: FormData) {
@@ -219,6 +285,88 @@ export async function addInternalNote(formData: FormData) {
   revalidatePath("/command-center");
 }
 
+/**
+ * The customer's own details, corrected from the thread she is reading.
+ *
+ * A number nobody has met yet arrives from the inbound webhook as
+ * "Unknown 9911", and until this existed nothing in Attend could ever change
+ * it: the invented name followed the customer onto the queue, into the alert
+ * rail, onto her follow-ups and into the "Hi {{customerName}}" opening of every
+ * template - so the fastest way to greet a customer by name was to greet them
+ * by the last four digits of their phone number.
+ *
+ * Returns the sentence the advisor should read rather than throwing, because a
+ * rejected name has to be fixable in the box she typed it in. Access denial
+ * still throws: that is not something she can correct by retyping.
+ */
+export async function updateCustomerProfile(formData: FormData): Promise<CustomerProfileSaveResult> {
+  const user = await requireUser();
+  const customerId = String(formData.get("customerId") ?? "");
+
+  if (!customerId) {
+    throw new Error("Customer is required.");
+  }
+
+  const checked = checkCustomerProfile({
+    name: String(formData.get("name") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    notes: String(formData.get("notes") ?? ""),
+  });
+
+  if (!checked.ok) {
+    return { ok: false, message: checked.message };
+  }
+
+  await requireCustomerAccess(user, customerId);
+
+  const previous = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { name: true, email: true, notes: true },
+  });
+
+  if (!previous) {
+    throw new Error("Customer not found.");
+  }
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: checked.values,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "customer.update",
+      entity: "Customer",
+      entityId: customerId,
+      metadata: {
+        name:
+          previous.name === checked.values.name
+            ? null
+            : { from: previous.name, to: checked.values.name },
+        emailChanged: previous.email !== checked.values.email,
+        notesChanged: previous.notes !== checked.values.notes,
+      },
+    },
+  });
+
+  // Her name is on all four of these: the queue row, the customer directory,
+  // every follow-up card and every alert in the rail.
+  //
+  // An alert already raised keeps the wording it was written with, so one
+  // raised before the rename goes on saying "Unknown 9911". Rewriting stored
+  // alert bodies is deliberately not done here - see the PRD's non-goals: it
+  // edits the record of what an alert said at the time it was raised, and the
+  // rail already joins the live customer row, so deriving the name where it is
+  // read is the smaller answer when that gap is worth closing.
+  revalidatePath("/inbox");
+  revalidatePath("/customers");
+  revalidatePath("/tasks");
+  revalidatePath("/command-center");
+
+  return { ok: true };
+}
+
 export async function createTask(formData: FormData) {
   const user = await requireUser();
   const customerId = String(formData.get("customerId") ?? "");
@@ -327,12 +475,7 @@ export async function updateTaskStatus(formData: FormData) {
     throw new Error("Task not found.");
   }
 
-  if (
-    user.role !== Role.ADMIN &&
-    user.role !== Role.MANAGER &&
-    task.assignedUserId !== user.id &&
-    task.department !== user.department
-  ) {
+  if (!canUpdateTask(user, task)) {
     throw new Error("Task not found or access denied.");
   }
 
@@ -357,6 +500,68 @@ export async function updateTaskStatus(formData: FormData) {
       entity: "Task",
       entityId: taskId,
       metadata: { status },
+    },
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * Moves a follow-up to a new due date.
+ *
+ * A due date used to be set once and never again, so a plan that slipped -
+ * "call me Thursday instead" - left the advisor choosing between marking the
+ * follow-up done (it is not) and leaving it permanently red, which is how a
+ * queue stops meaning anything. Moving the date is the honest third answer.
+ *
+ * The new date arrives as an instant rather than as the picker's bare local
+ * value, because this runs wherever the server is - UTC on Vercel - and reading
+ * "17:00" here would store a closing-time follow-up at lunchtime. See
+ * instantFromZonedIso, and the reschedule panel that does the reading.
+ * createTask still takes a bare local string; that is a separate, older defect
+ * and moving it is not this change's to make.
+ */
+export async function rescheduleTask(formData: FormData) {
+  const user = await requireUser();
+  const taskId = String(formData.get("taskId") ?? "");
+  const dueAt = instantFromZonedIso(String(formData.get("dueAt") ?? ""));
+
+  if (!dueAt) {
+    throw new Error("A follow-up needs a date it is due on.");
+  }
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+  });
+
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (!canUpdateTask(user, task)) {
+    throw new Error("Task not found or access denied.");
+  }
+
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { dueDate: dueAt },
+  });
+
+  // The alert that put this follow-up in front of her still carries the date it
+  // was raised against, and "Follow-up overdue" wording that moving the date has
+  // just made false. Answering an alert clears it; the sweep raises a fresh one
+  // when the new date actually arrives.
+  await resolveTaskNotifications(taskId);
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "task.reschedule",
+      entity: "Task",
+      entityId: taskId,
+      metadata: { from: task.dueDate.toISOString(), to: dueAt.toISOString() },
     },
   });
 

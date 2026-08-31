@@ -65,6 +65,20 @@ export const followUpTypes = [
 // thread into an alert per text.
 export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
 
+/**
+ * The alerts that opening a conversation withdraws.
+ *
+ * Reading is not answering. A missed response clock, a text that never reached
+ * the customer, an unowned thread and a follow-up past its time all describe
+ * work that is still undone after the advisor has read the thread, so none of
+ * them may be withdrawn by her opening it. The only alert whose whole job was
+ * to say "a message arrived" is. Adding anything else here silences a clock
+ * that is still running.
+ */
+export const readResolvesNotificationTypes: NotificationType[] = [
+  NotificationType.NEW_INBOUND_MESSAGE,
+];
+
 // The two lists are fixed tuples so the shapes a writer may build can be
 // derived from them below. A stored row's `type` arrives here as a plain
 // string, though, so widen them again to ask whether it is in one.

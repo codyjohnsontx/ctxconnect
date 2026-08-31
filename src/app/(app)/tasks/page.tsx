@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { updateTaskStatus } from "@/app/actions";
+import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -48,7 +49,7 @@ function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
           <span className="sr-only">Open conversation for {task.title} ({task.customer.name})</span>
         </Link>
       ) : null}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-semibold">{task.title}</h2>
@@ -66,19 +67,26 @@ function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
           </div>
           {task.description ? <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{task.description}</p> : null}
         </div>
-        <form action={updateTaskStatus} className="relative z-10 flex gap-2">
-          <input type="hidden" name="taskId" value={task.id} />
-          <Select name="status" defaultValue={task.status} className="w-36">
-            {Object.values(TaskStatus).map((status) => (
-              <option key={status} value={status}>
-                {labelize(status)}
-              </option>
-            ))}
-          </Select>
-          <Button type="submit" variant="secondary">
-            Update
-          </Button>
-        </form>
+        <div className="relative z-10 flex flex-wrap items-start gap-2 md:justify-end">
+          <form action={updateTaskStatus} className="flex gap-2">
+            <input type="hidden" name="taskId" value={task.id} />
+            <Select name="status" defaultValue={task.status} className="w-36">
+              {Object.values(TaskStatus).map((status) => (
+                <option key={status} value={status}>
+                  {labelize(status)}
+                </option>
+              ))}
+            </Select>
+            <Button type="submit" variant="secondary">
+              Update
+            </Button>
+          </form>
+          {/* Only while the follow-up is still live: a date on a finished one
+              has nothing left to move. */}
+          {ACTIVE_STATUSES.includes(task.status) ? (
+            <RescheduleFollowUp taskId={task.id} dueAt={task.dueDate.toISOString()} />
+          ) : null}
+        </div>
       </div>
     </div>
   );

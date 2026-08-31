@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
   activeNotificationsWhere,
@@ -9,7 +12,9 @@ import {
   notificationFactKey,
   notificationScopeWhere,
   perMessageTypes,
+  readResolvesNotificationTypes,
 } from "../src/lib/notification-facts";
+import { NotificationType } from "../src/generated/prisma/enums";
 import type { Prisma } from "../src/generated/prisma/client";
 
 // Attend stores one alert row per recipient, so a single fact - a thread with
@@ -490,4 +495,87 @@ describe("the badge counts over the rows the rail lists", () => {
     assert.ok(notificationFactCountQuery(manager, "SLA_MISSED").values.includes("SLA_MISSED"));
     assert.equal(notificationFactCountQuery(manager).sql.includes(`"type"::text = ?`), false);
   });
+});
+
+// Opening a thread now clears its unread marker, which is also the moment to
+// withdraw the alert that existed only to say a message had arrived. The
+// dangerous version of that change is the one that keeps going and withdraws
+// alerts about work she has read but not done, so the list is pinned here
+// rather than left to a future edit.
+describe("readResolvesNotificationTypes", () => {
+  it("withdraws the alert whose whole job was to say a message arrived", () => {
+    assert.ok(readResolvesNotificationTypes.includes(NotificationType.NEW_INBOUND_MESSAGE));
+  });
+
+  const stillUndoneAfterReading: Array<[NotificationType, string]> = [
+    [NotificationType.SLA_MISSED, "the customer is still waiting for an answer"],
+    [NotificationType.MESSAGE_FAILED, "the text still never reached the customer"],
+    [NotificationType.UNASSIGNED_CONVERSATION, "the thread still has no owner"],
+    [NotificationType.FOLLOW_UP_DUE, "the follow-up still has to be done today"],
+    [NotificationType.FOLLOW_UP_OVERDUE, "the follow-up is still late"],
+    [NotificationType.CONVERSATION_ASSIGNED, "the thread handed to her is still hers to work"],
+    [NotificationType.CONVERSATION_REASSIGNED, "the thread handed to her is still hers to work"],
+  ];
+
+  for (const [type, reason] of stillUndoneAfterReading) {
+    it(`keeps ${type} because ${reason}`, () => {
+      assert.equal(readResolvesNotificationTypes.includes(type), false);
+    });
+  }
+
+  it("covers every alert type, so a new one is a deliberate decision", () => {
+    const decided = new Set<string>([
+      ...readResolvesNotificationTypes,
+      ...stillUndoneAfterReading.map(([type]) => type),
+    ]);
+
+    assert.deepEqual(
+      Object.values(NotificationType).filter((type) => !decided.has(type)),
+      [],
+    );
+  });
+});
+
+// Opening a thread and putting it back are one round trip, and only one half of
+// it was ever written down. Nothing re-raises NEW_INBOUND_MESSAGE - the inbound
+// webhook writes it the moment a text lands and the operational sweep does not
+// know the type - so an advisor who reads a thread, decides she cannot take it
+// and hands it back to the floor got her blue dot returned and her rail entry
+// withdrawn for good. The pairing lives in the two server actions rather than in
+// a value these tests can call, so it is pinned against the source: both halves
+// have to name the same list, and neither may name a type directly.
+describe("reading a thread and putting it back", () => {
+  const actions = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "src", "app", "actions.ts"),
+    "utf8",
+  );
+
+  function serverAction(name: string): string {
+    const start = actions.indexOf(`export async function ${name}(`);
+    assert.notEqual(start, -1, `${name} is no longer a server action in src/app/actions.ts`);
+
+    const next = actions.indexOf("\nexport ", start + 1);
+
+    return actions.slice(start, next === -1 ? undefined : next);
+  }
+
+  it("withdraws the arrival alerts when the thread is opened", () => {
+    assert.match(
+      serverAction("markConversationRead"),
+      /resolveConversationNotifications\(\s*conversationId,\s*readResolvesNotificationTypes\s*[,)]/,
+    );
+  });
+
+  it("puts the same alerts back when the thread is marked unread", () => {
+    assert.match(
+      serverAction("markConversationUnread"),
+      /reopenConversationNotifications\(\s*conversationId,\s*readResolvesNotificationTypes\s*[,)]/,
+    );
+  });
+
+  for (const half of ["markConversationRead", "markConversationUnread"]) {
+    it(`leaves ${half} naming the list rather than a type, so the two cannot drift`, () => {
+      assert.doesNotMatch(serverAction(half), /NotificationType\.[A-Z_]+/);
+    });
+  }
 });

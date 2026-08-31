@@ -11,6 +11,7 @@ import {
   PreferredContactMethod,
   Priority,
 } from "@/generated/prisma/client";
+import { placeholderCustomerName } from "@/lib/customer-identity";
 import { isStartMessage, isStopMessage, normalizePhone } from "@/lib/phone";
 import { notifyAssigneeTx, notifyManagersTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
@@ -63,7 +64,9 @@ export async function POST(request: Request) {
         where: { phone: from },
         update: {},
         create: {
-          name: `Unknown ${from.slice(-4)}`,
+          // Shared with the profile card, which offers to replace exactly this
+          // name and nothing else.
+          name: placeholderCustomerName(from),
           phone: from,
           preferredContactMethod: PreferredContactMethod.SMS,
           smsOptedIn: true,

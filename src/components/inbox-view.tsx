@@ -1,21 +1,26 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
-import { addInternalNote, createTask } from "@/app/actions";
+import { addInternalNote, createTask, markConversationUnread, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
+import { CustomerProfile } from "@/components/customer-profile";
+import { MarkReadOnOpen } from "@/components/mark-read-on-open";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
+import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { ThreadMessages } from "@/components/thread-messages";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
-import { ConversationStatus, Department, MessageDirection, Priority } from "@/generated/prisma/client";
+import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
-import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
+import { INBOX_FILTER_KEYS, clearFiltersHref, clearSearchHref, countActiveFilters } from "@/lib/inbox-filters";
+import { canUpdateTask } from "@/lib/permissions";
+import { containsTerm } from "@/lib/search";
 import {
   UNDELIVERED_HEADLINE,
   UNDELIVERED_ROW_LABEL,
@@ -79,6 +84,13 @@ const BACK_TARGETS: Record<string, { href: string; label: string }> = {
 // thread she opens afterwards.
 const ONE_SAVE_PARAMS = new Set(["from", "movedTo", "handOff"]);
 
+// Read the clock once per request, outside any component render, so every
+// follow-up is compared against the same instant and the render stays pure.
+// Same reason and same shape as the tasks page's overdue check.
+function nowTimestamp() {
+  return Date.now();
+}
+
 function buildHref(conversationId: string, searchParams: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
@@ -98,6 +110,7 @@ export function InboxView({
   templates,
   dealershipSettings,
   queueStatus,
+  search,
   searchParams,
   isDemo,
   currentUser,
@@ -117,12 +130,28 @@ export function InboxView({
   // department move the named department already points at.
   const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
   const movedWhy = handOffReasons.find((reason) => reason === searchParams.handOff) ?? "department";
+  const searchTerm = search.term;
+  // Leaving the search keeps the filters she also set, and keeps her place: a
+  // search that came up empty is not a reason to throw away either.
+  const clearSearchTarget = clearSearchHref(searchParams, selectedConversation?.id);
+  const now = nowTimestamp();
   // Formatted here rather than in the brief panel so the duplicate warning and
   // the "Open follow-ups" list below it read the same due date the same way.
   const openFollowUps = (selectedConversation?.tasks ?? []).map((task) => ({
     id: task.id,
     title: task.title,
     dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
+    // The instant itself, for the reschedule panel to read into its picker in
+    // the advisor's own timezone rather than the server's.
+    dueAt: task.dueDate.toISOString(),
+    // Every follow-up in this list is still open, so a due date in the past is
+    // overdue with nothing else to ask.
+    isOverdue: task.dueDate.getTime() < now,
+    assigneeName: task.assignedUser?.name ?? "Unassigned",
+    department: task.department,
+    // A thread can carry a follow-up another department owns, and offering a
+    // button the write would refuse is worse than not offering one.
+    canComplete: canUpdateTask(currentUser, task),
   }));
   const defaultDueDate = defaultFollowUpDueDate(new Date());
   const activeFilterCount = countActiveFilters(searchParams);
@@ -144,7 +173,9 @@ export function InboxView({
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {conversations.length} conversations, ranked by what the AI flagged
+                {searchTerm
+                  ? `${conversations.length} ${conversations.length === 1 ? "match" : "matches"} for “${searchTerm}”`
+                  : `${conversations.length} conversations, ranked by what the AI flagged`}
               </p>
             </div>
             <Badge variant="blue">Shared</Badge>
@@ -166,6 +197,43 @@ export function InboxView({
             </p>
           ) : null}
           <QueueStatus status={queueStatus} />
+          {/* Above the filters rather than among them: a customer on the phone
+              is the one moment the advisor cannot scroll a queue, and the
+              filters cannot narrow to a person at all. */}
+          <div className="mb-3">
+            {/* Keyed by the term for the same reason the controls below are:
+                the box is uncontrolled, so across a same-page navigation React
+                would keep showing the term she has just cleared. */}
+            <form key={`search-${searchTerm}`} className="flex gap-2" action="/inbox">
+              {/* The filters she already set survive a search, the same way the
+                  search survives pressing Filter. */}
+              {INBOX_FILTER_KEYS.map((key) =>
+                searchParams[key] ? (
+                  <input key={key} type="hidden" name={key} value={searchParams[key]} />
+                ) : null,
+              )}
+              <Input
+                type="search"
+                name="q"
+                defaultValue={searchTerm}
+                placeholder="Search name, phone, or text"
+                aria-label="Search conversations"
+              />
+              <Button type="submit" variant="secondary">
+                Search
+              </Button>
+            </form>
+            {searchTerm ? (
+              <div className="mt-1 flex justify-end">
+                <Link
+                  href={clearSearchTarget}
+                  className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+                >
+                  Clear search
+                </Link>
+              </div>
+            ) : null}
+          </div>
           {/* On a phone the ranked queue is what she opened the app for, and the
               controls that narrow it were pushing the first row most of the way
               down the screen, so below `lg` they fold away behind their own
@@ -197,6 +265,10 @@ export function InboxView({
           </label>
           <div id="inbox-filters" className="hidden peer-checked:block lg:block">
             <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
+              {/* Same reason the search carries the filters: filtering while a
+                  search is in effect must narrow those results, not abandon the
+                  customer she was looking for. */}
+              {searchTerm ? <input type="hidden" name="q" value={searchTerm} /> : null}
               <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
                 <option value="">All departments</option>
                 {departments.map((department) => (
@@ -263,7 +335,21 @@ export function InboxView({
         <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           {conversations.length === 0 ? (
             <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">
-              {activeFilterCount > 0 ? (
+              {searchTerm ? (
+                // Named as the cause, with the way out beside it: a search that
+                // came up empty behind a filter she forgot about is the one dead
+                // end an advisor reads as "the customer isn't here".
+                <>
+                  Nothing in your inbox matches “{searchTerm}”.{" "}
+                  <Link
+                    href={clearSearchTarget}
+                    className="font-medium text-blue-700 hover:underline dark:text-blue-300"
+                  >
+                    Clear search
+                  </Link>
+                  .
+                </>
+              ) : activeFilterCount > 0 ? (
                 <>
                   No conversations match these filters.{" "}
                   <Link href={clearFiltersTarget} className="font-medium text-blue-700 hover:underline dark:text-blue-300">
@@ -272,9 +358,9 @@ export function InboxView({
                   to see the whole queue.
                 </>
               ) : (
-                // Nothing is filtered, so the queue itself is empty. Blaming
-                // filters here would send her looking for a control to undo that
-                // is not set.
+                // Nothing is searched and nothing is filtered, so the queue
+                // itself is empty. Blaming filters here would send her looking
+                // for a control to undo that is not set.
                 "No conversations yet."
               )}
             </div>
@@ -340,6 +426,17 @@ export function InboxView({
                       ) : null}
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
+                    {/* Only when the preview does not already carry the term: a
+                        row matched on an older message otherwise looks like a
+                        result the search made up. */}
+                    {searchTerm &&
+                    search.snippets[conversation.id] &&
+                    !containsTerm(lastMessage?.body ?? "", searchTerm) ? (
+                      <p className="mt-1 line-clamp-2 break-words text-xs text-zinc-500 dark:text-zinc-400">
+                        <span className="font-medium">Matched message:</span>{" "}
+                        {search.snippets[conversation.id]}
+                      </p>
+                    ) : null}
                     {insight && !insight.dismissedAt ? (
                       <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
                         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
@@ -437,10 +534,37 @@ export function InboxView({
                   {selectedConversation.subject ?? labelize(selectedConversation.department)} · {formatPhone(selectedConversation.customer.phone)}
                 </p>
               </div>
-              <Badge variant={selectedConversation.customer.smsOptedOut ? "red" : "green"}>
-                {selectedConversation.customer.smsOptedOut ? "SMS opted out" : "SMS ok"}
-              </Badge>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <Badge variant={selectedConversation.customer.smsOptedOut ? "red" : "green"}>
+                  {selectedConversation.customer.smsOptedOut ? "SMS opted out" : "SMS ok"}
+                </Badge>
+                {/* The way to hand a thread back to the floor. Reading clears
+                    the marker, so without this the advisor loses the only way
+                    she has to say "someone still needs to pick this up". */}
+                {selectedConversation.unread ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+                    <Circle className="h-2 w-2 fill-blue-600 text-blue-600" />
+                    Unread
+                  </span>
+                ) : (
+                  <form action={markConversationUnread}>
+                    <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                    <button
+                      type="submit"
+                      className="text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    >
+                      Mark unread
+                    </button>
+                  </form>
+                )}
+              </div>
             </header>
+
+            {/* Opening the thread is what makes it read - see the action. */}
+            <MarkReadOnOpen
+              conversationId={selectedConversation.id}
+              unread={selectedConversation.unread}
+            />
 
             {/* Keyed by conversation so opening another thread remounts the box
                 and lands on that thread's newest message rather than keeping
@@ -566,28 +690,18 @@ export function InboxView({
 
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Customer profile</h3>
-                <div className="space-y-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Phone</div>
-                    <div>{formatPhone(selectedConversation.customer.phone)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Email</div>
-                    <div>{selectedConversation.customer.email ?? "No email"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Preferred contact</div>
-                    <div>{labelize(selectedConversation.customer.preferredContactMethod)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">SMS consent</div>
-                    <div>{selectedConversation.customer.smsOptedOut ? "Opted out via STOP" : "Eligible to receive SMS"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Notes</div>
-                    <div className="leading-5 text-zinc-700 dark:text-zinc-300">{selectedConversation.customer.notes ?? "No notes yet."}</div>
-                  </div>
-                </div>
+                <CustomerProfile
+                  key={`customer-profile-${selectedConversation.customer.id}`}
+                  customer={{
+                    id: selectedConversation.customer.id,
+                    name: selectedConversation.customer.name,
+                    phone: selectedConversation.customer.phone,
+                    email: selectedConversation.customer.email,
+                    notes: selectedConversation.customer.notes,
+                    preferredContactMethod: selectedConversation.customer.preferredContactMethod,
+                    smsOptedOut: selectedConversation.customer.smsOptedOut,
+                  }}
+                />
               </section>
 
               <section>
@@ -612,21 +726,53 @@ export function InboxView({
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Open follow-ups</h3>
                 <div className="space-y-2">
-                  {selectedConversation.tasks.length === 0 ? (
+                  {openFollowUps.length === 0 ? (
                     <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">No open follow-ups.</p>
                   ) : (
-                    selectedConversation.tasks.map((task) => (
+                    openFollowUps.map((followUp) => (
                       // The brief's "See the follow-up" lands here, so the card
                       // needs an anchor and room to clear the sticky header.
                       <div
-                        key={task.id}
-                        id={`follow-up-${task.id}`}
+                        key={followUp.id}
+                        id={`follow-up-${followUp.id}`}
                         className="scroll-mt-6 rounded-lg border border-zinc-200 p-3 text-sm target:border-amber-400 target:bg-amber-50 dark:border-zinc-800 dark:target:border-amber-600 dark:target:bg-amber-950/40"
                       >
-                        <div className="font-medium">{task.title}</div>
-                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          Due {formatDistanceToNow(task.dueDate, { addSuffix: true })} · {task.assignedUser?.name ?? "Unassigned"}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{followUp.title}</span>
+                          {followUp.isOverdue ? <Badge variant="red">Overdue</Badge> : null}
                         </div>
+                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          <span
+                            className={followUp.isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}
+                          >
+                            Due {followUp.dueLabel}
+                          </span>{" "}
+                          · {followUp.assigneeName}
+                        </div>
+                        {followUp.canComplete ? (
+                          // Closing the loop belongs where the work happens.
+                          // Sending her to the tasks list to find this row again
+                          // is how a finished follow-up stays open and the queue
+                          // stops meaning anything.
+                          <div className="mt-2 flex flex-wrap items-start gap-2">
+                            <form action={updateTaskStatus}>
+                              <input type="hidden" name="taskId" value={followUp.id} />
+                              <input type="hidden" name="status" value={TaskStatus.DONE} />
+                              <Button type="submit" variant="secondary" size="sm">
+                                Mark done
+                              </Button>
+                            </form>
+                            {/* The customer moving the plan is something she is
+                                told here, in the thread - so this is where the
+                                follow-up has to be able to move with it, rather
+                                than being marked done to get it off the queue. */}
+                            <RescheduleFollowUp taskId={followUp.id} dueAt={followUp.dueAt} />
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                            {labelize(followUp.department)} closes this one.
+                          </p>
+                        )}
                       </div>
                     ))
                   )}
