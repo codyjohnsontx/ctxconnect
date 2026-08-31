@@ -26,6 +26,7 @@ import {
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import { instantFromZonedIso } from "@/lib/follow-ups";
 import { scopedConversationWhere } from "@/lib/data";
 import {
   canAccessConversation,
@@ -353,6 +354,68 @@ export async function updateTaskStatus(formData: FormData) {
       entity: "Task",
       entityId: taskId,
       metadata: { status },
+    },
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * Moves a follow-up to a new due date.
+ *
+ * A due date used to be set once and never again, so a plan that slipped -
+ * "call me Thursday instead" - left the advisor choosing between marking the
+ * follow-up done (it is not) and leaving it permanently red, which is how a
+ * queue stops meaning anything. Moving the date is the honest third answer.
+ *
+ * The new date arrives as an instant rather than as the picker's bare local
+ * value, because this runs wherever the server is - UTC on Vercel - and reading
+ * "17:00" here would store a closing-time follow-up at lunchtime. See
+ * instantFromZonedIso, and the reschedule panel that does the reading.
+ * createTask still takes a bare local string; that is a separate, older defect
+ * and moving it is not this change's to make.
+ */
+export async function rescheduleTask(formData: FormData) {
+  const user = await requireUser();
+  const taskId = String(formData.get("taskId") ?? "");
+  const dueAt = instantFromZonedIso(String(formData.get("dueAt") ?? ""));
+
+  if (!dueAt) {
+    throw new Error("A follow-up needs a date it is due on.");
+  }
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+  });
+
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (!canUpdateTask(user, task)) {
+    throw new Error("Task not found or access denied.");
+  }
+
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { dueDate: dueAt },
+  });
+
+  // The alert that put this follow-up in front of her still carries the date it
+  // was raised against, and "Follow-up overdue" wording that moving the date has
+  // just made false. Answering an alert clears it; the sweep raises a fresh one
+  // when the new date actually arrives.
+  await resolveTaskNotifications(taskId);
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "task.reschedule",
+      entity: "Task",
+      entityId: taskId,
+      metadata: { from: task.dueDate.toISOString(), to: dueAt.toISOString() },
     },
   });
 

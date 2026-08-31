@@ -6,6 +6,7 @@ import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
+import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { ThreadMessages } from "@/components/thread-messages";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,6 +133,9 @@ export function InboxView({
     id: task.id,
     title: task.title,
     dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
+    // The instant itself, for the reschedule panel to read into its picker in
+    // the advisor's own timezone rather than the server's.
+    dueAt: task.dueDate.toISOString(),
     // Every follow-up in this list is still open, so a due date in the past is
     // overdue with nothing else to ask.
     isOverdue: task.dueDate.getTime() < now,
@@ -657,13 +661,20 @@ export function InboxView({
                           // Sending her to the tasks list to find this row again
                           // is how a finished follow-up stays open and the queue
                           // stops meaning anything.
-                          <form action={updateTaskStatus} className="mt-2">
-                            <input type="hidden" name="taskId" value={followUp.id} />
-                            <input type="hidden" name="status" value={TaskStatus.DONE} />
-                            <Button type="submit" variant="secondary" size="sm">
-                              Mark done
-                            </Button>
-                          </form>
+                          <div className="mt-2 flex flex-wrap items-start gap-2">
+                            <form action={updateTaskStatus}>
+                              <input type="hidden" name="taskId" value={followUp.id} />
+                              <input type="hidden" name="status" value={TaskStatus.DONE} />
+                              <Button type="submit" variant="secondary" size="sm">
+                                Mark done
+                              </Button>
+                            </form>
+                            {/* The customer moving the plan is something she is
+                                told here, in the thread - so this is where the
+                                follow-up has to be able to move with it, rather
+                                than being marked done to get it off the queue. */}
+                            <RescheduleFollowUp taskId={followUp.id} dueAt={followUp.dueAt} />
+                          </div>
                         ) : (
                           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                             {labelize(followUp.department)} closes this one.
