@@ -51,6 +51,7 @@ Seeded logins: admin/gm/sales/service/parts `@ctxchat.local`, password `ctxdemo1
 ## Flows worth driving
 
 - Phone layout: emulate a device, do not narrow a desktop window. A narrow window is still a desktop - no touch, DPR 1 - so it hides the very defects you are looking for, and Chrome clamps its own window at ~500px, so resizing cannot reach a 390px phone at all. Drive Chrome over CDP/puppeteer instead: `page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true })` plus a mobile user agent.
+- A browser in another timezone: `page.emulateTimezone("America/Chicago")` on the same CDP/puppeteer page, which moves the browser without touching your machine's clock. That plus a `TZ=UTC` dev server is the only way to see a due-date defect locally - and it is worth reading the board as well as the write, because the day a follow-up is *counted* on and the time it is *printed* at are separate questions with separate answers (`src/lib/dealership-day.ts`, `LocalTimestamp`).
 - Login page render: `curl -s localhost:3000/login` — grep for what should(n't) be there.
 - Demo guardrails: SMS send → 403 as demo; AI brief → live once, 429 past `DEMO_AI_DAILY_LIMIT` (set it to 1 in `.env` for cheap cap tests; each live brief costs ~$0.02).
 - Reseed: `curl localhost:3000/api/demo/reseed -H "Authorization: Bearer $CRON_SECRET"` — 401 without/incorrect header, 200 + pristine data with it.

@@ -33,6 +33,7 @@ import {
   notificationHref,
   syncOperationalNotifications,
 } from "@/lib/notifications";
+import { endOfDealershipDay } from "@/lib/dealership-day";
 import { scopedTaskWhere } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import {
@@ -316,7 +317,7 @@ async function getCommandCenterFocusItems(
   user: AppUser,
   focus: CommandCenterFocus | undefined,
   now: Date,
-  todayEnd: Date,
+  dueDayEnd: Date,
   notificationScope: Prisma.NotificationWhereInput,
 ) {
   if (!focus) {
@@ -391,7 +392,7 @@ async function getCommandCenterFocusItems(
             activeTaskWhere,
             taskScope,
             focus === "dueToday"
-              ? { dueDate: { gte: now, lte: todayEnd } }
+              ? { dueDate: { gte: now, lte: dueDayEnd } }
               : { dueDate: { lt: now } },
           ],
         },
@@ -409,7 +410,12 @@ async function getCommandCenterFocusItems(
         kind: "task" as const,
         title: task.title,
         description: task.customer.name,
-        meta: `${labelDepartment(task.department)} · ${task.assignedUser?.name ?? "Unassigned"} · due ${task.dueDate.toLocaleString()}`,
+        meta: `${labelDepartment(task.department)} · ${task.assignedUser?.name ?? "Unassigned"}`,
+        // The instant, not a rendering of it. Formatting the due date here
+        // printed it on the server's clock - UTC on Vercel - so an advisor read
+        // a follow-up she set for 10pm last night as due 3am today. The page
+        // hands it to LocalTimestamp, which reads it on hers.
+        dueAt: task.dueDate,
         href: task.conversationId ? `/inbox/${task.conversationId}` : "/tasks",
         badges: [labelStatus(task.priority), labelStatus(task.status)],
       }));
@@ -600,6 +606,12 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  // Whether a follow-up is due today is answered on the dealership's day, not
+  // on the server's - see src/lib/dealership-day.ts. todayStart/todayEnd above
+  // still bound the message-volume and response-time windows on the server's
+  // day; that is a different question about a different clock, and deliberately
+  // left where it was.
+  const dueDayEnd = endOfDealershipDay(now);
   const responseWindowStart = subDays(todayStart, 14);
   const selectedFocus = isCommandCenterFocus(focusParam) ? focusParam : undefined;
   const userCanSeeAll = canSeeAll(user);
@@ -672,7 +684,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
     // still coming, and what is late.
     prisma.task.count({
       where: {
-        AND: [activeTaskWhere, taskScope, { dueDate: { gte: now, lte: todayEnd } }],
+        AND: [activeTaskWhere, taskScope, { dueDate: { gte: now, lte: dueDayEnd } }],
       },
     }),
     prisma.task.count({
@@ -700,7 +712,7 @@ export async function getCommandCenterData(user: AppUser, focusParam?: string) {
       },
     }),
     countNotificationFacts(user),
-    getCommandCenterFocusItems(user, selectedFocus, now, todayEnd, notificationScope),
+    getCommandCenterFocusItems(user, selectedFocus, now, dueDayEnd, notificationScope),
     prisma.conversation.findMany({
       where: {
         AND: [

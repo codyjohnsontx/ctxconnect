@@ -2,7 +2,16 @@
 
 ## Status
 
-Built
+Built, with the Command Center reader risk superseded on 2026-08-31.
+
+**The three Command Center defects this change unmasked are fixed.** The printed
+due date is rendered by `LocalTimestamp` on the viewer's clock, and the due-today
+bucket and the `FOLLOW_UP_DUE` sweep both read the dealership's day from
+`src/lib/dealership-day.ts`. See
+[A Due Date Reads on Her Clock, Not the Server's](./2026-08-31-a-due-date-reads-on-her-clock-not-the-servers.md)
+and
+[The Dealership Owns the Day a Follow-Up Is Due On](../decisions/2026-08-31-the-dealership-owns-the-day-a-follow-up-is-due-on.md).
+Everything below describes the state this change shipped into.
 
 ## Date
 
@@ -105,7 +114,7 @@ transition so the due date does not become the one field that disagrees.
   still does not: it prints the due date on the server's clock, and it buckets
   "due today" and sweeps `FOLLOW_UP_DUE` alerts against the server's day. This
   change makes that visible rather than fixing it, and it is recorded under
-  Risks.
+  Risks. Superseded 2026-08-31: Command Center now does, per the Status note.
 - Given the same pair, when she looks at the due field before touching it, then
   it offers a time inside her own working day.
 - Given a submission that carries no converted instant, when it reaches
@@ -119,10 +128,11 @@ transition so the due date does not become the one field that disagrees.
 ## Risks / Open Questions
 
 - **Command Center still reads a due date on the server's clock, in three
-  places, and this change moves all three of them.** What is fixed here is
-  what gets *stored*. These reason about the server's zone rather than hers,
-  and they are one defect with one fix, tracked as separate work rather than
-  folded in here:
+  places, and this change moves all three of them.** *Superseded 2026-08-31 -
+  all three were fixed the same day; see the Status note. The diagnosis below is
+  what the fix was written against.* What is fixed here is what gets *stored*.
+  These reason about the server's zone rather than hers, and they are one defect
+  with one fix, tracked as separate work rather than folded in here:
   - **The rendered meta line.** The "Due today" and "Overdue" focus items build
     their meta with ``due ${task.dueDate.toLocaleString()}`` inside
     `getCommandCenterFocusItems` (`src/lib/data.ts`), which runs in the server

@@ -11,6 +11,7 @@ import {
   type Prisma,
 } from "@/generated/prisma/client";
 import type { AppUser } from "@/lib/data";
+import { endOfDealershipDay } from "@/lib/dealership-day";
 import { prisma } from "@/lib/prisma";
 import {
   activeNotificationWhere,
@@ -251,8 +252,11 @@ export async function resolveTaskNotifications(taskId: string) {
 
 export async function syncOperationalNotifications() {
   const now = new Date();
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
+  // The sweep has no viewer to ask what day it is, so it asks the dealership -
+  // see src/lib/dealership-day.ts. Reading the server's clock here left a
+  // follow-up set for 8pm Central without its FOLLOW_UP_DUE alert, because on a
+  // UTC server that instant belongs to tomorrow.
+  const todayEnd = endOfDealershipDay(now);
 
   const [unassigned, failedMessages, dueTasks, conversations] = await Promise.all([
     prisma.conversation.findMany({
