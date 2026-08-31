@@ -17,6 +17,7 @@ import {
   canAccessConversation,
   canSeeAll,
   scopedConversationWhere,
+  unreachableDepartments,
 } from "@/lib/conversation-access";
 import { getIntegrationHealth } from "@/lib/env";
 import {
@@ -944,24 +945,48 @@ export async function getShellData(user: AppUser) {
 }
 
 export async function getCustomers(user: AppUser) {
-  return prisma.customer.findMany({
-    where: canSeeAll(user)
-      ? {}
-      : {
-          conversations: {
-            some: scopedConversationWhere(user),
-          },
-        },
+  const readerScope = scopedConversationWhere(user);
+  const customers = await prisma.customer.findMany({
+    where: canSeeAll(user) ? {} : { conversations: { some: readerScope } },
     orderBy: { updatedAt: "desc" },
     include: {
       vehicles: true,
+      // Scoped to the reader, because the row links to this conversation: the
+      // newest thread overall can belong to a department she cannot open, and
+      // that link lands on a bare 404.
       conversations: {
+        where: readerScope,
         orderBy: { lastMessageAt: "desc" },
         take: 1,
-        include: { assignedUser: true },
+        select: { id: true, department: true, status: true },
       },
     },
   });
+
+  // Which of these customers another department is also working. Nothing here
+  // is out of the reader's reach for a manager or an admin, so the extra read
+  // only happens for the accounts that can lose sight of a thread.
+  if (canSeeAll(user) || customers.length === 0) {
+    return customers.map((customer) => ({ ...customer, otherDepartments: [] as string[] }));
+  }
+
+  const everyThread = await prisma.conversation.findMany({
+    where: { customerId: { in: customers.map((customer) => customer.id) } },
+    orderBy: { lastMessageAt: "desc" },
+    select: { customerId: true, department: true, assignedUserId: true },
+  });
+
+  // Filtered here rather than with a negated Prisma clause: an unassigned
+  // thread has a null assignedUserId, and `NOT (assignedUserId = x OR ...)` is
+  // unknown rather than true for a null in SQL, which would drop exactly the
+  // unclaimed threads this line exists to report.
+  return customers.map((customer) => ({
+    ...customer,
+    otherDepartments: unreachableDepartments(
+      user,
+      everyThread.filter((thread) => thread.customerId === customer.id),
+    ),
+  }));
 }
 
 export async function getTasks(user: AppUser) {
