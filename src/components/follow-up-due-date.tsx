@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useFormStatus } from "react-dom";
 import { Input, Label } from "@/components/ui/field";
 import { defaultFollowUpDueDate, instantFromDateTimeLocal } from "@/lib/follow-ups";
@@ -8,6 +8,8 @@ import { defaultFollowUpDueDate, instantFromDateTimeLocal } from "@/lib/follow-u
 function subscribe() {
   return () => {};
 }
+
+const UNREADABLE_DATE = "That is not a date Attend can read. Pick it again.";
 
 /**
  * The due date on the create-follow-up form, read in the advisor's timezone.
@@ -27,6 +29,13 @@ function subscribe() {
  *   `instantFromDateTimeLocal`. `createTask` refuses anything that does not name
  *   its offset, so a submission from a page that has not hydrated - where no
  *   conversion could have happened - fails rather than storing the wrong day.
+ * - **A value that will not convert stops the submit here.** This is a field
+ *   inside someone else's `<form action={createTask}>`, so it has no submission
+ *   of its own to abandon; the picker is marked invalid instead, which is what
+ *   the form asks before it posts. A year the browser accepts but the date
+ *   reader does not - `20260-09-01T00:30` - otherwise leaves `dueAt` empty
+ *   while the picker still looks filled in, and she gets createTask's refusal
+ *   as an error page rather than as something she can correct.
  *
  * The draft is held in state, and dropped once the action resolves so the field
  * returns to the default alongside the uncontrolled fields React resets for us.
@@ -35,6 +44,7 @@ export function FollowUpDueDate() {
   const { pending } = useFormStatus();
   const [draft, setDraft] = useState<string | null>(null);
   const [wasPending, setWasPending] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
 
   const seeded = useSyncExternalStore(
     subscribe,
@@ -55,18 +65,34 @@ export function FollowUpDueDate() {
 
   const value = draft ?? seeded;
   const instant = instantFromDateTimeLocal(value);
+  const unreadable = value !== "" && !instant;
+
+  useEffect(() => {
+    picker.current?.setCustomValidity(unreadable ? UNREADABLE_DATE : "");
+  }, [unreadable]);
 
   return (
     <div className="space-y-1.5">
       <Label htmlFor="follow-up-due-date">Due</Label>
       <Input
+        ref={picker}
         id="follow-up-due-date"
         type="datetime-local"
         required
+        aria-invalid={unreadable || undefined}
+        aria-describedby={unreadable ? "follow-up-due-date-error" : undefined}
         value={value}
         onChange={(event) => setDraft(event.target.value)}
       />
       <input type="hidden" name="dueAt" value={instant?.toISOString() ?? ""} />
+      {unreadable ? (
+        <p
+          id="follow-up-due-date-error"
+          className="text-xs leading-5 text-red-600 dark:text-red-400"
+        >
+          {UNREADABLE_DATE}
+        </p>
+      ) : null}
     </div>
   );
 }

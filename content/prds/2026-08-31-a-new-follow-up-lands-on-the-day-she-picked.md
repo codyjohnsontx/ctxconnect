@@ -93,16 +93,37 @@ transition so the due date does not become the one field that disagrees.
 
 - Given the server in UTC and the advisor in `America/Chicago`, when she creates
   a follow-up due 1 September at 00:30, then the row stores
-  `2026-09-01T05:30Z` and every surface shows it due 1 September at 00:30.
+  `2026-09-01T05:30Z`, and the thread's open-follow-up card, the Tasks page and
+  the reschedule picker all place it on 1 September at 00:30. Command Center's
+  focus items still do not - a separate display defect, recorded under Risks.
 - Given the same pair, when she looks at the due field before touching it, then
   it offers a time inside her own working day.
 - Given a submission that carries no converted instant, when it reaches
   `createTask`, then the follow-up is not written.
+- Given a picked value the date reader will not convert, when she submits, then
+  the form does not post, the picker is marked invalid, and the reason is on
+  screen rather than on an error page.
 - Given she has just created a follow-up, when she looks at the form, then the
   due date has returned to the default alongside the cleared title.
 
 ## Risks / Open Questions
 
+- **Command Center still prints a due date in the server's timezone.** This
+  change fixes what is *stored*. That one is what is *rendered*, so it has a
+  different cause and a different fix and is tracked as separate work rather
+  than folded in here. The "Due today" and "Overdue" focus items build their
+  meta line with ``due ${task.dueDate.toLocaleString()}`` inside
+  `getCommandCenterFocusItems` (`src/lib/data.ts`), which runs in the server
+  render, so the string is formatted wherever the server is standing. With the
+  server in UTC and the advisor in `America/Chicago`, a follow-up she picks for
+  1 September at 20:00 is now correctly stored as `2026-09-02T01:00Z` and
+  Command Center prints "9/2/2026, 1:00:00 AM" - the right instant on the wrong
+  clock, and the wrong day. `LocalTimestamp`
+  (`src/components/local-timestamp.tsx`) is already the repo's answer for
+  rendering an instant on the reader's clock. Not affected: the thread's
+  open-follow-up card and the Tasks page, which use `formatDistanceToNow` and
+  are timezone-independent, and the reschedule picker, which reads the stored
+  instant on her own clock.
 - **The field is empty until the page hydrates.** For that moment the form
   cannot be submitted at all. That is the intended trade - the alternative is
   rendering a date the server made up - but it is a visible flash on a slow

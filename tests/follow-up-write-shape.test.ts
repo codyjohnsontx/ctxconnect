@@ -25,7 +25,11 @@ function inTimeZone<T>(timeZone: string, run: () => T): T {
   try {
     return run();
   } finally {
-    process.env.TZ = previous;
+    if (previous === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = previous;
+    }
   }
 }
 
