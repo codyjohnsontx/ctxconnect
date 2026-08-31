@@ -18,9 +18,11 @@ reads her pick in the browser and posts an instant, the way rescheduling a
 follow-up already did.
 
 What is fixed here is what gets *stored*. Command Center still reasons about a
-due date on the server's clock, and correcting the stored instant changes which
-follow-ups it counts as due today and alerts on - a behaviour change this change
-causes, set out under Risks.
+due date on the server's clock, and correcting the stored instant moves all
+three of the things it does with one: the date it prints, which follow-ups it
+counts as due today, and which it raises an alert for. All three were
+accidentally right before, off a wrong instant. That is a behaviour change this
+change causes, set out under Risks.
 
 ## Problem
 
@@ -117,18 +119,21 @@ transition so the due date does not become the one field that disagrees.
 ## Risks / Open Questions
 
 - **Command Center still reads a due date on the server's clock, in three
-  places, and this change changes what two of them do.** What is fixed here is
+  places, and this change moves all three of them.** What is fixed here is
   what gets *stored*. These reason about the server's zone rather than hers,
   and they are one defect with one fix, tracked as separate work rather than
   folded in here:
   - **The rendered meta line.** The "Due today" and "Overdue" focus items build
     their meta with ``due ${task.dueDate.toLocaleString()}`` inside
     `getCommandCenterFocusItems` (`src/lib/data.ts`), which runs in the server
-    render, so the string is formatted wherever the server is standing. A
-    follow-up she picks for 1 September at 20:00 from `America/Chicago` is now
-    correctly stored as `2026-09-02T01:00Z`, and a server in UTC prints
-    "9/2/2026, 1:00:00 AM" - the right instant on the wrong clock, and the
-    wrong day.
+    render, so the string is formatted wherever the server is standing. It was
+    accidentally correct before this change, because the write was wrong by the
+    advisor's offset in the opposite direction: a follow-up she picks for
+    1 September at 20:00 from `America/Chicago` was stored as
+    `2026-09-01T20:00Z`, and a server in UTC printed "9/1/2026, 8:00:00 PM" -
+    exactly the wall clock she picked. It is now correctly stored as
+    `2026-09-02T01:00Z`, and the same server prints "9/2/2026, 1:00:00 AM" - the
+    right instant on the wrong clock, the wrong hour and the wrong day.
   - **Day-bucketing.** The "Due today" focus list selects with
     `dueDate: { gte: now, lte: todayEnd }` where `todayEnd = endOfDay(now)`
     (`src/lib/data.ts:602`) is computed in the server's zone, so which
@@ -137,17 +142,29 @@ transition so the due date does not become the one field that disagrees.
     `todayEnd.setHours(23, 59, 59, 999)` (`src/lib/notifications.ts:254-255`,
     applied at `:278`), so `FOLLOW_UP_DUE` alerts follow that same boundary.
 
-  **The bucketing defect predates this change, and this change unmasks it.**
-  Two errors were cancelling. Server in UTC, advisor in `America/Chicago`, she
-  picks 1 September at 20:00: `endOfDay(now)` is `2026-09-01T23:59:59.999Z`, and
-  the old buggy write stored `2026-09-01T20:00Z`, which is *inside* that bucket.
-  The follow-up appeared under "Follow-ups due today" and raised a
-  `FOLLOW_UP_DUE` alert that day - by accident, off a wrong instant. The
-  corrected instant is `2026-09-02T01:00Z`, which is *outside* it, so the same
-  follow-up now reads as due tomorrow and misses that day's sweep. Removing the
-  error that was cancelling it is what made it visible. Every evening pick west
-  of the server buckets differently from now on, and it stays that way until the
+  **All three defects predate this change, and this change unmasks all three.**
+  Two errors were cancelling: a write wrong by the advisor's offset, and reads
+  wrong by the same offset the other way. Server in UTC, advisor in
+  `America/Chicago`, she picks 1 September at 20:00. `endOfDay(now)` is
+  `2026-09-01T23:59:59.999Z`, and the old buggy write stored
+  `2026-09-01T20:00Z`, which is *inside* that bucket. So the follow-up appeared
+  under "Follow-ups due today", raised a `FOLLOW_UP_DUE` alert that day, and
+  printed as "9/1/2026, 8:00:00 PM" - all three right, by accident, off a wrong
+  instant. The corrected instant is `2026-09-02T01:00Z`, which is *outside* the
+  bucket, so the same follow-up now reads as due tomorrow, misses that day's
+  sweep, and prints "9/2/2026, 1:00:00 AM". Removing the error that was hiding
+  them is what made them visible. Every evening pick west of the server buckets,
+  alerts and prints differently from now on, and it stays that way until the
   Command Center work lands.
+
+  **Why this ships before the display fix.** It leaves three surfaces
+  temporarily wrong, and that is still the right order. A wrong instant written
+  today is wrong forever: every follow-up created before this change carries bad
+  data permanently, because the zone it was picked in was never recorded and
+  cannot be recovered. A wrong label is wrong only until someone fixes the
+  label. Data correctness compounds; presentation does not. So the correct write
+  is taken now and a short, loudly documented window on display is accepted,
+  with the Command Center work dispatched immediately rather than left queued.
 
   **The other half improves.** `overdue` is a plain instant comparison
   (`dueDate < now`, `src/lib/data.ts:395`, and `task.dueDate.getTime() < now`,
