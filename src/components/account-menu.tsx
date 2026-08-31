@@ -45,7 +45,12 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
           the bar its trigger lives in. `w-64` and `p-4` give it the sidebar
           account block's own content width, which is what "Dark" and "Sign out"
           need to sit on one line - they set at the body's 16px here too. Lifted
-          off the page in dark mode, where zinc-950 is also the page. */}
+          off the page in dark mode, where zinc-950 is also the page.
+
+          Hidden outright where the popover API is missing: the `popover`
+          attribute is ignored there, so this would render inline and sit open
+          over the bottom bar with no way to dismiss it. The cell then does
+          nothing, which is where sign out on such a phone already was. */}
       <div
         id="account-menu"
         popover="auto"

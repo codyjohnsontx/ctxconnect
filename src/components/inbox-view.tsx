@@ -127,6 +127,11 @@ export function InboxView({
   const defaultDueDate = defaultFollowUpDueDate(new Date());
   const activeFilterCount = countActiveFilters(searchParams);
   const clearFiltersTarget = clearFiltersHref(searchParams, selectedConversation?.id);
+  // Remounts the controls whenever the URL's filters change. They are
+  // uncontrolled, so React reuses the existing DOM nodes across a same-page
+  // navigation and `defaultValue` and `defaultChecked` would keep showing the
+  // filters she just left - including the fold, which would stay shut over a
+  // queue that is now narrowed, or hang open after Clear filters.
   const filterControlsKey = INBOX_FILTER_KEYS.map((key) => searchParams[key] ?? "").join("|");
   // The thread is rendered oldest message first, so its newest is the last one.
   const latestMessage = selectedConversation?.messages.at(-1) ?? null;
@@ -171,7 +176,9 @@ export function InboxView({
               markup at one breakpoint and leave it open at the other, and no
               author style can reopen a closed <details>. It starts open whenever
               a filter is in effect, so a narrowed queue always shows what
-              narrowed it. */}
+              narrowed it. The checkbox is hidden rather than merely off-screen
+              from `lg` up, so the wide layout does not offer assistive
+              technology a control for a fold it does not have. */}
           <input
             key={filterControlsKey}
             id="inbox-filters-toggle"

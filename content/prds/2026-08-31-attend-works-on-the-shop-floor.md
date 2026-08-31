@@ -170,6 +170,10 @@ and costs the whole first screen when it is stacked above it.
   settles; also showing the newest message, not history.
 - **A phone turned sideways** past `lg` swaps which element scrolls. Both
   candidates are listened to and the scroll event names which one answered.
+- **A browser without the popover API** never shows the account panel, rather
+  than showing one it cannot close over the bottom bar. The cell does nothing
+  there, so sign out on such a phone is where it was before this work: only in
+  the wide layout's sidebar.
 - **An account with no name stored** - `User.name` is nullable and a
   bootstrapped admin can have none - shows `?` in the avatar and "Account" as
   the label, and the panel agrees with the cell.
