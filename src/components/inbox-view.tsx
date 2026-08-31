@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRightLeft, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
 import { addInternalNote, createTask } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
+import { ThreadMessages } from "@/components/thread-messages";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
@@ -14,6 +15,7 @@ import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
+import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
 import {
   UNDELIVERED_HEADLINE,
   UNDELIVERED_ROW_LABEL,
@@ -23,6 +25,7 @@ import {
   undeliveredDetail,
 } from "@/lib/message-delivery";
 import { type PreviewAuthor, previewAttribution } from "@/lib/message-preview";
+import { CONVERSATION_PANEL_ATTRIBUTE } from "@/lib/thread-scroll";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
 type InboxData = Awaited<ReturnType<typeof getInboxData>>;
@@ -122,6 +125,16 @@ export function InboxView({
     dueLabel: formatDistanceToNow(task.dueDate, { addSuffix: true }),
   }));
   const defaultDueDate = defaultFollowUpDueDate(new Date());
+  const activeFilterCount = countActiveFilters(searchParams);
+  const clearFiltersTarget = clearFiltersHref(searchParams, selectedConversation?.id);
+  // Remounts the controls whenever the URL's filters change. They are
+  // uncontrolled, so React reuses the existing DOM nodes across a same-page
+  // navigation and `defaultValue` and `defaultChecked` would keep showing the
+  // filters she just left - including the fold, which would stay shut over a
+  // queue that is now narrowed, or hang open after Clear filters.
+  const filterControlsKey = INBOX_FILTER_KEYS.map((key) => searchParams[key] ?? "").join("|");
+  // The thread is rendered oldest message first, so its newest is the last one.
+  const latestMessage = selectedConversation?.messages.at(-1) ?? null;
 
   return (
     <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
@@ -153,61 +166,118 @@ export function InboxView({
             </p>
           ) : null}
           <QueueStatus status={queueStatus} />
-          <form className="grid grid-cols-2 gap-2" action="/inbox">
-            <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
-              <option value="">All departments</option>
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {labelize(department)}
-                </option>
-              ))}
-            </Select>
-            <Select name="status" defaultValue={searchParams.status ?? ""} aria-label="Status filter">
-              <option value="">All statuses</option>
-              {statuses.map((status) => (
-                <option key={status} value={status}>
-                  {labelize(status)}
-                </option>
-              ))}
-            </Select>
-            <Select name="assigned" defaultValue={searchParams.assigned ?? ""} aria-label="Assignee filter">
-              <option value="">Anyone</option>
-              <option value="unassigned">Unassigned</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </Select>
-            <Select name="tag" defaultValue={searchParams.tag ?? ""} aria-label="Tag filter">
-              <option value="">Any tag</option>
-              {tags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}
-                </option>
-              ))}
-            </Select>
-            <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-              <input name="unread" value="true" type="checkbox" defaultChecked={searchParams.unread === "true"} />
-              Unread
-            </label>
-            <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-              <input name="failed" value="true" type="checkbox" defaultChecked={searchParams.failed === "true"} />
-              Failed
-            </label>
-            <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-              <input name="needsAction" value="true" type="checkbox" defaultChecked={searchParams.needsAction === "true"} />
-              Needs action
-            </label>
-            <Button type="submit" variant="secondary">
-              Filter
-            </Button>
-          </form>
+          {/* On a phone the ranked queue is what she opened the app for, and the
+              controls that narrow it were pushing the first row most of the way
+              down the screen, so below `lg` they fold away behind their own
+              summary. The wide layout has a 390px rail with room for both and is
+              left as it was.
+
+              A checkbox rather than <details>: only CSS can collapse the same
+              markup at one breakpoint and leave it open at the other, and no
+              author style can reopen a closed <details>. It starts open whenever
+              a filter is in effect, so a narrowed queue always shows what
+              narrowed it. The checkbox is hidden rather than merely off-screen
+              from `lg` up, so the wide layout does not offer assistive
+              technology a control for a fold it does not have. */}
+          <input
+            key={filterControlsKey}
+            id="inbox-filters-toggle"
+            aria-controls="inbox-filters"
+            type="checkbox"
+            className="peer sr-only lg:hidden"
+            defaultChecked={activeFilterCount > 0}
+          />
+          <label
+            htmlFor="inbox-filters-toggle"
+            className="mb-2 flex h-10 cursor-pointer items-center gap-2 text-sm text-zinc-600 peer-checked:[&>svg]:rotate-90 dark:text-zinc-300 lg:hidden"
+          >
+            <ChevronRight className="h-4 w-4 shrink-0 transition-transform" />
+            Filters
+            {activeFilterCount > 0 ? <Badge variant="blue">{activeFilterCount} active</Badge> : null}
+          </label>
+          <div id="inbox-filters" className="hidden peer-checked:block lg:block">
+            <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
+              <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
+                <option value="">All departments</option>
+                {departments.map((department) => (
+                  <option key={department} value={department}>
+                    {labelize(department)}
+                  </option>
+                ))}
+              </Select>
+              <Select name="status" defaultValue={searchParams.status ?? ""} aria-label="Status filter">
+                <option value="">All statuses</option>
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {labelize(status)}
+                  </option>
+                ))}
+              </Select>
+              <Select name="assigned" defaultValue={searchParams.assigned ?? ""} aria-label="Assignee filter">
+                <option value="">Anyone</option>
+                <option value="unassigned">Unassigned</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </Select>
+              <Select name="tag" defaultValue={searchParams.tag ?? ""} aria-label="Tag filter">
+                <option value="">Any tag</option>
+                {tags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </Select>
+              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                <input name="unread" value="true" type="checkbox" defaultChecked={searchParams.unread === "true"} />
+                Unread
+              </label>
+              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                <input name="failed" value="true" type="checkbox" defaultChecked={searchParams.failed === "true"} />
+                Failed
+              </label>
+              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                <input name="needsAction" value="true" type="checkbox" defaultChecked={searchParams.needsAction === "true"} />
+                Needs action
+              </label>
+              <Button type="submit" variant="secondary">
+                Filter
+              </Button>
+            </form>
+            {/* Only when the filters left something to look at. A queue filtered
+                to nothing carries its own way out in the empty state a few
+                pixels below, and two of them together read as two different
+                exits. */}
+            {activeFilterCount > 0 && conversations.length > 0 ? (
+              <div className="mt-2 flex justify-end">
+                <Link href={clearFiltersTarget} className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300">
+                  Clear filters
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           {conversations.length === 0 ? (
-            <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">No conversations match these filters.</div>
+            <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">
+              {activeFilterCount > 0 ? (
+                <>
+                  No conversations match these filters.{" "}
+                  <Link href={clearFiltersTarget} className="font-medium text-blue-700 hover:underline dark:text-blue-300">
+                    Clear filters
+                  </Link>{" "}
+                  to see the whole queue.
+                </>
+              ) : (
+                // Nothing is filtered, so the queue itself is empty. Blaming
+                // filters here would send her looking for a control to undo that
+                // is not set.
+                "No conversations yet."
+              )}
+            </div>
           ) : (
             <div className="divide-y divide-zinc-100">
               {conversations.map((conversation) => {
@@ -337,7 +407,10 @@ export function InboxView({
 
       {selectedConversation ? (
         <section className="flex min-h-0 flex-col overflow-y-auto pb-20 lg:grid lg:pb-0 lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-          <div className="flex min-h-0 shrink-0 flex-col">
+          {/* The conversation and the box she answers it in, as one panel: on a
+              phone it is what the page scrolls to, so both land on screen
+              together. See components/thread-messages.tsx. */}
+          <div {...{ [CONVERSATION_PANEL_ATTRIBUTE]: "" }} className="flex min-h-0 shrink-0 flex-col">
             <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 lg:static dark:border-zinc-800 dark:bg-zinc-950">
               <div className="min-w-0">
                 {backTarget ? (
@@ -369,7 +442,22 @@ export function InboxView({
               </Badge>
             </header>
 
-            <div className="max-h-[34dvh] flex-none space-y-4 overflow-y-auto bg-zinc-50 p-5 lg:max-h-none lg:flex-1 dark:bg-zinc-950">
+            {/* Keyed by conversation so opening another thread remounts the box
+                and lands on that thread's newest message rather than keeping
+                the scroll position of the one she just left. Prefixed because
+                the composer below is a sibling keyed by the same conversation,
+                and React wants the two keys to differ. */}
+            <ThreadMessages
+              key={`messages-${selectedConversation.id}`}
+              latestMessageId={latestMessage?.id ?? null}
+              latestMessageIsHers={latestMessage?.senderUserId === currentUser.id}
+              // On a phone the conversation is part of the page rather than a
+              // window inside it: a fixed-height box gave a 390x844 screen a
+              // 287px porthole onto the thread, with its own scrollbar inside a
+              // page that scrolled separately. On a wide screen the thread
+              // column has room to be its own scrolling box, so it is.
+              className="flex-none space-y-4 bg-zinc-50 p-5 lg:flex-1 lg:overflow-y-auto dark:bg-zinc-950"
+            >
               {selectedConversation.messages.map((message) => {
                 const internal = message.direction === MessageDirection.INTERNAL;
                 const outbound = message.direction === MessageDirection.OUTBOUND;
@@ -432,7 +520,7 @@ export function InboxView({
                   </div>
                 );
               })}
-            </div>
+            </ThreadMessages>
 
             <MessageComposer
               key={selectedConversation.id}

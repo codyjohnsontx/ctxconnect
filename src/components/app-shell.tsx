@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   Settings,
 } from "lucide-react";
+import { AccountMenu } from "@/components/account-menu";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -176,9 +177,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
             </Link>
           );
         })}
-        <div className="flex h-16 items-center justify-center">
-          <ThemeToggle />
-        </div>
+        <AccountMenu userId={user.id} name={user.name} role={user.role} />
       </nav>
     </div>
   );

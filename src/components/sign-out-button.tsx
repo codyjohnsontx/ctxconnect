@@ -38,7 +38,9 @@ export function SignOutButton({ userId }: { userId: string }) {
       title="Sign out"
     >
       <LogOut className="h-4 w-4" />
-      <span className="hidden lg:inline">Sign out</span>
+      {/* Named rather than an icon on its own: on a phone this is the only
+          way out of someone else's account, and it is read once, in a hurry. */}
+      <span>Sign out</span>
     </Button>
   );
 }
