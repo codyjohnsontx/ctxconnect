@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { getCommandCenterData } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
@@ -110,7 +111,15 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                     <div>
                       <div className="font-medium">{item.title}</div>
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{item.description}</div>
-                      <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">{item.meta}</div>
+                      <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                        {item.meta}
+                        {item.kind === "task" ? (
+                          <>
+                            {" · due "}
+                            <LocalTimestamp value={item.dueAt} />
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {item.badges.map((badge) => (
