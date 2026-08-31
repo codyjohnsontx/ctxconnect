@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
-import { addInternalNote, createTask, updateTaskStatus } from "@/app/actions";
+import { addInternalNote, createTask, markConversationUnread, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
+import { MarkReadOnOpen } from "@/components/mark-read-on-open";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
 import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
@@ -458,10 +459,37 @@ export function InboxView({
                   {selectedConversation.subject ?? labelize(selectedConversation.department)} · {formatPhone(selectedConversation.customer.phone)}
                 </p>
               </div>
-              <Badge variant={selectedConversation.customer.smsOptedOut ? "red" : "green"}>
-                {selectedConversation.customer.smsOptedOut ? "SMS opted out" : "SMS ok"}
-              </Badge>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <Badge variant={selectedConversation.customer.smsOptedOut ? "red" : "green"}>
+                  {selectedConversation.customer.smsOptedOut ? "SMS opted out" : "SMS ok"}
+                </Badge>
+                {/* The way to hand a thread back to the floor. Reading clears
+                    the marker, so without this the advisor loses the only way
+                    she has to say "someone still needs to pick this up". */}
+                {selectedConversation.unread ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+                    <Circle className="h-2 w-2 fill-blue-600 text-blue-600" />
+                    Unread
+                  </span>
+                ) : (
+                  <form action={markConversationUnread}>
+                    <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                    <button
+                      type="submit"
+                      className="text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    >
+                      Mark unread
+                    </button>
+                  </form>
+                )}
+              </div>
             </header>
+
+            {/* Opening the thread is what makes it read - see the action. */}
+            <MarkReadOnOpen
+              conversationId={selectedConversation.id}
+              unread={selectedConversation.unread}
+            />
 
             {/* Keyed by conversation so opening another thread remounts the box
                 and lands on that thread's newest message rather than keeping

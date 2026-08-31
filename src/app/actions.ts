@@ -26,6 +26,7 @@ import {
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import { readResolvesNotificationTypes } from "@/lib/notification-facts";
 import { instantFromZonedIso } from "@/lib/follow-ups";
 import { scopedConversationWhere } from "@/lib/data";
 import {
@@ -79,6 +80,54 @@ async function recordAiInsightFormEvent({
       },
     },
   });
+}
+
+/**
+ * Opening a thread is what makes it read. Until this existed the marker could
+ * only be cleared by replying or by pressing Save controls, so a thread the
+ * advisor read and decided needed nothing kept its blue dot, its place in the
+ * Inbox count, its seat in `Needs action` and its row on the Command Center -
+ * for good. Called from the thread pane once the conversation is actually on
+ * her screen, never from a render, because a link prefetch is not reading.
+ */
+export async function markConversationRead(conversationId: string) {
+  const user = await requireUser();
+  await requireConversationAccess(user, conversationId);
+
+  // Conditional on `unread` so re-opening a thread she has already read is a
+  // read with no write and no revalidation behind it.
+  const { count } = await prisma.conversation.updateMany({
+    where: { id: conversationId, unread: true },
+    data: { unread: false },
+  });
+
+  if (count === 0) {
+    return;
+  }
+
+  await resolveConversationNotifications(conversationId, readResolvesNotificationTypes);
+
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * The way back out. The queue is shared, and leaving a thread flagged is how an
+ * advisor hands work she cannot take right now back to the floor - so reading
+ * clearing the marker must not be the end of the story.
+ */
+export async function markConversationUnread(formData: FormData) {
+  const user = await requireUser();
+  const conversationId = String(formData.get("conversationId") ?? "");
+  await requireConversationAccess(user, conversationId);
+
+  await prisma.conversation.updateMany({
+    where: { id: conversationId, unread: false },
+    data: { unread: true },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
 }
 
 export async function updateConversation(formData: FormData) {
