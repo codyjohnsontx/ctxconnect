@@ -191,6 +191,32 @@ export async function resolveConversationNotifications(conversationId: string, t
   await resolveConversationNotificationsWithClient(prisma, conversationId, types);
 }
 
+/**
+ * The inverse of that write, for the one thing that undoes the read: putting a
+ * thread back to unread. Nothing re-raises the alert that says a text arrived -
+ * the inbound webhook writes it once, and the operational sweep does not know
+ * the type - so leaving the resolved rows resolved hands the advisor back her
+ * blue dot and loses her rail entry for good. Rows go back to UNREAD rather
+ * than to whatever they were, because a thread she has put back is one she has
+ * not dealt with.
+ */
+export async function reopenConversationNotifications(
+  conversationId: string,
+  types?: NotificationType[],
+) {
+  await prisma.notification.updateMany({
+    where: {
+      conversationId,
+      status: NotificationStatus.RESOLVED,
+      ...(types ? { type: { in: types } } : {}),
+    },
+    data: {
+      status: NotificationStatus.UNREAD,
+      resolvedAt: null,
+    },
+  });
+}
+
 export async function notifyManagersTx(client: Prisma.TransactionClient, draft: NotificationDraft) {
   await notifyManagersWithClient(client, draft);
 }

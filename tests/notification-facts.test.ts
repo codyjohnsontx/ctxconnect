@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
   activeNotificationsWhere,
@@ -531,4 +534,48 @@ describe("readResolvesNotificationTypes", () => {
       [],
     );
   });
+});
+
+// Opening a thread and putting it back are one round trip, and only one half of
+// it was ever written down. Nothing re-raises NEW_INBOUND_MESSAGE - the inbound
+// webhook writes it the moment a text lands and the operational sweep does not
+// know the type - so an advisor who reads a thread, decides she cannot take it
+// and hands it back to the floor got her blue dot returned and her rail entry
+// withdrawn for good. The pairing lives in the two server actions rather than in
+// a value these tests can call, so it is pinned against the source: both halves
+// have to name the same list, and neither may name a type directly.
+describe("reading a thread and putting it back", () => {
+  const actions = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "src", "app", "actions.ts"),
+    "utf8",
+  );
+
+  function serverAction(name: string): string {
+    const start = actions.indexOf(`export async function ${name}(`);
+    assert.notEqual(start, -1, `${name} is no longer a server action in src/app/actions.ts`);
+
+    const next = actions.indexOf("\nexport ", start + 1);
+
+    return actions.slice(start, next === -1 ? undefined : next);
+  }
+
+  it("withdraws the arrival alerts when the thread is opened", () => {
+    assert.match(
+      serverAction("markConversationRead"),
+      /resolveConversationNotifications\(\s*conversationId,\s*readResolvesNotificationTypes\s*[,)]/,
+    );
+  });
+
+  it("puts the same alerts back when the thread is marked unread", () => {
+    assert.match(
+      serverAction("markConversationUnread"),
+      /reopenConversationNotifications\(\s*conversationId,\s*readResolvesNotificationTypes\s*[,)]/,
+    );
+  });
+
+  for (const half of ["markConversationRead", "markConversationUnread"]) {
+    it(`leaves ${half} naming the list rather than a type, so the two cannot drift`, () => {
+      assert.doesNotMatch(serverAction(half), /NotificationType\.[A-Z_]+/);
+    });
+  }
 });

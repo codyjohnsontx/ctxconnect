@@ -976,16 +976,28 @@ export async function getCustomers(user: AppUser) {
     select: { customerId: true, department: true, assignedUserId: true },
   });
 
+  // Grouped once rather than re-scanned per customer, which is the whole list
+  // of threads walked again for every row on the page. Insertion order is the
+  // query's own, so each customer's threads stay newest-first.
+  const threadsByCustomer = new Map<string, typeof everyThread>();
+
+  for (const thread of everyThread) {
+    const threads = threadsByCustomer.get(thread.customerId);
+
+    if (threads) {
+      threads.push(thread);
+    } else {
+      threadsByCustomer.set(thread.customerId, [thread]);
+    }
+  }
+
   // Filtered here rather than with a negated Prisma clause: an unassigned
   // thread has a null assignedUserId, and `NOT (assignedUserId = x OR ...)` is
   // unknown rather than true for a null in SQL, which would drop exactly the
   // unclaimed threads this line exists to report.
   return customers.map((customer) => ({
     ...customer,
-    otherDepartments: unreachableDepartments(
-      user,
-      everyThread.filter((thread) => thread.customerId === customer.id),
-    ),
+    otherDepartments: unreachableDepartments(user, threadsByCustomer.get(customer.id) ?? []),
   }));
 }
 

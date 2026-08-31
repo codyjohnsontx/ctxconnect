@@ -22,6 +22,7 @@ import {
 import {
   notifyAssignee,
   notifyManagers,
+  reopenConversationNotifications,
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
@@ -119,16 +120,26 @@ export async function markConversationRead(conversationId: string) {
  * The way back out. The queue is shared, and leaving a thread flagged is how an
  * advisor hands work she cannot take right now back to the floor - so reading
  * clearing the marker must not be the end of the story.
+ *
+ * Which means putting back everything the read withdrew, not just the marker:
+ * the same `readResolvesNotificationTypes` list, so the two cannot learn
+ * different answers about what opening a thread silences.
  */
 export async function markConversationUnread(formData: FormData) {
   const user = await requireUser();
   const conversationId = String(formData.get("conversationId") ?? "");
   await requireConversationAccess(user, conversationId);
 
-  await prisma.conversation.updateMany({
+  const { count } = await prisma.conversation.updateMany({
     where: { id: conversationId, unread: false },
     data: { unread: true },
   });
+
+  if (count === 0) {
+    return;
+  }
+
+  await reopenConversationNotifications(conversationId, readResolvesNotificationTypes);
 
   revalidatePath("/inbox");
   revalidatePath("/command-center");

@@ -5,11 +5,14 @@
  * the write would refuse turns a click into an error page.
  *
  * Kept free of the database client so both halves of that rule can be tested
- * directly, the same way conversation-access.ts holds the matching rule for
- * threads.
+ * directly and read by a client component, the same way conversation-access.ts
+ * holds the matching rule for threads. The enum comes from the generated
+ * `enums` module rather than `client`, which drags the Prisma runtime into the
+ * browser bundle and fails to build.
  */
 
-import { Role, type Department, type Prisma } from "@/generated/prisma/client";
+import { type Department, type Prisma } from "@/generated/prisma/client";
+import { Role } from "@/generated/prisma/enums";
 import type { AppUser } from "@/lib/data";
 
 export function isManagerOrAdmin(user: AppUser) {
