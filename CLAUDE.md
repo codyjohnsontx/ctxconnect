@@ -1294,11 +1294,13 @@ copy of one of these rules is how the screen and the database end up disagreeing
 * Whether a reply reached the customer: [`src/lib/message-delivery.ts`](./src/lib/message-delivery.ts). The queue row, the thread bubble and the composer banner all mark the same failure, and the row is the one that cannot see the thread - it loads a single message to preview, and that is the newest of *any* direction. Ask the row's marker of the newest **reply**, never of the message it previews; a note written afterwards otherwise un-marks the row while the other two still warn.
 * Whether the brief's suggested follow-up already exists: [`src/lib/follow-ups.ts`](./src/lib/follow-ups.ts).
 * How long a reply may be, and what to refuse it with: [`src/lib/sms-length.ts`](./src/lib/sms-length.ts). There is no single limit. Twilio picks the encoding from the body, so one emoji or pasted curly quote moves a 1600-character reply to a 700-character one; the module carries the GSM 03.38 alphabet to work that out, and the box and the send route both call it. A constant here is the bug.
+* Where a conversation opens, and when it moves on its own: [`src/lib/thread-scroll.ts`](./src/lib/thread-scroll.ts). The thread renders oldest first, so something has to move it. The rule is written against where content **ends on screen** rather than one box's `scrollTop`, because the conversation is not always its own window: from `lg` up it scrolls inside the thread column, and on a phone it scrolls with the page. One tested function serves both; a `max-h` or an unprefixed `overflow-y-auto` on the message list is what put a 287px porthole on a 390px screen.
 
-Two habits this repo has paid for more than once:
+Three habits this repo has paid for more than once:
 
 * **Reproduce in the running app before fixing, and verify there afterwards.** A green test over an assumption is how several defects here were "fixed" twice. See [`.claude/skills/verify`](./.claude/skills/verify) for driving the app locally.
 * **A form whose fields are uncontrolled inside a `<form action={serverAction}>` resets to its mounted values when the action resolves.** That reads as a failed save and invites a second press that writes the stale values back. Hold the values in state and offer the submit only while they differ from the server's.
+* **`globals.css` resets `button, input, select, textarea { font: inherit }` outside every layer**, and an unlayered rule beats every `@layer`. So a `text-*` or `font-*` utility on a form control never applies - a 10px label on a `<button>` renders at the body's 16px. Size the text on a child `<span>` instead. Deleting the reset is the real fix and has an app-wide blast radius; it wants its own pass and fresh README screenshots.
 
 ## Maintaining this file
 
