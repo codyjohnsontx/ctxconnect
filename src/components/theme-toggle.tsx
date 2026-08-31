@@ -52,7 +52,7 @@ export function ThemeToggle() {
       aria-label={theme === "dark" ? "Use light mode" : "Use dark mode"}
     >
       {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      <span className="hidden lg:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+      <span>{theme === "dark" ? "Light" : "Dark"}</span>
     </Button>
   );
 }
