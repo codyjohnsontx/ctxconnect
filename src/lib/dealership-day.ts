@@ -29,8 +29,10 @@
  * "America/Phonix", a warning nobody reads goes to a log nobody opens, and every
  * follow-up is then counted on Central time forever with nothing on screen
  * looking broken. Throwing is loud, is one line to fix, and cannot reach an
- * advisor - `next build` evaluates this module, so a typo fails the build and
- * the CI build job before it can deploy.
+ * advisor - `next build` evaluates this module, so a typo fails the Vercel
+ * deployment build, which injects the project environment, before it can serve
+ * one. Repo CI never sets `DEALERSHIP_TIME_ZONE`, so its build takes the
+ * default and says nothing; the deploy is the gate that catches the typo.
  */
 
 const DEFAULT_TIME_ZONE = "America/Chicago";

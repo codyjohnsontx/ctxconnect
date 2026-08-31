@@ -189,9 +189,11 @@ No live usage metrics; the product has no real dealership traffic.
   defaults rather than failing, so a deployment that never sets it keeps the
   Central day - the right trade for one dealership, the wrong one the day there
   are two. A value that is set but is not an IANA zone throws at module load
-  instead, and `next build` evaluates that module, so a typo fails the build and
-  the CI build job rather than reaching an advisor. Verified by probe: the build
-  stops with the thrown message.
+  instead, and `next build` evaluates that module, so a typo fails the Vercel
+  deployment build rather than reaching an advisor. Verified by probe: the build
+  stops with the thrown message. Repo CI never sets the variable, so its build
+  takes the default and passes; the gate is the deploy, which injects the
+  project environment.
 - **Two "todays" now live in `getCommandCenterData`.** `dueDayEnd` is the
   dealership's, `todayStart`/`todayEnd` are the server's. Named apart and
   commented, but a future reader can still reach for the wrong one.

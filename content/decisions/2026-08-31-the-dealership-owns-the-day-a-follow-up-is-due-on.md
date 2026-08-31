@@ -90,9 +90,10 @@ var can become a column the day a second dealership exists, and
   the right trade for a single-dealership product and the wrong one for a
   multi-tenant one. A value that is set but is not an IANA zone is treated as
   the opposite case: `dealershipTimeZone()` throws at module load, so the typo
-  fails `next build` and the CI build job instead of counting every follow-up in
-  a zone nobody chose. Silence is for the choice not made, not for the one made
-  wrongly.
+  fails the Vercel deployment build, which injects the project environment,
+  instead of counting every follow-up in a zone nobody chose. Repo CI never sets
+  the variable, so its build takes the default and passes. Silence is for the
+  choice not made, not for the one made wrongly.
 - **The store's midnight is not a UI anyone can see.** An advisor an hour ahead
   of the dealership can read a follow-up as due today and find it counted
   yesterday. Naming the timezone on Command Center was considered and cut: it is
