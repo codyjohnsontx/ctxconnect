@@ -2,6 +2,7 @@
 
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
+| 2026-08-31 | Built | [A New Follow-Up Lands on the Day She Picked](./2026-08-31-a-new-follow-up-lands-on-the-day-she-picked.md) | Inbox / Follow-ups | A follow-up created from the thread was stored against the server's clock, so one set for half past midnight came due half past seven the evening before; the create form now reads her pick and its own default in the browser and posts an instant. |
 | 2026-08-31 | Built | [A Customer Row Opens a Thread She Can Read](./2026-08-31-a-customer-row-opens-a-thread-she-can-read.md) | Customers / Navigation | Every Customers row linked at that customer's newest thread whoever owned it, so clicking one in another department gave the advisor a bare 404; the row now opens the newest thread she can read and names the departments holding the rest. |
 | 2026-08-31 | Built | [Find a Customer From the Inbox](./2026-08-31-find-a-customer-from-the-inbox.md) | Inbox / Search | Attend held every conversation the dealership had ever had and had no search at all; one box above the queue now finds a thread by customer name, by phone in any format, or by something said in it. |
 | 2026-08-31 | Built | [The Customer Who Texted Gets a Name](./2026-08-31-the-customer-who-texted-gets-a-name.md) | Inbox / Customers | A customer who texts in for the first time was filed under a name Attend invented from their phone number and nothing could ever change it, while every template opens "Hi {{customerName}}"; the thread's profile card now writes name, email and notes. |

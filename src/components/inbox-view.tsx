@@ -5,6 +5,7 @@ import { addInternalNote, createTask, markConversationUnread, updateTaskStatus }
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
 import { CustomerProfile } from "@/components/customer-profile";
+import { FollowUpDueDate } from "@/components/follow-up-due-date";
 import { MarkReadOnOpen } from "@/components/mark-read-on-open";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
@@ -12,12 +13,11 @@ import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { ThreadMessages } from "@/components/thread-messages";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select, Textarea } from "@/components/ui/field";
+import { Input, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
-import { defaultFollowUpDueDate } from "@/lib/follow-ups";
 import { INBOX_FILTER_KEYS, clearFiltersHref, clearSearchHref, countActiveFilters } from "@/lib/inbox-filters";
 import { canUpdateTask } from "@/lib/permissions";
 import { containsTerm } from "@/lib/search";
@@ -153,7 +153,6 @@ export function InboxView({
     // button the write would refuse is worse than not offering one.
     canComplete: canUpdateTask(currentUser, task),
   }));
-  const defaultDueDate = defaultFollowUpDueDate(new Date());
   const activeFilterCount = countActiveFilters(searchParams);
   const clearFiltersTarget = clearFiltersHref(searchParams, selectedConversation?.id);
   // Remounts the controls whenever the URL's filters change. They are
@@ -823,16 +822,10 @@ export function InboxView({
                       ))}
                     </Select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="follow-up-due-date">Due</Label>
-                    <Input
-                      id="follow-up-due-date"
-                      name="dueDate"
-                      type="datetime-local"
-                      required
-                      defaultValue={defaultDueDate}
-                    />
-                  </div>
+                  {/* Her clock, not the server's: the picker's value carries no
+                      offset, so both the default and the conversion belong in the
+                      browser. */}
+                  <FollowUpDueDate />
                   <Button type="submit" variant="secondary" className="w-full">
                     Add follow-up
                   </Button>

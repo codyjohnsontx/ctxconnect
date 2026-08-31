@@ -367,6 +367,17 @@ export async function updateCustomerProfile(formData: FormData): Promise<Custome
   return { ok: true };
 }
 
+/**
+ * Writes the advisor's first follow-up on a thread.
+ *
+ * Its due date arrives as an instant rather than as the picker's bare local
+ * value, for the same reason rescheduleTask's does: this runs wherever the
+ * server is - UTC on Vercel - and reading "2026-09-01T00:30" here stores a
+ * follow-up she set for half past midnight at half past seven the evening
+ * before, on the wrong day. The reading happens in the browser, in
+ * FollowUpDueDate; instantFromZonedIso refuses anything that arrives without
+ * having been through it.
+ */
 export async function createTask(formData: FormData) {
   const user = await requireUser();
   const customerId = String(formData.get("customerId") ?? "");
@@ -376,11 +387,18 @@ export async function createTask(formData: FormData) {
   const assignedUserId = String(formData.get("assignedUserId") ?? "");
   const department = String(formData.get("department") ?? "");
   const priority = String(formData.get("priority") ?? "");
-  const dueDate = String(formData.get("dueDate") ?? "");
+  const dueAt = instantFromZonedIso(String(formData.get("dueAt") ?? ""));
   const aiInsightId = String(formData.get("aiInsightId") ?? "");
 
-  if (!title || !customerId || !department || !dueDate) {
+  if (!title || !customerId || !department) {
     return;
+  }
+
+  // Loudly, unlike the fields above: a date that did not name its offset is a
+  // date nobody can place, and storing the server's reading of it is what this
+  // refusal exists to stop.
+  if (!dueAt) {
+    throw new Error("A follow-up needs a date it is due on.");
   }
 
   if (conversationId) {
@@ -406,7 +424,7 @@ export async function createTask(formData: FormData) {
       assignedUserId: assignedUserId === "unassigned" ? null : assignedUserId,
       department: department as Department,
       priority: priority as Priority,
-      dueDate: new Date(dueDate),
+      dueDate: dueAt,
       status: TaskStatus.OPEN,
     },
   });
@@ -424,7 +442,14 @@ export async function createTask(formData: FormData) {
       action: "task.create",
       entity: "Task",
       entityId: task.id,
-      metadata: { customerId, conversationId, assignedUserId, department, priority, dueDate },
+      metadata: {
+        customerId,
+        conversationId,
+        assignedUserId,
+        department,
+        priority,
+        dueAt: dueAt.toISOString(),
+      },
     },
   });
 
@@ -436,7 +461,7 @@ export async function createTask(formData: FormData) {
     conversationId: conversationId || null,
     department: department as Department,
     priority: priority as Priority,
-    dueAt: new Date(dueDate),
+    dueAt,
   };
 
   await notifyManagers(notification);
@@ -520,8 +545,6 @@ export async function updateTaskStatus(formData: FormData) {
  * value, because this runs wherever the server is - UTC on Vercel - and reading
  * "17:00" here would store a closing-time follow-up at lunchtime. See
  * instantFromZonedIso, and the reschedule panel that does the reading.
- * createTask still takes a bare local string; that is a separate, older defect
- * and moving it is not this change's to make.
  */
 export async function rescheduleTask(formData: FormData) {
   const user = await requireUser();
