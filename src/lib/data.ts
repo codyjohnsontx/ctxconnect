@@ -34,6 +34,12 @@ import {
 } from "@/lib/notifications";
 import { scopedTaskWhere } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import {
+  conversationQueryWhere,
+  escapeLikeWildcards,
+  matchSnippet,
+  normalizeSearchTerm,
+} from "@/lib/search";
 
 export type AppUser = {
   id: string;
@@ -42,6 +48,7 @@ export type AppUser = {
 };
 
 export type InboxFilters = {
+  q?: string;
   department?: string;
   status?: string;
   assigned?: string;
@@ -144,9 +151,14 @@ function filterWhere(filters: InboxFilters): Prisma.ConversationWhereInput {
 }
 
 export async function getInboxData(user: AppUser, filters: InboxFilters, selectedId?: string) {
-  const where = {
-    AND: [scopedConversationWhere(user), filterWhere(filters)],
-  } satisfies Prisma.ConversationWhereInput;
+  const searchTerm = normalizeSearchTerm(filters.q);
+  // Scope, filters and search, ANDed in one place - see conversationQueryWhere
+  // for why the search must not join the filters' own OR.
+  const where = conversationQueryWhere(
+    scopedConversationWhere(user),
+    filterWhere(filters),
+    searchTerm,
+  );
 
   const [
     conversations,
@@ -254,8 +266,35 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
     newestReply: newestReplyByConversation.get(conversation.id) ?? null,
   }));
 
+  // A row can match on message text alone, and the preview shows the newest
+  // message rather than the matching one. Without the matching line on the row,
+  // that hit reads as a result the search invented. The relation is already
+  // included once for the preview, so this is a second read rather than a
+  // second `messages` include, and it only runs while she is searching. The
+  // ids come from the scoped list above, so it needs no scope of its own.
+  const searchSnippets: Record<string, string> = {};
+
+  if (searchTerm && rankedConversations.length > 0) {
+    const matches = await prisma.message.findMany({
+      where: {
+        conversationId: { in: rankedConversations.map((conversation) => conversation.id) },
+        // Escaped for the same reason as the queue query: this has to find the
+        // literal the advisor typed, not read it as a LIKE pattern.
+        body: { contains: escapeLikeWildcards(searchTerm), mode: "insensitive" },
+      },
+      orderBy: [{ conversationId: "asc" }, { createdAt: "desc" }],
+      distinct: ["conversationId"],
+      select: { conversationId: true, body: true },
+    });
+
+    for (const match of matches) {
+      searchSnippets[match.conversationId] = matchSnippet(match.body, searchTerm);
+    }
+  }
+
   return {
     conversations: rankedConversations,
+    search: { term: searchTerm, snippets: searchSnippets },
     selectedConversation,
     users,
     tags,

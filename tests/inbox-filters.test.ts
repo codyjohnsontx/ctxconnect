@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "../src/lib/inbox-filters";
+import { INBOX_FILTER_KEYS, clearFiltersHref, clearSearchHref, countActiveFilters } from "../src/lib/inbox-filters";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -18,7 +18,10 @@ describe("INBOX_FILTER_KEYS", () => {
     const read = [...source.matchAll(/\bfilters\.(\w+)/g)].map((match) => match[1]);
 
     assert.deepEqual(
-      [...new Set(read)].sort(),
+      // `q` narrows the queue too, but it is the search box rather than one of
+      // these controls: it has its own label, its own way out, and clearing the
+      // filters must not take it with them.
+      [...new Set(read)].filter((key) => key !== "q").sort(),
       [...INBOX_FILTER_KEYS].sort(),
     );
   });
@@ -81,5 +84,37 @@ describe("clearFiltersHref", () => {
     // The hand-off banner reports the save that has just happened. Carrying it
     // through a clear would re-assert it on a page she has moved on from.
     assert.equal(clearFiltersHref({ movedTo: "PARTS", handOff: "assignment" }), "/inbox");
+  });
+
+  it("keeps the search those filters were narrowing", () => {
+    // The link says Clear filters. Dropping the term as well would throw away
+    // the customer she is on the phone about.
+    assert.equal(clearFiltersHref({ q: "renee", status: "OPEN" }), "/inbox?q=renee");
+  });
+});
+
+describe("clearSearchHref", () => {
+  it("drops only the term", () => {
+    assert.equal(
+      clearSearchHref({ q: "renee", department: "SERVICE", unread: "true" }),
+      "/inbox?department=SERVICE&unread=true",
+    );
+  });
+
+  it("keeps a filter that has no control in the form", () => {
+    // Same reason it is counted: leaving the search must not silently widen the
+    // queue past a constraint that is still in effect.
+    assert.equal(clearSearchHref({ q: "renee", priority: "URGENT" }), "/inbox?priority=URGENT");
+  });
+
+  it("keeps the conversation she is reading open, and her back link", () => {
+    assert.equal(
+      clearSearchHref({ q: "renee", from: "tasks" }, "conv-1"),
+      "/inbox/conv-1?from=tasks",
+    );
+  });
+
+  it("leaves a one-save notice behind", () => {
+    assert.equal(clearSearchHref({ q: "renee", movedTo: "PARTS", handOff: "assignment" }), "/inbox");
   });
 });

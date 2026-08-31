@@ -18,8 +18,9 @@ import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
-import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
+import { INBOX_FILTER_KEYS, clearFiltersHref, clearSearchHref, countActiveFilters } from "@/lib/inbox-filters";
 import { canUpdateTask } from "@/lib/permissions";
+import { containsTerm } from "@/lib/search";
 import {
   UNDELIVERED_HEADLINE,
   UNDELIVERED_ROW_LABEL,
@@ -109,6 +110,7 @@ export function InboxView({
   templates,
   dealershipSettings,
   queueStatus,
+  search,
   searchParams,
   isDemo,
   currentUser,
@@ -128,6 +130,10 @@ export function InboxView({
   // department move the named department already points at.
   const movedTo = departments.find((department) => department === searchParams.movedTo) ?? null;
   const movedWhy = handOffReasons.find((reason) => reason === searchParams.handOff) ?? "department";
+  const searchTerm = search.term;
+  // Leaving the search keeps the filters she also set, and keeps her place: a
+  // search that came up empty is not a reason to throw away either.
+  const clearSearchTarget = clearSearchHref(searchParams, selectedConversation?.id);
   const now = nowTimestamp();
   // Formatted here rather than in the brief panel so the duplicate warning and
   // the "Open follow-ups" list below it read the same due date the same way.
@@ -167,7 +173,9 @@ export function InboxView({
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {conversations.length} conversations, ranked by what the AI flagged
+                {searchTerm
+                  ? `${conversations.length} ${conversations.length === 1 ? "match" : "matches"} for “${searchTerm}”`
+                  : `${conversations.length} conversations, ranked by what the AI flagged`}
               </p>
             </div>
             <Badge variant="blue">Shared</Badge>
@@ -189,6 +197,43 @@ export function InboxView({
             </p>
           ) : null}
           <QueueStatus status={queueStatus} />
+          {/* Above the filters rather than among them: a customer on the phone
+              is the one moment the advisor cannot scroll a queue, and the
+              filters cannot narrow to a person at all. */}
+          <div className="mb-3">
+            {/* Keyed by the term for the same reason the controls below are:
+                the box is uncontrolled, so across a same-page navigation React
+                would keep showing the term she has just cleared. */}
+            <form key={`search-${searchTerm}`} className="flex gap-2" action="/inbox">
+              {/* The filters she already set survive a search, the same way the
+                  search survives pressing Filter. */}
+              {INBOX_FILTER_KEYS.map((key) =>
+                searchParams[key] ? (
+                  <input key={key} type="hidden" name={key} value={searchParams[key]} />
+                ) : null,
+              )}
+              <Input
+                type="search"
+                name="q"
+                defaultValue={searchTerm}
+                placeholder="Search name, phone, or text"
+                aria-label="Search conversations"
+              />
+              <Button type="submit" variant="secondary">
+                Search
+              </Button>
+            </form>
+            {searchTerm ? (
+              <div className="mt-1 flex justify-end">
+                <Link
+                  href={clearSearchTarget}
+                  className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+                >
+                  Clear search
+                </Link>
+              </div>
+            ) : null}
+          </div>
           {/* On a phone the ranked queue is what she opened the app for, and the
               controls that narrow it were pushing the first row most of the way
               down the screen, so below `lg` they fold away behind their own
@@ -220,6 +265,10 @@ export function InboxView({
           </label>
           <div id="inbox-filters" className="hidden peer-checked:block lg:block">
             <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
+              {/* Same reason the search carries the filters: filtering while a
+                  search is in effect must narrow those results, not abandon the
+                  customer she was looking for. */}
+              {searchTerm ? <input type="hidden" name="q" value={searchTerm} /> : null}
               <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
                 <option value="">All departments</option>
                 {departments.map((department) => (
@@ -286,7 +335,21 @@ export function InboxView({
         <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           {conversations.length === 0 ? (
             <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">
-              {activeFilterCount > 0 ? (
+              {searchTerm ? (
+                // Named as the cause, with the way out beside it: a search that
+                // came up empty behind a filter she forgot about is the one dead
+                // end an advisor reads as "the customer isn't here".
+                <>
+                  Nothing in your inbox matches “{searchTerm}”.{" "}
+                  <Link
+                    href={clearSearchTarget}
+                    className="font-medium text-blue-700 hover:underline dark:text-blue-300"
+                  >
+                    Clear search
+                  </Link>
+                  .
+                </>
+              ) : activeFilterCount > 0 ? (
                 <>
                   No conversations match these filters.{" "}
                   <Link href={clearFiltersTarget} className="font-medium text-blue-700 hover:underline dark:text-blue-300">
@@ -295,9 +358,9 @@ export function InboxView({
                   to see the whole queue.
                 </>
               ) : (
-                // Nothing is filtered, so the queue itself is empty. Blaming
-                // filters here would send her looking for a control to undo that
-                // is not set.
+                // Nothing is searched and nothing is filtered, so the queue
+                // itself is empty. Blaming filters here would send her looking
+                // for a control to undo that is not set.
                 "No conversations yet."
               )}
             </div>
@@ -363,6 +426,17 @@ export function InboxView({
                       ) : null}
                       {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
                     </p>
+                    {/* Only when the preview does not already carry the term: a
+                        row matched on an older message otherwise looks like a
+                        result the search made up. */}
+                    {searchTerm &&
+                    search.snippets[conversation.id] &&
+                    !containsTerm(lastMessage?.body ?? "", searchTerm) ? (
+                      <p className="mt-1 line-clamp-2 break-words text-xs text-zinc-500 dark:text-zinc-400">
+                        <span className="font-medium">Matched message:</span>{" "}
+                        {search.snippets[conversation.id]}
+                      </p>
+                    ) : null}
                     {insight && !insight.dismissedAt ? (
                       <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
                         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
