@@ -150,7 +150,11 @@ describe("nothing hands a server action a wall clock", () => {
   });
 
   it("reads every due date it is sent through the instant reader", () => {
-    const actions = scanned.filter((path) => read(path).includes('"use server"'));
+    const actions = scanned.filter((path) => {
+      const source = read(path);
+
+      return source.includes('"use server"') && source.includes('formData.get("due');
+    });
 
     assert.deepEqual(actions, [join("src", "app", "actions.ts")]);
 
