@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3,
 import { addInternalNote, createTask, markConversationUnread, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConversationControls } from "@/components/conversation-controls";
+import { CustomerProfile } from "@/components/customer-profile";
 import { MarkReadOnOpen } from "@/components/mark-read-on-open";
 import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
@@ -615,28 +616,18 @@ export function InboxView({
 
               <section>
                 <h3 className="mb-3 text-sm font-semibold">Customer profile</h3>
-                <div className="space-y-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Phone</div>
-                    <div>{formatPhone(selectedConversation.customer.phone)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Email</div>
-                    <div>{selectedConversation.customer.email ?? "No email"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Preferred contact</div>
-                    <div>{labelize(selectedConversation.customer.preferredContactMethod)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">SMS consent</div>
-                    <div>{selectedConversation.customer.smsOptedOut ? "Opted out via STOP" : "Eligible to receive SMS"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">Notes</div>
-                    <div className="leading-5 text-zinc-700 dark:text-zinc-300">{selectedConversation.customer.notes ?? "No notes yet."}</div>
-                  </div>
-                </div>
+                <CustomerProfile
+                  key={`customer-profile-${selectedConversation.customer.id}`}
+                  customer={{
+                    id: selectedConversation.customer.id,
+                    name: selectedConversation.customer.name,
+                    phone: selectedConversation.customer.phone,
+                    email: selectedConversation.customer.email,
+                    notes: selectedConversation.customer.notes,
+                    preferredContactMethod: selectedConversation.customer.preferredContactMethod,
+                    smsOptedOut: selectedConversation.customer.smsOptedOut,
+                  }}
+                />
               </section>
 
               <section>

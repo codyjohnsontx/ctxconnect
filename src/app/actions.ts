@@ -26,6 +26,10 @@ import {
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import {
+  type CustomerProfileSaveResult,
+  checkCustomerProfile,
+} from "@/lib/customer-identity";
 import { readResolvesNotificationTypes } from "@/lib/notification-facts";
 import { instantFromZonedIso } from "@/lib/follow-ups";
 import { scopedConversationWhere } from "@/lib/data";
@@ -268,6 +272,88 @@ export async function addInternalNote(formData: FormData) {
 
   revalidatePath("/inbox");
   revalidatePath("/command-center");
+}
+
+/**
+ * The customer's own details, corrected from the thread she is reading.
+ *
+ * A number nobody has met yet arrives from the inbound webhook as
+ * "Unknown 9911", and until this existed nothing in Attend could ever change
+ * it: the invented name followed the customer onto the queue, into the alert
+ * rail, onto her follow-ups and into the "Hi {{customerName}}" opening of every
+ * template - so the fastest way to greet a customer by name was to greet them
+ * by the last four digits of their phone number.
+ *
+ * Returns the sentence the advisor should read rather than throwing, because a
+ * rejected name has to be fixable in the box she typed it in. Access denial
+ * still throws: that is not something she can correct by retyping.
+ */
+export async function updateCustomerProfile(formData: FormData): Promise<CustomerProfileSaveResult> {
+  const user = await requireUser();
+  const customerId = String(formData.get("customerId") ?? "");
+
+  if (!customerId) {
+    throw new Error("Customer is required.");
+  }
+
+  const checked = checkCustomerProfile({
+    name: String(formData.get("name") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    notes: String(formData.get("notes") ?? ""),
+  });
+
+  if (!checked.ok) {
+    return { ok: false, message: checked.message };
+  }
+
+  await requireCustomerAccess(user, customerId);
+
+  const previous = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { name: true, email: true, notes: true },
+  });
+
+  if (!previous) {
+    throw new Error("Customer not found.");
+  }
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: checked.values,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "customer.update",
+      entity: "Customer",
+      entityId: customerId,
+      metadata: {
+        name:
+          previous.name === checked.values.name
+            ? null
+            : { from: previous.name, to: checked.values.name },
+        emailChanged: previous.email !== checked.values.email,
+        notesChanged: previous.notes !== checked.values.notes,
+      },
+    },
+  });
+
+  // Her name is on all four of these: the queue row, the customer directory,
+  // every follow-up card and every alert in the rail.
+  //
+  // An alert already raised keeps the wording it was written with, so one
+  // raised before the rename goes on saying "Unknown 9911". Rewriting stored
+  // alert bodies is deliberately not done here - see the PRD's non-goals: it
+  // edits the record of what an alert said at the time it was raised, and the
+  // rail already joins the live customer row, so deriving the name where it is
+  // read is the smaller answer when that gap is worth closing.
+  revalidatePath("/inbox");
+  revalidatePath("/customers");
+  revalidatePath("/tasks");
+  revalidatePath("/command-center");
+
+  return { ok: true };
 }
 
 export async function createTask(formData: FormData) {

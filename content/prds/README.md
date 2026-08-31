@@ -2,6 +2,7 @@
 
 | Date | Status | Feature | Area | Summary |
 |---|---|---|---|---|
+| 2026-08-31 | Built | [The Customer Who Texted Gets a Name](./2026-08-31-the-customer-who-texted-gets-a-name.md) | Inbox / Customers | A customer who texts in for the first time was filed under a name Attend invented from their phone number and nothing could ever change it, while every template opens "Hi {{customerName}}"; the thread's profile card now writes name, email and notes. |
 | 2026-08-31 | Built | [Reading a Conversation Counts as Reading It](./2026-08-31-reading-a-conversation-counts-as-reading-it.md) | Inbox / Queue | Nothing marked a conversation read, so the blue dot, the Inbox count, both filters and the Command Center tile went on counting threads the advisor had already read; opening one now marks it, and Mark unread hands it back to the floor. |
 | 2026-08-31 | Built | [Move a Follow-Up When the Plan Moves](./2026-08-31-move-a-follow-up-when-the-plan-moves.md) | Inbox / Follow-ups | A follow-up's due date was set once and could never change, so a slipped plan had to be recorded as done or left permanently overdue; it can now be moved from Tasks or from the thread, in the advisor's own timezone. |
 | 2026-08-31 | Built | [Close a Follow-Up Where the Work Happened](./2026-08-31-close-a-follow-up-where-the-work-happened.md) | Inbox / Follow-ups | A follow-up could only be finished on the Tasks page behind a dropdown, so the queue filled with work that was already done; the thread now closes it in one press and marks an overdue one the way Tasks already did. |
