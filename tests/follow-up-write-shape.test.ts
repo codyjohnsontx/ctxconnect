@@ -56,6 +56,30 @@ describe("the date a follow-up is created with", () => {
     }
   });
 
+  // The gap the first guard left: `instantFromDateTimeLocal` converts this
+  // happily, so a check that only asks "did it convert?" waves it through, and
+  // the server refuses it a moment later as a full error page. The box asks the
+  // server's own reader about the string it is about to post, so the two agree
+  // by construction rather than by coincidence.
+  it("refuses a pick whose instant overflows the year the server can read", () => {
+    const posted = inTimeZone(
+      "America/Chicago",
+      () => instantFromDateTimeLocal("9999-12-31T23:59")?.toISOString() ?? "",
+    );
+
+    assert.equal(posted, "+010000-01-01T05:59:00.000Z", "the overflow itself moved");
+    assert.equal(instantFromZonedIso(posted), null, "the write would have refused this");
+
+    // The last wall clock on that date the write does accept from Chicago, so
+    // the guard is refusing the overflow rather than the whole day.
+    const safe = inTimeZone(
+      "America/Chicago",
+      () => instantFromDateTimeLocal("9999-12-31T17:59")?.toISOString() ?? "",
+    );
+
+    assert.equal(instantFromZonedIso(safe)?.toISOString(), "9999-12-31T23:59:00.000Z");
+  });
+
   it("refuses the bare local value that put it on the wrong day", () => {
     assert.equal(
       inTimeZone("UTC", () => instantFromZonedIso("2026-09-01T00:30")),

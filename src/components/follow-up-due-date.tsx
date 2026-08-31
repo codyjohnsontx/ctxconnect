@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useFormStatus } from "react-dom";
 import { Input, Label } from "@/components/ui/field";
-import { defaultFollowUpDueDate, instantFromDateTimeLocal } from "@/lib/follow-ups";
+import {
+  defaultFollowUpDueDate,
+  instantFromDateTimeLocal,
+  instantFromZonedIso,
+} from "@/lib/follow-ups";
 
 function subscribe() {
   return () => {};
@@ -33,9 +37,10 @@ const UNREADABLE_DATE = "That is not a date Attend can read. Pick it again.";
  *   inside someone else's `<form action={createTask}>`, so it has no submission
  *   of its own to abandon; the picker is marked invalid instead, which is what
  *   the form asks before it posts. A year the browser accepts but the date
- *   reader does not - `20260-09-01T00:30` - otherwise leaves `dueAt` empty
- *   while the picker still looks filled in, and she gets createTask's refusal
- *   as an error page rather than as something she can correct.
+ *   reader does not - `20260-09-01T00:30`, or a date whose instant overflows
+ *   into year 10000 - otherwise leaves `dueAt` empty or unreadable while the
+ *   picker still looks filled in, and she gets createTask's refusal as an error
+ *   page rather than as something she can correct.
  *
  * The draft is held in state, and dropped once the action resolves so the field
  * returns to the default alongside the uncontrolled fields React resets for us.
@@ -65,7 +70,18 @@ export function FollowUpDueDate() {
 
   const value = draft ?? seeded;
   const instant = instantFromDateTimeLocal(value);
-  const unreadable = value !== "" && !instant;
+  const posted = instant?.toISOString() ?? "";
+  // Asked of the string that is actually about to be posted, through the same
+  // reader `createTask` will meet it with, so the box refuses exactly what the
+  // write refuses. Converting is not enough on its own: 9999-12-31 23:59 picked
+  // anywhere west of UTC is a perfectly good Date whose instant lands in year
+  // 10000, and an ISO string of `+010000-...` is not one `instantFromZonedIso`
+  // accepts. A `max` on the picker cannot stand in for this - a value equal to
+  // the max is not an overflow, so the very date above walks through it - and a
+  // constant chosen to clear the worst offset would be an assumption about
+  // timezones sitting in the code that exists to stop assumptions about
+  // timezones.
+  const unreadable = value !== "" && !instantFromZonedIso(posted);
 
   useEffect(() => {
     picker.current?.setCustomValidity(unreadable ? UNREADABLE_DATE : "");
@@ -84,7 +100,7 @@ export function FollowUpDueDate() {
         value={value}
         onChange={(event) => setDraft(event.target.value)}
       />
-      <input type="hidden" name="dueAt" value={instant?.toISOString() ?? ""} />
+      <input type="hidden" name="dueAt" value={posted} />
       {unreadable ? (
         <p
           id="follow-up-due-date-error"
