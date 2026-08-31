@@ -19,6 +19,7 @@ description: How to run and drive Attend locally to verify changes end-to-end (d
 
 - **Do not point `DATABASE_URL` at a `prisma dev` server.** Any page that issues concurrent queries (`getInboxData` runs a `Promise.all`) intermittently dies with `DriverAdapterError: bind message supplies N parameters, but prepared statement "" requires M`, where N and M vary per request. That is Postgres wire-protocol desync through the `prisma dev` proxy, not a code bug - `/inbox` may survive while `/inbox/[conversationId]` 500s every time. Use a plain Postgres instead: create a database on a real server, point `DATABASE_URL` and `DIRECT_URL` at it with no extra query params, `prisma migrate deploy`, then seed.
 - Extra libpq-style params in the URL (`connection_limit`, `pool_timeout`, …) make the desync above much more frequent. Keep the URL bare.
+- **`NEXTAUTH_URL` is inherited the same way**, so a fresh worktree can start out pointing at whichever port another lane ran on. Sign-in and sign-out then look broken while they are not: the POST succeeds and sets the cookie, and it is the post-auth redirect that lands on an unreachable host, leaving the browser on `chrome-error://chromewebdata/`. Check it matches the port the dev server is actually on before blaming the auth code.
 
 ## Driving the send path
 
@@ -49,6 +50,7 @@ Seeded logins: admin/gm/sales/service/parts `@ctxchat.local`, password `ctxdemo1
 
 ## Flows worth driving
 
+- Phone layout: emulate a device, do not narrow a desktop window. A narrow window is still a desktop - no touch, DPR 1 - so it hides the very defects you are looking for, and Chrome clamps its own window at ~500px, so resizing cannot reach a 390px phone at all. Drive Chrome over CDP/puppeteer instead: `page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true })` plus a mobile user agent.
 - Login page render: `curl -s localhost:3000/login` — grep for what should(n't) be there.
 - Demo guardrails: SMS send → 403 as demo; AI brief → live once, 429 past `DEMO_AI_DAILY_LIMIT` (set it to 1 in `.env` for cheap cap tests; each live brief costs ~$0.02).
 - Reseed: `curl localhost:3000/api/demo/reseed -H "Authorization: Bearer $CRON_SECRET"` — 401 without/incorrect header, 200 + pristine data with it.
