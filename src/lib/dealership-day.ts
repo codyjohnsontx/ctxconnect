@@ -20,6 +20,17 @@
  * The printed moment and the day boundary can therefore disagree by design, and
  * that is correct: she reads a follow-up in her own time and the store counts it
  * on the store's day.
+ *
+ * Two different things can be wrong with `DEALERSHIP_TIME_ZONE`, and they get
+ * two different answers. Unset or blank is a deliberate statement and keeps the
+ * default. A non-blank value that is not a zone this runtime knows is a typo,
+ * and it throws at module load rather than falling back. Falling back would
+ * reintroduce this exact bug in its worst form: a store in Phoenix types
+ * "America/Phonix", a warning nobody reads goes to a log nobody opens, and every
+ * follow-up is then counted on Central time forever with nothing on screen
+ * looking broken. Throwing is loud, is one line to fix, and cannot reach an
+ * advisor - `next build` evaluates this module, so a typo fails the build and
+ * the CI build job before it can deploy.
  */
 
 const DEFAULT_TIME_ZONE = "America/Chicago";
@@ -28,9 +39,32 @@ const DEFAULT_TIME_ZONE = "America/Chicago";
  * The IANA zone the dealership keeps its day in. Configuration rather than a
  * stored setting: Attend serves one dealership, and a column would need a
  * migration and a settings screen to say something that does not change.
+ *
+ * Unset, empty, or whitespace-only keeps `America/Chicago`. Anything else is
+ * checked by building the formatter this module actually computes boundaries
+ * with, so the check cannot drift from what the module needs, and a value that
+ * is not a zone throws with a message naming the variable rather than the
+ * runtime's bare `Invalid time zone specified`.
  */
 export function dealershipTimeZone() {
-  return process.env.DEALERSHIP_TIME_ZONE?.trim() || DEFAULT_TIME_ZONE;
+  const configured = process.env.DEALERSHIP_TIME_ZONE?.trim();
+
+  if (!configured) {
+    return DEFAULT_TIME_ZONE;
+  }
+
+  try {
+    formatterFor(configured);
+  } catch {
+    throw new Error(
+      `DEALERSHIP_TIME_ZONE is set to "${configured}", which is not a timezone this ` +
+        `runtime knows. It has to be an IANA timezone identifier, such as ` +
+        `"${DEFAULT_TIME_ZONE}" or "America/Phoenix". Leave it unset to keep ` +
+        `"${DEFAULT_TIME_ZONE}".`,
+    );
+  }
+
+  return configured;
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -59,6 +93,10 @@ function formatterFor(timeZone: string) {
 
   return formatter;
 }
+
+// Read at load rather than per request, so a misconfigured zone fails the import
+// and the build instead of every Command Center render.
+dealershipTimeZone();
 
 /** The wall clock `timeZone` is showing at `instant`. */
 function wallClockAt(instant: Date, timeZone: string) {

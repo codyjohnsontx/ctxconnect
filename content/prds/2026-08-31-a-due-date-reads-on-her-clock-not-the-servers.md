@@ -149,6 +149,10 @@ message-volume and response-time windows stay on the server's day.
   computed, then it ends at 23:59:59.999 local on that day and not an hour out.
 - Given `DEALERSHIP_TIME_ZONE` unset or blank, when a boundary is computed, then
   it uses `America/Chicago` rather than the server's clock.
+- Given `DEALERSHIP_TIME_ZONE` set to something that is not an IANA zone, when
+  the module is loaded, then it throws a message naming the variable, the value
+  typed, and a zone that would work, rather than counting the day in a zone
+  nobody chose.
 
 ## Edge Cases
 
@@ -181,17 +185,25 @@ No live usage metrics; the product has no real dealership traffic.
 
 ## Risks
 
-- **A wrong `DEALERSHIP_TIME_ZONE` is silent.** It defaults rather than
-  failing, so a deployment that never sets it keeps the Central day. Right trade
-  for one dealership, wrong one the day there are two.
+- **Unset `DEALERSHIP_TIME_ZONE` is silent; a wrong one is not.** Unset or blank
+  defaults rather than failing, so a deployment that never sets it keeps the
+  Central day - the right trade for one dealership, the wrong one the day there
+  are two. A value that is set but is not an IANA zone throws at module load
+  instead, and `next build` evaluates that module, so a typo fails the build and
+  the CI build job rather than reaching an advisor. Verified by probe: the build
+  stops with the thrown message.
 - **Two "todays" now live in `getCommandCenterData`.** `dueDayEnd` is the
   dealership's, `todayStart`/`todayEnd` are the server's. Named apart and
   commented, but a future reader can still reach for the wrong one.
 - **The render rule is a source scan, not a type.** Nothing stops a server
   component formatting a date except `tests/dealership-day.test.ts`, which fails
   on any non-client file that calls `toLocaleDateString`, `toLocaleTimeString`,
-  `formatTimestamp`, or `toLocaleString` on a value the schema names like a
-  moment.
+  `formatTimestamp`, `toLocaleString` on a value the schema names like a moment,
+  date-fns `format`, `formatDate` or `lightFormat`, or an
+  `Intl.DateTimeFormat(...).format(...)` built and read in one breath.
+  `formatDistanceToNow` is deliberately not on that list: it measures the gap
+  between two instants and has no timezone in it. A scan can still be walked
+  around by a name it does not know.
 
 ## Open Questions
 

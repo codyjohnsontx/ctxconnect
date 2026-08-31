@@ -85,10 +85,14 @@ var can become a column the day a second dealership exists, and
 
 ## Tradeoffs
 
-- **A wrong `DEALERSHIP_TIME_ZONE` is silent.** It is a default rather than a
-  required variable, so a deployment that never sets it keeps the Central day
-  rather than failing to boot. That is the right trade for a single-dealership
-  product and the wrong one for a multi-tenant one.
+- **`DEALERSHIP_TIME_ZONE` is a default, not a required variable.** A deployment
+  that never sets it keeps the Central day rather than failing to boot, which is
+  the right trade for a single-dealership product and the wrong one for a
+  multi-tenant one. A value that is set but is not an IANA zone is treated as
+  the opposite case: `dealershipTimeZone()` throws at module load, so the typo
+  fails `next build` and the CI build job instead of counting every follow-up in
+  a zone nobody chose. Silence is for the choice not made, not for the one made
+  wrongly.
 - **The store's midnight is not a UI anyone can see.** An advisor an hour ahead
   of the dealership can read a follow-up as due today and find it counted
   yesterday. Naming the timezone on Command Center was considered and cut: it is

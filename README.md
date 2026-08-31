@@ -75,7 +75,7 @@ AI env:
 
 Dealership env:
 
-- `DEALERSHIP_TIME_ZONE` is the IANA zone the dealership's day runs on, defaults to `America/Chicago`. It decides which follow-ups count as due today and which raise a `FOLLOW_UP_DUE` alert - the server's own clock is UTC on Vercel and is never the right answer. See `src/lib/dealership-day.ts`
+- `DEALERSHIP_TIME_ZONE` is the IANA zone the dealership's day runs on, defaults to `America/Chicago` when unset or blank. It decides which follow-ups count as due today and which raise a `FOLLOW_UP_DUE` alert - the server's own clock is UTC on Vercel and is never the right answer. A value that is set but is not an IANA zone is a typo rather than a choice, so it throws at module load and fails `next build` instead of silently counting the day in the wrong zone. See `src/lib/dealership-day.ts`
 
 Demo and cron env:
 

@@ -115,6 +115,36 @@ describe("which zone the dealership keeps", () => {
       }
     }
   });
+
+  // Blank and wrong are different statements. Blank means "keep the default";
+  // wrong is a typo, and falling back to Central for it would be this whole
+  // defect again, counted silently in a zone nobody chose.
+  it("refuses a zone that is not one, rather than quietly keeping Central", () => {
+    const configured = process.env.DEALERSHIP_TIME_ZONE;
+
+    try {
+      for (const typo of ["Central", "America/Phonix"]) {
+        process.env.DEALERSHIP_TIME_ZONE = typo;
+
+        assert.throws(dealershipTimeZone, (error: unknown) => {
+          assert.ok(error instanceof Error);
+          // The message has to be the whole fix: which variable, what it says
+          // now, and what a right answer looks like.
+          assert.match(error.message, /DEALERSHIP_TIME_ZONE/);
+          assert.match(error.message, new RegExp(typo));
+          assert.match(error.message, /IANA/);
+          assert.match(error.message, /America\/Chicago/);
+          return true;
+        });
+      }
+    } finally {
+      if (configured === undefined) {
+        delete process.env.DEALERSHIP_TIME_ZONE;
+      } else {
+        process.env.DEALERSHIP_TIME_ZONE = configured;
+      }
+    }
+  });
 });
 
 function read(...segments: string[]) {
@@ -158,12 +188,21 @@ function sourceFiles(dir: string): string[] {
  * Anything that turns a moment into words a person reads. `toLocaleString` is
  * only counted on a value the schema names like a moment - `dueDate`,
  * `createdAt` - because it is also how a mileage gets its thousands separator.
+ *
+ * date-fns is already a dependency, so `import { format } from "date-fns"` is
+ * the likeliest way this comes back; `formatDistanceToNow` is deliberately not
+ * matched, because it measures the gap between two instants and has no timezone
+ * in it. The last one is a formatter built and read in one breath, which is a
+ * render; a formatter built once at module scope and called from a named
+ * helper is caught at that helper's call sites instead.
  */
 const rendersAMoment = [
   /\.toLocaleDateString\s*\(/,
   /\.toLocaleTimeString\s*\(/,
   /\b\w*(Date|At)\??\.toLocaleString\s*\(/,
   /(?<!function )\bformatTimestamp\s*\(/,
+  /import\s*\{[^}]*(?<![\w$])(?:formatDate|lightFormat|format)(?![\w$])[^}]*\}\s*from\s*["']date-fns(?:\/[^"']*)?["']/,
+  /(?:new\s+)?Intl\.DateTimeFormat\([^;]*?\)\s*\.format\s*\(/,
 ];
 
 describe("nothing prints a moment on the server's clock", () => {
