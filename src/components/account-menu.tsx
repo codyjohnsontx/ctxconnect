@@ -49,7 +49,7 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
       <div
         id="account-menu"
         popover="auto"
-        className="inset-auto right-2 bottom-20 left-auto m-0 w-64 rounded-md border border-zinc-200 bg-white p-4 text-zinc-950 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
+        className="inset-auto right-2 bottom-20 left-auto m-0 w-64 rounded-md border border-zinc-200 bg-white p-4 text-zinc-950 shadow-lg not-supports-[selector(:popover-open)]:hidden dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
       >
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{accountFullName(name)}</div>

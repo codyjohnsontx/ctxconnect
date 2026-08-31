@@ -15,7 +15,7 @@ import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { defaultFollowUpDueDate } from "@/lib/follow-ups";
-import { clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
+import { INBOX_FILTER_KEYS, clearFiltersHref, countActiveFilters } from "@/lib/inbox-filters";
 import {
   UNDELIVERED_HEADLINE,
   UNDELIVERED_ROW_LABEL,
@@ -127,6 +127,7 @@ export function InboxView({
   const defaultDueDate = defaultFollowUpDueDate(new Date());
   const activeFilterCount = countActiveFilters(searchParams);
   const clearFiltersTarget = clearFiltersHref(searchParams, selectedConversation?.id);
+  const filterControlsKey = INBOX_FILTER_KEYS.map((key) => searchParams[key] ?? "").join("|");
   // The thread is rendered oldest message first, so its newest is the last one.
   const latestMessage = selectedConversation?.messages.at(-1) ?? null;
 
@@ -172,10 +173,11 @@ export function InboxView({
               a filter is in effect, so a narrowed queue always shows what
               narrowed it. */}
           <input
+            key={filterControlsKey}
             id="inbox-filters-toggle"
             aria-controls="inbox-filters"
             type="checkbox"
-            className="peer sr-only"
+            className="peer sr-only lg:hidden"
             defaultChecked={activeFilterCount > 0}
           />
           <label
@@ -187,7 +189,7 @@ export function InboxView({
             {activeFilterCount > 0 ? <Badge variant="blue">{activeFilterCount} active</Badge> : null}
           </label>
           <div id="inbox-filters" className="hidden peer-checked:block lg:block">
-            <form className="grid grid-cols-2 gap-2" action="/inbox">
+            <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
               <Select name="department" defaultValue={searchParams.department ?? ""} aria-label="Department filter">
                 <option value="">All departments</option>
                 {departments.map((department) => (
