@@ -130,6 +130,22 @@ describe("the advisor name the thread page hands the composer", () => {
     assert.equal(filled.body, "Hi Kelsey Nakamura, this is Mason Reed at CTX MotoWorks.");
     assert.deepEqual(filled.blanks, []);
   });
+
+  // The derivation above is only the first route to the composer. The prop is
+  // the second, and putting the default back there - `advisorName={advisorName
+  // ?? "the team"}` - leaves both tests above green while the customer-facing
+  // string comes back. A guard that covers one path and not the other is how
+  // the next regression gets in, so every JSX site handing the value on is
+  // pinned to the bare name.
+  it("reaches the composer bare, with nothing answering for it on the way", () => {
+    const passed = [...source.matchAll(/\badvisorName=\{([^}]*)\}/g)].map((match) => match[1].trim());
+
+    assert.ok(passed.length > 0, "inbox-view.tsx no longer passes advisorName to MessageComposer");
+
+    for (const value of passed) {
+      assert.equal(value, "advisorName", `inbox-view.tsx hands the composer advisorName={${value}} rather than the derived value`);
+    }
+  });
 });
 
 describe("blankFor", () => {
