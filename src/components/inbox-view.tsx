@@ -121,7 +121,11 @@ export function InboxView({
   const unit = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : null;
-  const advisorName = selectedConversation?.assignedUser?.name ?? "the team";
+  // null for the same reason as the unit above: an unassigned thread has no
+  // advisor to name, and "the team" texted the customer a stand-in where a
+  // person belongs. The template already knows how to ask - it leaves
+  // `[advisor name]` and holds Send - but only if nothing answers for it first.
+  const advisorName = selectedConversation?.assignedUser?.name ?? null;
   const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
   // Validated against the enum rather than printed: it arrives on the URL, and

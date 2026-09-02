@@ -22,7 +22,8 @@ type MessageComposerProps = {
   /** The signed-in advisor, so a shared browser keeps drafts apart. */
   userId: string;
   customerName: string;
-  advisorName: string;
+  /** null when nobody has picked the thread up. */
+  advisorName: string | null;
   dealershipName: string;
   /** null when the customer has no vehicle linked. */
   unit: string | null;

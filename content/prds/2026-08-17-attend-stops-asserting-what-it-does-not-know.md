@@ -2,8 +2,20 @@
 
 ## Status
 
-Built, with the length limit superseded on 2026-08-18 and the queue row's
-undelivered marker superseded on 2026-08-19.
+Built, with the length limit superseded on 2026-08-18, the queue row's
+undelivered marker superseded on 2026-08-19, and the advisor's name superseded
+on 2026-09-01.
+
+**The advisor is not a detail Attend can always answer.** The thread page
+defaulted `advisorName` to `"the team"` before `fillTemplate` ran, so a thread
+nobody had picked up texted the customer that stand-in where a person's name
+belongs, and Send stayed enabled because no blank was ever left. `advisorName`
+is now `string | null` exactly as `unit` is: an unassigned thread reads
+`[advisor name]` and Send is held, the same way a customer with no vehicle on
+file reads `[unit]`. Nothing else moved - `fillTemplate`'s blank rule and the
+composer's Send condition are byte-identical, only the declared type widened, and
+an assigned thread still fills the advisor's own name.
+`tests/templates.test.ts` pins both cases and the bare prop.
 
 **The 1600-character limit named below is the GSM-7 limit only.** One emoji or a
 pasted curly quote moves the reply to UCS-2, where Twilio takes 700, so the
@@ -132,6 +144,8 @@ becomes a visible blank - `{{appointmentDate}}` becomes `[appointment date]` -
 the first blank is pre-selected so filling it in is the next keystroke, and the
 composer refuses to send while a blank remains. `unit` is now `string | null`;
 with no vehicle linked it becomes `[unit]` rather than the word "unit".
+Superseded 2026-09-01: the advisor belongs on that same footing and did not get
+it here - `advisorName` is `string | null` too, per the Status note.
 
 **Undelivered looks undelivered.** `src/lib/message-delivery.ts` holds the one
 rule the row, the bubble, and the composer must agree on. The row prefixes the
@@ -216,6 +230,9 @@ unbroken word - an ordinary photo link - overflowed its bubble at every width
 - Given she types over the blank, when the last blank is gone, then Send enables.
 - Given a customer with no vehicle on file, when a template names the unit, then
   the draft reads `[unit]`.
+- Given a thread nobody has picked up, when a template names the advisor, then
+  the draft reads `[advisor name]` and Send is held. Added 2026-09-01: as shipped
+  here this case filled "the team" and left Send enabled, per the Status note.
 - Given an outbound message that failed, when the advisor views the thread, then
   the bubble is visually distinct from a delivered reply and states the customer
   never got it.
