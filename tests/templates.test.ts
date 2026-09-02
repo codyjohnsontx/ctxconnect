@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import { blankFor, fillTemplate, listBlanks, remainingBlanks } from "../src/lib/templates";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const context = {
   customerName: "Kelsey Nakamura",
@@ -81,6 +86,49 @@ describe("fillTemplate", () => {
 
   it("tolerates whitespace inside the braces", () => {
     assert.equal(fillTemplate("Hi {{ customerName }}.", context).body, "Hi Kelsey Nakamura.");
+  });
+});
+
+// The composer cannot answer "who is the advisor?" - the thread page does, and
+// hands the answer down. That one expression is the only thing standing between
+// an unassigned thread and the blank above, and nothing but a rendered page can
+// ask it, so it is read out of the file and run.
+//
+// The defect this pins, driven end to end against the app before the fix: on the
+// seeded unassigned lead, picking "New lead follow-up" filled the box with "Hi
+// Theo Hamilton, this is the team at CTX MotoWorks." with Send enabled. "the
+// team" is not an internal label - it is wording a dealership customer receives
+// by SMS, from a thread nobody had picked up.
+describe("the advisor name the thread page hands the composer", () => {
+  const source = readFileSync(join(repoRoot, "src", "components", "inbox-view.tsx"), "utf8");
+  const derivation = /^\s*const advisorName = (.+);$/m.exec(source)?.[1];
+
+  function advisorNameFor(selectedConversation: unknown) {
+    assert.ok(derivation, "inbox-view.tsx no longer derives advisorName in one expression");
+
+    return new Function("selectedConversation", `return ${derivation}`)(selectedConversation);
+  }
+
+  it("is nothing at all when the thread is unassigned, so the blank stands", () => {
+    const advisorName = advisorNameFor({ assignedUser: null });
+    const filled = fillTemplate("Hi {{customerName}}, this is {{advisorName}} at {{dealershipName}}.", {
+      ...context,
+      advisorName,
+    });
+
+    assert.equal(filled.body, "Hi Kelsey Nakamura, this is [advisor name] at CTX MotoWorks.");
+    assert.deepEqual(filled.blanks, ["[advisor name]"]);
+  });
+
+  it("is the assigned advisor's own name, unchanged", () => {
+    const advisorName = advisorNameFor({ assignedUser: { name: "Mason Reed" } });
+    const filled = fillTemplate("Hi {{customerName}}, this is {{advisorName}} at {{dealershipName}}.", {
+      ...context,
+      advisorName,
+    });
+
+    assert.equal(filled.body, "Hi Kelsey Nakamura, this is Mason Reed at CTX MotoWorks.");
+    assert.deepEqual(filled.blanks, []);
   });
 });
 

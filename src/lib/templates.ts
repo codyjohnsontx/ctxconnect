@@ -15,7 +15,8 @@
 /** The thread details Attend can answer without asking. */
 export type TemplateContext = {
   customerName: string;
-  advisorName: string;
+  /** null when nobody has picked the thread up. */
+  advisorName: string | null;
   dealershipName: string;
   /** null when the customer has no vehicle linked. */
   unit: string | null;
