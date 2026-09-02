@@ -10,6 +10,11 @@
  *
  * So an unanswerable placeholder becomes a visible blank the advisor fills in,
  * and the composer refuses to send while a blank is still there.
+ *
+ * A detail of the first kind can still be absent - no advisor on an unassigned
+ * thread, no unit for a customer with no bike on file - and `null` is how the
+ * caller says so, which routes it to that same blank. A stand-in word passed in
+ * its place answers the placeholder and silently disables all of the above.
  */
 
 /** The thread details Attend can answer without asking. */
