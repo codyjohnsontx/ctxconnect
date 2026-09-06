@@ -3,8 +3,8 @@
 ## Status
 
 Built, with the length limit superseded on 2026-08-18, the queue row's
-undelivered marker superseded on 2026-08-19, and the advisor's name superseded
-on 2026-09-01.
+undelivered marker superseded on 2026-08-19, the advisor's name superseded on
+2026-09-01, and the customer's and dealership's names superseded on 2026-09-06.
 
 **The advisor is not a detail Attend can always answer.** The thread page
 defaulted `advisorName` to `"the team"` before `fillTemplate` ran, so a thread
@@ -16,6 +16,23 @@ file reads `[unit]`. Nothing else moved - `fillTemplate`'s blank rule and the
 composer's Send condition are byte-identical, only the declared type widened, and
 an assigned thread still fills the advisor's own name.
 `tests/templates.test.ts` pins both cases and the bare prop.
+
+**Neither is the customer's name or the dealership's.** The thread page handed
+the composer the stored customer name, which for a number nobody has met is the
+webhook's placeholder `Unknown 4821`, so `{{customerName}}` filled with it and an
+advisor could send "Hi Unknown 4821" to a real person; and the settings read
+upserted a row named after the demo dealership for a dealership that had
+configured none, so `{{dealershipName}}` filled with a name nobody chose. Both
+are now `null` until Attend genuinely has them - the placeholder is recognised
+by `isUnnamedCustomer`, and an absent settings row is reported as absent - so
+the reply reads `[customer name]` or `[dealership name]` with Send held, while
+the thread header and queue still label the customer `Unknown 4821`.
+`fillTemplate` and the composer are again untouched beyond the type widening.
+`tests/templates.test.ts` asserts at the guard - `remainingBlanks` is non-empty,
+so Send is held - and pins that `src/lib/data.ts` writes no dealership name.
+The same shape remains in `src/lib/ai/brief-runner.ts`, which defaults the AI
+brief's dealership name to the demo dealership's; that feeds the brief prompt
+rather than a customer text and is filed separately.
 
 **The 1600-character limit named below is the GSM-7 limit only.** One emoji or a
 pasted curly quote moves the reply to UCS-2, where Twilio takes 700, so the
