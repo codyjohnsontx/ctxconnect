@@ -17,6 +17,7 @@ import { Input, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { handOffReasons } from "@/lib/conversation-controls-state";
+import { isUnnamedCustomer } from "@/lib/customer-identity";
 import type { AppUser, getInboxData } from "@/lib/data";
 import { INBOX_FILTER_KEYS, clearFiltersHref, clearSearchHref, countActiveFilters } from "@/lib/inbox-filters";
 import { canUpdateTask } from "@/lib/permissions";
@@ -126,6 +127,13 @@ export function InboxView({
   // person belongs. The template already knows how to ask - it leaves
   // `[advisor name]` and holds Send - but only if nothing answers for it first.
   const advisorName = selectedConversation?.assignedUser?.name ?? null;
+  // And the same again for the customer: a number nobody has met is stored
+  // under "Unknown 4821", which is a label for the queue, not a name to open a
+  // text with. The placeholder check lives with the webhook that writes it.
+  const customerName =
+    selectedConversation && !isUnnamedCustomer(selectedConversation.customer.name, selectedConversation.customer.phone)
+      ? selectedConversation.customer.name
+      : null;
   const selectedBriefIsCurrent = selectedConversation ? hasCurrentBrief(selectedConversation) : true;
   const backTarget = searchParams.from ? BACK_TARGETS[searchParams.from] ?? null : null;
   // Validated against the enum rather than printed: it arrives on the URL, and
@@ -653,7 +661,7 @@ export function InboxView({
               key={selectedConversation.id}
               conversationId={selectedConversation.id}
               userId={currentUser.id}
-              customerName={selectedConversation.customer.name}
+              customerName={customerName}
               advisorName={advisorName}
               dealershipName={dealershipSettings.dealershipName}
               unit={unit}

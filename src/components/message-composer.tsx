@@ -21,10 +21,12 @@ type MessageComposerProps = {
   conversationId: string;
   /** The signed-in advisor, so a shared browser keeps drafts apart. */
   userId: string;
-  customerName: string;
+  /** null while the customer still carries the name Attend invented from their number. */
+  customerName: string | null;
   /** null when nobody has picked the thread up. */
   advisorName: string | null;
-  dealershipName: string;
+  /** null when no dealership name has been configured. */
+  dealershipName: string | null;
   /** null when the customer has no vehicle linked. */
   unit: string | null;
   department: Department;
@@ -224,7 +226,7 @@ export function MessageComposer({
     <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       {canRestoreUnsent ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200 dark:bg-red-950/50 dark:text-red-100 dark:ring-red-900">
-          <span>{customerName} never got your last reply.</span>
+          <span>{customerName ?? "This customer"} never got your last reply.</span>
           <Button type="button" size="sm" variant="secondary" onClick={() => setEdited({ body: unsentBody ?? "", blanks: [] })}>
             Rewrite it
           </Button>

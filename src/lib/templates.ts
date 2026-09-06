@@ -19,10 +19,12 @@
 
 /** The thread details Attend can answer without asking. */
 export type TemplateContext = {
-  customerName: string;
+  /** null while the customer still carries the name Attend invented from their number. */
+  customerName: string | null;
   /** null when nobody has picked the thread up. */
   advisorName: string | null;
-  dealershipName: string;
+  /** null when no dealership name has been configured. */
+  dealershipName: string | null;
   /** null when the customer has no vehicle linked. */
   unit: string | null;
 };

@@ -94,16 +94,36 @@ const dealershipSettingsSelect = {
 // exported from here so callers keep one place to ask who sees what.
 export { canAccessConversation, canSeeAll, scopedConversationWhere };
 
-async function getOrCreateDealershipSettings() {
-  return prisma.dealershipSettings.upsert({
+/** What the app holds for a dealership nobody has configured yet. */
+const unconfiguredDealershipSettings = {
+  id: "default",
+  dealershipName: null,
+  salesPhone: null,
+  servicePhone: null,
+  partsPhone: null,
+  websiteUrl: null,
+};
+
+type DealershipSettingsView = Omit<
+  Prisma.DealershipSettingsGetPayload<{ select: typeof dealershipSettingsSelect }>,
+  "dealershipName"
+> & {
+  /** null until an admin has saved one on the settings page. */
+  dealershipName: string | null;
+};
+
+// Read, never created: this used to upsert a row carrying the demo dealership's
+// name for a dealership that had not chosen one, and `{{dealershipName}}` then
+// filled with it as though someone had. Nothing needs the row to exist - the
+// settings form upserts on save - so an absent one is reported as absent and
+// the template asks for the name instead.
+async function getDealershipSettings(): Promise<DealershipSettingsView> {
+  const settings = await prisma.dealershipSettings.findUnique({
     where: { id: "default" },
-    update: {},
-    create: {
-      id: "default",
-      dealershipName: "CTX MotoWorks",
-    },
     select: dealershipSettingsSelect,
   });
+
+  return settings ?? unconfiguredDealershipSettings;
 }
 
 function filterWhere(filters: InboxFilters): Prisma.ConversationWhereInput {
@@ -253,7 +273,7 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
       where: { active: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
-    getOrCreateDealershipSettings(),
+    getDealershipSettings(),
     // Scoped like the pass itself rather than by the active filters, because
     // `Run pass` briefs everything this user can see, not just the rows in view.
     getQueueBriefCoverage(scopedConversationWhere(user)),
@@ -1036,7 +1056,7 @@ export async function getSettingsData() {
     prisma.user.findMany({
       orderBy: [{ role: "asc" }, { name: "asc" }],
     }),
-    getOrCreateDealershipSettings(),
+    getDealershipSettings(),
     getIntegrationHealth(),
   ]);
 

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { isUnnamedCustomer, placeholderCustomerName } from "../src/lib/customer-identity";
 import { blankFor, fillTemplate, listBlanks, remainingBlanks } from "../src/lib/templates";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -144,6 +145,106 @@ describe("the advisor name the thread page hands the composer", () => {
 
     for (const value of passed) {
       assert.equal(value, "advisorName", `inbox-view.tsx hands the composer advisorName={${value}} rather than the derived value`);
+    }
+  });
+});
+
+// The composer holds Send on exactly this predicate, so a test that reaches it
+// is testing the protection rather than the plumbing that feeds it.
+function sendHeld(filled: { body: string; blanks: string[] }) {
+  return remainingBlanks(filled.body, filled.blanks).length > 0;
+}
+
+// The customer's name takes the same route as the advisor's above, and had the
+// same hole: the page handed the composer whatever name was stored, and for a
+// number nobody has met that is the one the inbound webhook invented. Picking
+// "New lead follow-up" on such a thread filled the box with "Hi Unknown 4821,
+// ..." and left Send enabled - a made-up label, texted to a real person as
+// their name. The check that knows a placeholder from a name already existed;
+// this derivation is where it is consulted.
+describe("the customer name the thread page hands the composer", () => {
+  const source = readFileSync(join(repoRoot, "src", "components", "inbox-view.tsx"), "utf8");
+  const derivation = /^\s*const customerName =\n?([\s\S]*?);\n/m.exec(source)?.[1];
+
+  function customerNameFor(customer: { name: string; phone: string }) {
+    assert.ok(derivation, "inbox-view.tsx no longer derives customerName in one statement");
+
+    return new Function(
+      "selectedConversation",
+      "isUnnamedCustomer",
+      `return ${derivation}`,
+    )({ customer }, isUnnamedCustomer);
+  }
+
+  const phone = "+15125554821";
+  const template = "Hi {{customerName}}, this is {{advisorName}} at {{dealershipName}}.";
+
+  it("is nothing at all while the customer still carries the invented name, so Send is held", () => {
+    const customerName = customerNameFor({ name: placeholderCustomerName(phone), phone });
+    const filled = fillTemplate(template, { ...context, customerName });
+
+    assert.equal(filled.body, "Hi [customer name], this is Alyssa Torres at CTX MotoWorks.");
+    assert.deepEqual(filled.blanks, ["[customer name]"]);
+    assert.doesNotMatch(filled.body, /Unknown/);
+    assert.equal(sendHeld(filled), true);
+  });
+
+  it("is the name the advisor was given, unchanged", () => {
+    const customerName = customerNameFor({ name: "Priya Raman", phone });
+    const filled = fillTemplate(template, { ...context, customerName });
+
+    assert.equal(filled.body, "Hi Priya Raman, this is Alyssa Torres at CTX MotoWorks.");
+    assert.equal(sendHeld(filled), false);
+  });
+
+  it("reaches the composer bare, with nothing answering for it on the way", () => {
+    const passed = [...source.matchAll(/\bcustomerName=\{([^}]*)\}/g)].map((match) => match[1].trim());
+
+    assert.ok(passed.length > 0, "inbox-view.tsx no longer passes customerName to MessageComposer");
+
+    for (const value of passed) {
+      assert.equal(value, "customerName", `inbox-view.tsx hands the composer customerName={${value}} rather than the derived value`);
+    }
+  });
+});
+
+// The dealership's name arrives from the database, and the read used to create
+// the row it could not find - named "CTX MotoWorks" - so a dealership that had
+// never chosen a name texted customers one anyway. The read now reports an
+// absent row as absent; this pins that nothing between the row and the
+// composer puts a name back.
+describe("the dealership name the thread page hands the composer", () => {
+  const data = readFileSync(join(repoRoot, "src", "lib", "data.ts"), "utf8");
+  const view = readFileSync(join(repoRoot, "src", "components", "inbox-view.tsx"), "utf8");
+
+  it("is nothing at all for a dealership nobody has configured, so Send is held", () => {
+    const filled = fillTemplate("Thanks for choosing {{dealershipName}}, {{customerName}}.", {
+      ...context,
+      dealershipName: null,
+    });
+
+    assert.equal(filled.body, "Thanks for choosing [dealership name], Kelsey Nakamura.");
+    assert.deepEqual(filled.blanks, ["[dealership name]"]);
+    assert.equal(sendHeld(filled), true);
+  });
+
+  it("is read from the settings row, never created alongside it", () => {
+    assert.doesNotMatch(data, /dealershipSettings\.upsert/, "data.ts creates a dealership settings row again");
+    assert.doesNotMatch(data, /dealershipName: ["'`]/, "data.ts names the dealership itself again");
+    assert.match(data, /dealershipName: null/, "data.ts no longer reports an unconfigured dealership as unnamed");
+  });
+
+  it("reaches the composer bare, with nothing answering for it on the way", () => {
+    const passed = [...view.matchAll(/\bdealershipName=\{([^}]*)\}/g)].map((match) => match[1].trim());
+
+    assert.ok(passed.length > 0, "inbox-view.tsx no longer passes dealershipName to MessageComposer");
+
+    for (const value of passed) {
+      assert.equal(
+        value,
+        "dealershipSettings.dealershipName",
+        `inbox-view.tsx hands the composer dealershipName={${value}} rather than the stored value`,
+      );
     }
   });
 });

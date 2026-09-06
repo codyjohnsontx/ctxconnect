@@ -27,6 +27,10 @@ description: How to run and drive Attend locally to verify changes end-to-end (d
 
 Twilio is normally unconfigured locally, so a send is persisted and then marked `FAILED` with a 503 rather than reaching a carrier. That is the cheapest way to produce a failed-delivery state to look at.
 
+"View demo" signs in as whichever account `DEMO_USER_EMAIL` names, and that account has to exist in the database you are pointed at: if it does not, the button bounces back to `/login?reason=inactive` with no server-side error. Restart the dev server with `DEMO_USER_EMAIL=service@ctxchat.local` to get a passwordless login as the service advisor against seeded data.
+
+An inbound text from a number nobody has met is filed under `GENERAL` and unassigned, so a service advisor gets a 404 opening it until it is handed to her department (`conversation.department`). To sign the replay locally, start the dev server with any `TWILIO_AUTH_TOKEN` and pass the same value to `scripts/twilio-replay.ts` (`--url http://localhost:<port>/api/twilio/inbound --field From=+1... --field To=+1... --field Body=...`).
+
 ## Driving auth flows without a browser
 
 Cookie-jar curl against NextAuth v4 endpoints:

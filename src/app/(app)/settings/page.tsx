@@ -162,7 +162,7 @@ export default async function SettingsPage() {
               <form action={updateDealershipSettings} className="grid gap-3 p-4 md:grid-cols-2">
                 <div className="space-y-1.5 md:col-span-2">
                   <Label htmlFor="dealershipName">Dealership name</Label>
-                  <Input id="dealershipName" name="dealershipName" defaultValue={dealershipSettings.dealershipName} required />
+                  <Input id="dealershipName" name="dealershipName" defaultValue={dealershipSettings.dealershipName ?? ""} required />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="salesPhone">Sales phone</Label>
@@ -186,7 +186,7 @@ export default async function SettingsPage() {
               </form>
             ) : (
               <div className="grid gap-3 p-4 md:grid-cols-2">
-                <ReadField label="Dealership name" value={dealershipSettings.dealershipName} />
+                <ReadField label="Dealership name" value={dealershipSettings.dealershipName ?? "Not set"} />
                 <ReadField label="Sales phone" value={dealershipSettings.salesPhone ?? "Not set"} />
                 <ReadField label="Service phone" value={dealershipSettings.servicePhone ?? "Not set"} />
                 <ReadField label="Parts phone" value={dealershipSettings.partsPhone ?? "Not set"} />
