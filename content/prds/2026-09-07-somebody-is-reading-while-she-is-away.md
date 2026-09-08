@@ -243,8 +243,10 @@ still switched off, because that would put them back where they started.
   against, so a cover with no start is a coverage nobody can end correctly.
   After that they part company. `coveredByUserId` follows the threads, so a
   chained hand-off re-points it at whoever is holding them now. `coveredSince`
-  stays put, because advancing it would stop counting the earlier cover's
-  replies and threads that should stay with a cover would come back instead.
+  stays put: it is when this advisor's own trip began, and only the cover now
+  holding a thread has her replies counted, so advancing it to a chained
+  hand-off would drop one she sent on that thread before it reached her and hand
+  back a conversation the customer has already heard her on.
 * `Conversation.coveredForUserId` - the advisor a thread goes back to. Set only
   by coverage that can end. It is the mark, never the answer to "who is reading
   this": a hand-reassignment deliberately leaves it in place, so the covered

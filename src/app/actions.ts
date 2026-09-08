@@ -735,10 +735,11 @@ export async function startConversationCoverage(formData: FormData) {
     // the rest, so the advisors they go back to are now covered by this cover
     // rather than by her. `coveredByUserId` has to follow the threads or the
     // board, the return note and the audit all name somebody who is no longer
-    // holding anything. `coveredSince` deliberately does not move - it is the
-    // instant the return rule measures replies against, and advancing it would
-    // stop counting the earlier cover's replies - so when the hand-off happened
-    // is recorded in the audit log rather than on the account.
+    // holding anything. `coveredSince` deliberately does not move - it is when
+    // each of those advisors' own trips began, and advancing it to this hand-off
+    // would stop counting a reply this cover had already sent on one of their
+    // threads before it reached her - so when the hand-off happened is recorded
+    // in the audit log rather than on the account.
     const marked = new Map<string, number>();
 
     for (const conversation of moving) {
@@ -976,11 +977,12 @@ export async function endConversationCoverage(formData: FormData) {
         assignedUserId: true,
         assignedUser: { select: { name: true, active: true } },
         // The coverage window only, anchored on `coveredSince`, which is why
-        // nothing may advance it once coverage has begun: a later instant stops
-        // counting an earlier cover's replies, so threads that should stay with
-        // her would come back instead. What these messages mean is
-        // coverageDisposition's decision, not this query's, so that rule stays
-        // in one testable place.
+        // nothing may advance it once coverage has begun: only the cover now
+        // holding a thread has her replies counted, and a later instant would
+        // drop one she sent on it before it reached her, handing back a
+        // conversation the customer has already heard her on. What these
+        // messages mean is coverageDisposition's decision, not this query's, so
+        // that rule stays in one testable place.
         messages: {
           where: { createdAt: { gte: returning.coveredSince } },
           select: { direction: true, senderUserId: true },
