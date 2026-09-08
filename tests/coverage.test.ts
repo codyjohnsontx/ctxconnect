@@ -10,6 +10,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageGoesBackTo,
   coverageHolder,
   coverageLandsOn,
   coverageOutcome,
@@ -340,6 +341,89 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
   });
 });
 
+// Coverage chains, so a thread can be inside two of them at once: Ben answers
+// it while covering for Alyssa, then Ben goes away himself and Cara takes it on.
+// Whichever of them comes back first, the thread has to end up with the one it
+// actually belongs to rather than being finalised onto the account standing in
+// for both of them.
+describe("a thread that stays with a cover who is away herself", () => {
+  const cara = { id: "cara", covering: [{ id: "alyssa" }, { id: "ben" }] };
+  const benIsHere = { id: "ben", covering: [{ id: "alyssa" }] };
+
+  // Held by Cara, marked for Alyssa, answered by Ben during Alyssa's coverage.
+  const heldByTheSecondCover = {
+    status: ConversationStatus.OPEN,
+    assignedUserId: "cara",
+    assignedUser: { active: true },
+    messages: [inbound, reply("ben")],
+  };
+
+  it("is handed on to that cover instead of losing its mark", () => {
+    // Alyssa returns first. Ben answered, so the thread stays where it is - and
+    // clearing its mark here is what left it Cara's for good, with nothing for
+    // Ben's own return to find.
+    const disposition = coverageDisposition("return", "alyssa", "cara", heldByTheSecondCover);
+
+    assert.equal(disposition, "staysPut");
+    assert.equal(
+      coverageGoesBackTo(disposition, "alyssa", cara, heldByTheSecondCover),
+      "ben",
+    );
+  });
+
+  it("lands back with that cover when she returns in turn", () => {
+    // Ben's own coverage window starts when he leaves, so his reply from
+    // Alyssa's window is not in it and Cara has answered nothing.
+    const inBensWindow = { ...heldByTheSecondCover, messages: [] };
+    const disposition = coverageDisposition("return", "ben", "cara", inBensWindow);
+
+    assert.equal(disposition, "returned");
+    assert.equal(coverageHolder(disposition, "ben", "cara", "cara"), "ben");
+  });
+
+  it("leaves the ordinary coverage exactly as it was", () => {
+    // The cover who answered is here and holding it, so there is nobody waiting
+    // for it and the mark clears the way it always did.
+    const heldByTheCover = { ...heldByTheSecondCover, assignedUserId: "ben" };
+    const disposition = coverageDisposition("return", "alyssa", "ben", heldByTheCover);
+
+    assert.equal(disposition, "staysPut");
+    assert.equal(coverageGoesBackTo(disposition, "alyssa", benIsHere, heldByTheCover), null);
+  });
+
+  it("does not take a thread off somebody a manager routed it to", () => {
+    // Parts is here and holding it. That it was answered by a cover who has
+    // since gone away does not make it hers to come back to.
+    const routedOn = { ...heldByTheSecondCover, assignedUserId: "parts" };
+
+    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, routedOn), null);
+  });
+
+  it("marks nothing that came back, arrived or was given away", () => {
+    for (const disposition of ["returned", "alreadyHers", "toTheCover"] as const) {
+      assert.equal(
+        coverageGoesBackTo(disposition, "alyssa", cara, heldByTheSecondCover),
+        null,
+        disposition,
+      );
+    }
+  });
+
+  it("does not hand a thread back to the advisor whose coverage is ending", () => {
+    // She is still in the cover's covering list at this moment, and her own
+    // replies are not somebody covering for her.
+    const sheAnswered = { ...heldByTheSecondCover, messages: [reply("alyssa")] };
+
+    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, sheAnswered), null);
+  });
+
+  it("ignores an internal note, the way the return rule does", () => {
+    const onlyANote = { ...heldByTheSecondCover, messages: [note("ben")] };
+
+    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, onlyANote), null);
+  });
+});
+
 describe("coverageHolder", () => {
   it("names where each disposition leaves the thread", () => {
     // The assignment the end writes, the recipient its alerts are re-addressed
@@ -394,13 +478,19 @@ describe("coverageLandsOn", () => {
 });
 
 describe("describeCoveredThreads", () => {
+  const alyssaAway = { id: "alyssa", name: "Alyssa" };
   const ben = { id: "ben", name: "Ben" };
   const parts = { id: "parts", name: "Parts" };
   const held = (heldBy: typeof ben | null) => ({ heldBy });
 
+  // Her own card and an admin's view of it, which differ only in whether she is
+  // "you" or her name.
+  const onHerCard = true;
+  const onTheFloor = false;
+
   it("counts what the cover is actually holding", () => {
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(ben), held(ben), held(ben)]),
+      describeCoveredThreads(alyssaAway, ben, [held(ben), held(ben), held(ben)], onHerCard),
       "Ben is holding 3 of your open conversations.",
     );
   });
@@ -410,15 +500,15 @@ describe("describeCoveredThreads", () => {
     // one at a time - so this is the reading an advisor sees most often, and
     // "1 of Alyssa's open conversation" was the wrong half to pluralise.
     assert.equal(
-      describeCoveredThreads(ben, "Alyssa's", [held(ben)]),
+      describeCoveredThreads(alyssaAway, ben, [held(ben)], onTheFloor),
       "Ben is holding 1 of Alyssa's open conversations.",
     );
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(null)]),
+      describeCoveredThreads(alyssaAway, ben, [held(null)], onHerCard),
       "1 of your open conversations is covered: 1 is with nobody.",
     );
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(parts)]),
+      describeCoveredThreads(alyssaAway, ben, [held(parts)], onHerCard),
       "1 of your open conversations is covered: Parts has 1.",
     );
   });
@@ -429,7 +519,12 @@ describe("describeCoveredThreads", () => {
     // while a parts specialist had two of them - on the screen whose whole job
     // is answering who is reading these customers.
     assert.equal(
-      describeCoveredThreads(ben, "Alyssa's", [held(ben), held(ben), held(ben), held(parts), held(parts)]),
+      describeCoveredThreads(
+        alyssaAway,
+        ben,
+        [held(ben), held(ben), held(ben), held(parts), held(parts)],
+        onTheFloor,
+      ),
       "5 of Alyssa's open conversations are covered: Ben has 3 and Parts has 2.",
     );
   });
@@ -438,19 +533,45 @@ describe("describeCoveredThreads", () => {
     // The state coverage exists to end, so it is named rather than folded into
     // the cover's count - which is what reading landsOn here would do.
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(ben), held(null)]),
+      describeCoveredThreads(alyssaAway, ben, [held(ben), held(null)], onHerCard),
       "2 of your open conversations are covered: Ben has 1 and 1 is with nobody.",
     );
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(null), held(null)]),
+      describeCoveredThreads(alyssaAway, ben, [held(null), held(null)], onHerCard),
       "2 of your open conversations are covered: 2 are with nobody.",
     );
   });
 
   it("names the cover first and everyone else after", () => {
     assert.equal(
-      describeCoveredThreads(ben, "your", [held(parts), held(null), held(ben)]),
+      describeCoveredThreads(alyssaAway, ben, [held(parts), held(null), held(ben)], onHerCard),
       "3 of your open conversations are covered: Ben has 1, Parts has 1 and 1 is with nobody.",
+    );
+  });
+
+  it("says a thread routed back to her is already hers rather than naming her as a holder", () => {
+    // A manager can route a covered thread back to her by hand, which leaves
+    // the mark in place, so she can be holding one of her own covered threads
+    // before she has pressed anything. "Alyssa has 1" on Alyssa's own card
+    // described it as out with a cover while naming her as its holder.
+    assert.equal(
+      describeCoveredThreads(alyssaAway, ben, [held(ben), held(alyssaAway)], onHerCard),
+      "2 of your open conversations are covered: Ben has 1 and 1 is already back with you.",
+    );
+    assert.equal(
+      describeCoveredThreads(alyssaAway, ben, [held(ben), held(alyssaAway)], onTheFloor),
+      "2 of Alyssa's open conversations are covered: Ben has 1 and 1 is already back with Alyssa.",
+    );
+  });
+
+  it("does not call a coverage that is entirely back with her covered", () => {
+    assert.equal(
+      describeCoveredThreads(alyssaAway, ben, [held(alyssaAway)], onHerCard),
+      "1 of your open conversations is already back with you.",
+    );
+    assert.equal(
+      describeCoveredThreads(alyssaAway, ben, [held(alyssaAway), held(alyssaAway)], onTheFloor),
+      "2 of Alyssa's open conversations are already back with Alyssa.",
     );
   });
 
@@ -459,7 +580,10 @@ describe("describeCoveredThreads", () => {
     // still standing. It must not read as "your book is clear": a thread
     // triaged onto her after coverage began carries no mark, so it is not in
     // this set and is still open on somebody nobody has told her about.
-    assert.equal(describeCoveredThreads(ben, "your", []), "Nothing handed to Ben is still open.");
+    assert.equal(
+      describeCoveredThreads(alyssaAway, ben, [], onHerCard),
+      "Nothing handed to Ben is still open.",
+    );
   });
 });
 

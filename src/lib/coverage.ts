@@ -225,16 +225,23 @@ export function coverageLandsOn<Account>(
  * reports one nobody holds as the cover's. Today nobody is reading that thread,
  * and this is the line that says so.
  *
+ * The away advisor gets her own phrase, because she can be holding one of these
+ * herself: a manager can route a covered thread back to her by hand, which
+ * leaves the mark in place, and "Alyssa has 1" on Alyssa's card described a
+ * thread as out with a cover while naming her as its holder.
+ *
  * Returned as the sentence, the way describeOtherDepartments is, because the
  * card is its only reader and the wording is the part that has to stay true.
- * `whose` is the possessive the card is already using - "your" on her own card,
- * "Alyssa's" on the floor.
+ * `mine` is her own card, where she is "you" rather than her name.
  */
 export function describeCoveredThreads(
+  away: { id: string; name: string },
   cover: { id: string; name: string },
-  whose: string,
   covered: ReadonlyArray<{ heldBy: { id: string; name: string } | null }>,
+  mine: boolean,
 ): string {
+  const whose = mine ? "your" : `${away.name}'s`;
+  const her = mine ? "you" : away.name;
   const tally: Array<{ id: string | null; name: string | null; count: number }> = [];
 
   for (const thread of covered) {
@@ -258,15 +265,23 @@ export function describeCoveredThreads(
     return `${cover.name} is holding ${total} of ${whose} open conversations.`;
   }
 
+  if (tally.length === 1 && tally[0].id === away.id) {
+    return `${total} of ${whose} open conversations ${
+      total === 1 ? "is" : "are"
+    } already back with ${her}.`;
+  }
+
   const ordered = [
     ...tally.filter((entry) => entry.id === cover.id),
     ...tally.filter((entry) => entry.id !== cover.id),
   ];
 
   const phrases = ordered.map((entry) =>
-    entry.name === null
-      ? `${entry.count} ${entry.count === 1 ? "is" : "are"} with nobody`
-      : `${entry.name} has ${entry.count}`,
+    entry.id === away.id
+      ? `${entry.count} ${entry.count === 1 ? "is" : "are"} already back with ${her}`
+      : entry.name === null
+        ? `${entry.count} ${entry.count === 1 ? "is" : "are"} with nobody`
+        : `${entry.name} has ${entry.count}`,
   );
 
   const named =
@@ -407,6 +422,63 @@ export function coverageDisposition(
   return coverageOutcome(returningUserId, conversation.messages) === "returns"
     ? "returned"
     : "staysPut";
+}
+
+/**
+ * The advisor a covered thread goes back to once this coverage has ended, or
+ * null when nobody is waiting for it.
+ *
+ * Almost always null - a thread that came back has arrived, and one that stayed
+ * belongs to whoever is holding it. The exception is the cover who is away
+ * herself. Coverage chains, so a thread Ben answered while covering for Alyssa
+ * moves on to Cara when Ben leaves, still marked for Alyssa. When Alyssa comes
+ * back that thread stays where it is - Ben answered it - and clearing its mark
+ * finalised it onto Cara, who never spoke to this customer, with nothing left
+ * for Ben's own return to find. It is handed into Ben's coverage instead, so it
+ * lands back with him when he returns.
+ *
+ * The cover who answered is read from `cover.covering`, the accounts this cover
+ * is away for, rather than guessed from the chain: it is only that thread's
+ * cover if she both answered on it and is the account whose coverage put it in
+ * this holder's hands. So a thread a manager routed on to somebody who is here
+ * stays theirs, and the ordinary single coverage - where the cover who answered
+ * is present and holding it - still clears, unchanged.
+ *
+ * This is the one moment `Conversation.coveredForUserId` may be rewritten. A
+ * coverage that is *starting* must never re-mark a thread, because the advisor
+ * already named on it is still away and still waiting; a coverage that is
+ * *ending* has released its own claim and is passing the thread to the next one
+ * along.
+ */
+export function coverageGoesBackTo(
+  disposition: CoverageDisposition,
+  returningUserId: string,
+  cover: { id: string; covering: ReadonlyArray<{ id: string }> },
+  conversation: {
+    assignedUserId: string | null;
+    /** The coverage window, oldest first - see coverageOutcome. */
+    messages: ReadonlyArray<{ direction: string; senderUserId: string | null }>;
+  },
+): string | null {
+  if (disposition !== "staysPut" || conversation.assignedUserId !== cover.id) {
+    return null;
+  }
+
+  const stillAway = new Set(
+    cover.covering.map(({ id }) => id).filter((id) => id !== returningUserId),
+  );
+
+  let goesBackTo: string | null = null;
+
+  for (const message of conversation.messages) {
+    const sender = message.senderUserId;
+
+    if (message.direction === MessageDirection.OUTBOUND && sender && stillAway.has(sender)) {
+      goesBackTo = sender;
+    }
+  }
+
+  return goesBackTo;
 }
 
 /**

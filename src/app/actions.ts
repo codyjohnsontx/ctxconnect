@@ -35,6 +35,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageGoesBackTo,
   coverageHolder,
   coverageLandsOn,
   openConversationWhere,
@@ -954,7 +955,17 @@ export async function endConversationCoverage(formData: FormData) {
         name: true,
         active: true,
         coveredSince: true,
-        coveredBy: { select: { id: true, name: true, active: true } },
+        coveredBy: {
+          select: {
+            id: true,
+            name: true,
+            active: true,
+            // The other advisors this cover is away for, which is how a thread
+            // that stays finds the cover it belongs to when that cover has gone
+            // away herself - see coverageGoesBackTo.
+            covering: { select: { id: true } },
+          },
+        },
       },
     });
 
@@ -983,6 +994,7 @@ export async function endConversationCoverage(formData: FormData) {
         // in one testable place.
         messages: {
           where: { createdAt: { gte: returning.coveredSince } },
+          orderBy: { createdAt: "asc" },
           select: { direction: true, senderUserId: true },
         },
       },
@@ -1096,12 +1108,39 @@ export async function endConversationCoverage(formData: FormData) {
       returningUserId,
     );
 
-    // Every covered thread loses its mark, whichever way this ended: one that
-    // returned has arrived, and one that did not is now wherever it has got to.
+    // Every covered thread loses this coverage's mark, whichever way this
+    // ended: one that returned has arrived, and one that did not is now
+    // wherever it has got to.
     await tx.conversation.updateMany({
       where: { coveredForUserId: returningUserId },
       data: { coveredForUserId: null },
     });
+
+    // Except a thread that stayed with a cover who is away herself, which is
+    // handed on to her coverage rather than finalised onto the account standing
+    // in for her. This is the only write that may overwrite the mark, and it is
+    // safe because the coverage that owned it is the one ending here.
+    const handedOn = new Map<string, string[]>();
+
+    for (const conversation of decided) {
+      const goesBackTo = coverageGoesBackTo(
+        conversation.disposition,
+        returningUserId,
+        cover,
+        conversation,
+      );
+
+      if (goesBackTo) {
+        handedOn.set(goesBackTo, [...(handedOn.get(goesBackTo) ?? []), conversation.id]);
+      }
+    }
+
+    for (const [goesBackTo, ids] of handedOn) {
+      await tx.conversation.updateMany({
+        where: { id: { in: ids } },
+        data: { coveredForUserId: goesBackTo },
+      });
+    }
 
     await tx.user.update({
       where: { id: returningUserId },

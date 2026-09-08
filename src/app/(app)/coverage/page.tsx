@@ -143,7 +143,7 @@ function CoveredState({ row, mine }: { row: CoverageRow; mine: boolean }) {
 
   return (
     <p className="text-sm text-zinc-600 dark:text-zinc-300">
-      {describeCoveredThreads(cover, mine ? "your" : `${row.name}'s`, row.coveredThreads)}
+      {describeCoveredThreads(row, cover, row.coveredThreads, mine)}
       {row.coveredSince ? (
         <>
           {" "}
