@@ -161,7 +161,7 @@ still switched off, because that would put them back where they started.
 * Given coverage starts, when it is temporary, then each moved conversation
   records the advisor it goes back to; when it is permanent, then it records
   nobody - except a thread that was already covering for somebody else, which
-  keeps the mark it was first given and still goes back to her.
+  keeps the mark it was first given, so her own return still decides it.
 * Given a closed conversation, when coverage starts, then it does not move.
 * Given the cover has replied to the customer on a thread since coverage began,
   when coverage ends with the advisor returning, then that thread stays with the
@@ -194,8 +194,12 @@ still switched off, because that would put them back where they started.
 ## Edge Cases
 
 * **Chained coverage.** A covers for B, then A goes away and C takes over.
-  Each thread keeps the mark it was first given, so B's thread returns to B
-  whenever B comes back, from wherever it has got to. The mark is written once
+  Each thread keeps the mark it was first given, so B's own return is what
+  decides it, from wherever it has got to: it comes back to her if nobody has
+  answered the customer on it, and stays with whoever is holding it if a cover
+  has. What the single mark cannot record is A's claim on a thread she answered
+  herself - A's own return does not reclaim it. That is the accepted limitation
+  under Open Questions. The mark is written once
   and never overwritten. B's account pointer does move: `coveredByUserId` is
   re-pointed at C, because it has to name whoever is holding her threads now,
   and B gets her own `coverage.start` row carrying `chainedFrom` so the trail
@@ -317,8 +321,11 @@ inactive accounts, which should be zero.
 
   What is not harmed: no conversation is left with nobody, and no customer is
   abandoned. The holder is active and reading, and the thread simply does not
-  move a second time. `tests/coverage.test.ts` pins this in both return orders
-  so a change that quietly alters it fails there.
+  move a second time. `tests/coverage.test.ts` pins the return decision that
+  leaves it there. It does not pin the ordering: which advisor's return can even
+  see the thread is decided by `endConversationCoverage`'s loading clause and by
+  the mark-clearing scoped to the same id, and this repo's tests are
+  database-free and execute neither.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.

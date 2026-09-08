@@ -38,6 +38,12 @@ import {
 // when coverage ends. The last of those is the one this file exists for. It
 // runs once per advisor per trip, on a page nobody is watching, so a regression
 // in it would show up months later as a customer being handed back and forth.
+//
+// What this suite does NOT reach: endConversationCoverage's own writes. It is
+// database-free, so the clause that decides which threads a return even loads
+// (`where: { coveredForUserId: returningUserId }`) and the updateMany that
+// clears the mark for the same id are not executed by anything here. Rules are
+// pinned; the action applying them is not.
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -343,18 +349,19 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
 // Coverage chains, so a thread can be inside two of them at once: Ben answers
 // it while covering for Alyssa, then Ben goes away himself and Cara takes it on.
 // `Conversation.coveredForUserId` records one advisor, so such a thread
-// remembers only the coverage that marked it first, and these pin what that
-// costs in both return orders. Neither order strands a customer - Cara is
-// active and reading throughout - but neither hands the thread back to Ben, and
-// a change that silently alters either should fail here rather than surface
-// months later as a thread nobody expected to move. The limitation is written
-// up in content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md.
+// remembers only the coverage that marked it first, and Ben's own claim on it
+// is recorded nowhere. The limitation is written up in
+// content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md.
+//
+// Only half of that is reachable from here. The decision Alyssa's return makes
+// is a rule and is asserted below. Which advisor's return can see the thread at
+// all is not: that is endConversationCoverage's loading clause and its
+// mark-clearing, both named in this file's header as outside the suite.
 
 describe("a thread that passes through two coverages", () => {
   // Marked for Alyssa when Ben's coverage moved it, and never re-marked: a
-  // coverage that starts does not overwrite the mark, so Ben's own claim on it
-  // is recorded nowhere. Held by Cara since Ben left, answered by Ben inside
-  // Alyssa's window.
+  // coverage that starts does not overwrite the mark. Held by Cara since Ben
+  // left, answered by Ben inside Alyssa's window.
   const answeredByBenHeldByCara = {
     status: ConversationStatus.OPEN,
     assignedUserId: "cara",
@@ -362,13 +369,11 @@ describe("a thread that passes through two coverages", () => {
     messages: [inbound, reply("ben")],
   };
 
-  it("ends up with the account reading it, in either return order", () => {
-    // Alyssa's return is the only one that decides this thread at all: Ben's
-    // return loads the threads marked for him and this one carries Alyssa's, so
-    // whichever of them comes back first, Cara keeps it. Ben answered the
-    // customer and the stays-with-the-cover rule says it is his, but one mark
-    // cannot hold two claims - the limitation is written up in the PRD's Open
-    // Questions. Nobody is stranded: Cara is active and reading it.
+  it("is left with the account reading it when the advisor it is marked for returns", () => {
+    // Ben answered the customer, so the stays-with-the-cover rule keeps it off
+    // Alyssa - and Cara, who is holding it, is active and reading. Ben does not
+    // get it back, but that follows from the mark rather than from this
+    // decision, so it is not what this asserts.
     const disposition = coverageDisposition("return", "alyssa", "cara", answeredByBenHeldByCara);
 
     assert.equal(disposition, "staysPut");

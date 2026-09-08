@@ -1,3 +1,6 @@
+"use client";
+
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -8,6 +11,27 @@ type AccountMenuProps = {
   name?: string | null;
   role: string;
 };
+
+/**
+ * Following a link out of the panel is the one exit the popover cannot see.
+ *
+ * The click is inside it, so light-dismiss does not fire, and Next does not
+ * re-render the shared (app) layout when navigating between routes inside it -
+ * the same fact the coverage page's own guard turns on - so nothing unmounts
+ * the element and it stays in the top layer, a card floating over the page it
+ * just opened.
+ *
+ * Handled on the panel rather than on any one link, so every entry the menu
+ * grows behaves the same. Only anchors close it: the theme toggle deliberately
+ * leaves it open, so the advisor can see the choice she just made against the
+ * panel's own background. Sign out is a full document navigation and unmounts
+ * everything either way.
+ */
+function closeWhenFollowingALink(event: MouseEvent<HTMLDivElement>) {
+  if ((event.target as HTMLElement).closest("a[href]")) {
+    event.currentTarget.hidePopover();
+  }
+}
 
 /**
  * The phone-sized copy of the sidebar's account block.
@@ -55,6 +79,7 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
       <div
         id="account-menu"
         popover="auto"
+        onClick={closeWhenFollowingALink}
         className="inset-auto right-2 bottom-20 left-auto m-0 w-64 rounded-md border border-zinc-200 bg-white p-4 text-zinc-950 shadow-lg not-supports-[selector(:popover-open)]:hidden dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
       >
         <div className="min-w-0">
