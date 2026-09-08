@@ -181,3 +181,64 @@ export function coverageOutcome(
 
   return answeredByTheCover ? "stays" : "returns";
 }
+
+/** Where one covered thread ends up when coverage ends. */
+export type CoverageDisposition = "returned" | "alreadyHers" | "unowned" | "staysPut";
+
+/**
+ * What becomes of one covered thread when the advisor it belongs to comes back.
+ *
+ * `coverageOutcome` answers only "has the cover been answering this customer".
+ * That is the interesting half, but it is not the whole decision: a covered
+ * thread can be closed, can have been routed on to a third person by hand, or
+ * can have been left with nobody at all, and each of those beats the reply rule
+ * for a different reason. Written as one function over all four so the set is
+ * closed and testable, rather than as predicates spread through the action -
+ * the combinations are what nobody can hold in their head.
+ *
+ * In order, and each one is load-bearing:
+ *
+ * - **She already holds it.** Somebody reassigned it back to her by hand during
+ *   coverage. There is nothing for the return to move, whatever else is true.
+ * - **It is finished.** Closed history is not re-attributed - the same rule that
+ *   kept closed threads out of the hand-off in the first place.
+ * - **Nobody holds it.** It goes to her even when the cover has replied, because
+ *   "stays with the cover" needs a cover holding it, and a thread belonging to
+ *   nobody is the exact state coverage exists to end. A null assignee is
+ *   reachable both from the assignee picker's explicit unassigned option and
+ *   from deleting a staff account, whose threads the foreign key nulls.
+ * - **Somebody else holds it.** A manager routing a covered thread to a parts
+ *   specialist made a decision, and an advisor walking back in must not silently
+ *   undo it. It stays with them whether or not anyone has replied.
+ * - Otherwise the cover holds it, and the reply rule decides.
+ */
+export function coverageDisposition(
+  returningUserId: string,
+  coverUserId: string,
+  conversation: {
+    status: string;
+    assignedUserId: string | null;
+    /** The coverage window only - see coverageOutcome. */
+    messages: ReadonlyArray<{ direction: string; senderUserId: string | null }>;
+  },
+): CoverageDisposition {
+  if (conversation.assignedUserId === returningUserId) {
+    return "alreadyHers";
+  }
+
+  if (!(openConversationStatuses as readonly string[]).includes(conversation.status)) {
+    return "staysPut";
+  }
+
+  if (conversation.assignedUserId === null) {
+    return "unowned";
+  }
+
+  if (conversation.assignedUserId !== coverUserId) {
+    return "staysPut";
+  }
+
+  return coverageOutcome(returningUserId, conversation.messages) === "returns"
+    ? "returned"
+    : "staysPut";
+}

@@ -8,6 +8,7 @@ import {
   canHandOffPermanently,
   canManageCoverage,
   coverRefusal,
+  coverageDisposition,
   coverageOutcome,
   openConversationStatuses,
   openConversationWhere,
@@ -97,6 +98,77 @@ describe("coverageOutcome", () => {
     // Nothing writes one today. If something ever does, "a machine sent a text"
     // is not a person a customer's thread can be left with.
     assert.equal(coverageOutcome("alyssa", [reply(null)]), "returns");
+  });
+});
+
+// The other half of the return: who is holding the thread on the day she walks
+// back in. A covered thread can be with her, with the cover, with somebody a
+// manager routed it to, or with nobody, and each of those beats the reply rule
+// for its own reason. The combinations are the point - eight of them, plus the
+// closed case - so they are enumerated here rather than left to be re-derived.
+
+const thread = (
+  assignedUserId: string | null,
+  messages: ReadonlyArray<{ direction: string; senderUserId: string | null }> = [],
+  status: string = ConversationStatus.OPEN,
+) => ({ status, assignedUserId, messages });
+
+const coverReplied = [reply("ben")];
+
+describe("coverageDisposition", () => {
+  it("hands back what the cover never answered", () => {
+    assert.equal(coverageDisposition("alyssa", "ben", thread("ben")), "returned");
+    assert.equal(coverageDisposition("alyssa", "ben", thread("ben", [note("ben")])), "returned");
+  });
+
+  it("leaves the cover a thread she has answered", () => {
+    assert.equal(coverageDisposition("alyssa", "ben", thread("ben", coverReplied)), "staysPut");
+  });
+
+  it("has nothing to move when the thread is already hers", () => {
+    // Somebody reassigned it back to her by hand mid-coverage, so the return
+    // moves nothing whether or not the cover had answered it.
+    assert.equal(coverageDisposition("alyssa", "ben", thread("alyssa")), "alreadyHers");
+    assert.equal(coverageDisposition("alyssa", "ben", thread("alyssa", coverReplied)), "alreadyHers");
+  });
+
+  it("does not take a thread back off somebody a manager routed it to", () => {
+    // A manager handing a covered thread to a parts specialist made a decision.
+    // An advisor walking back in must not silently undo it - and she did undo
+    // it, because the old rule only asked whether the holder was her.
+    assert.equal(coverageDisposition("alyssa", "ben", thread("parts")), "staysPut");
+    assert.equal(coverageDisposition("alyssa", "ben", thread("parts", coverReplied)), "staysPut");
+  });
+
+  it("gives her a thread nobody is holding, answered or not", () => {
+    // "Stays with the cover" needs a cover holding it. With no assignee the
+    // reply rule would have stranded an open customer thread owned by nobody -
+    // the exact state coverage exists to end.
+    assert.equal(coverageDisposition("alyssa", "ben", thread(null)), "unowned");
+    assert.equal(coverageDisposition("alyssa", "ben", thread(null, coverReplied)), "unowned");
+  });
+
+  it("never moves a thread closed during coverage", () => {
+    // Closed history is not re-attributed, whoever happens to hold it.
+    for (const holder of ["ben", "parts", null]) {
+      assert.equal(
+        coverageDisposition("alyssa", "ben", thread(holder, [], ConversationStatus.CLOSED)),
+        "staysPut",
+        `closed thread held by ${holder ?? "nobody"}`,
+      );
+    }
+
+    assert.equal(
+      coverageDisposition("alyssa", "ben", thread("alyssa", [], ConversationStatus.CLOSED)),
+      "alreadyHers",
+    );
+  });
+
+  it("moves a thread waiting on either side", () => {
+    // Every open status the hand-off moves is a status the return moves back.
+    for (const status of openConversationStatuses) {
+      assert.equal(coverageDisposition("alyssa", "ben", thread("ben", [], status)), "returned", status);
+    }
   });
 });
 
@@ -216,14 +288,14 @@ describe("one copy of each rule", () => {
     return body.split("\nexport ")[0];
   }
 
-  it("decides the return thread by thread through coverageOutcome", () => {
-    // The action loads the coverage window and nothing more; which of those
-    // messages counts as the cover having answered is decided in one tested
-    // place. A direction-and-sender comparison written out in the action is the
-    // drift this guards.
+  it("decides the return thread by thread through coverageDisposition", () => {
+    // The action loads the coverage window and nothing more; what becomes of
+    // each covered thread is decided in one tested place. A holder comparison or
+    // a direction-and-sender comparison written out in the action is the drift
+    // this guards.
     const source = read(actions);
 
-    assert.match(source, /coverageOutcome\(returningUserId, conversation\.messages\)/);
+    assert.match(source, /coverageDisposition\(returningUserId, coverUserId, conversation\)/);
     assert.match(source, /createdAt: \{ gte: returning\.coveredSince \}/);
   });
 

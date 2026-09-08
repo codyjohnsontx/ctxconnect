@@ -32,8 +32,7 @@ import {
   canHandOffPermanently,
   canManageCoverage,
   coverRefusal,
-  coverageOutcome,
-  openConversationStatuses,
+  coverageDisposition,
   openConversationWhere,
   parseCoverageKind,
 } from "@/lib/coverage";
@@ -978,9 +977,9 @@ export async function endConversationCoverage(formData: FormData) {
         // The coverage window only, anchored on `coveredSince`, which is why
         // nothing may advance it once coverage has begun: a later instant stops
         // counting an earlier cover's replies, so threads that should stay with
-        // her would come back instead. Which of these messages counts as the
-        // cover having answered is coverageOutcome's decision, not this query's,
-        // so that rule stays in one testable place.
+        // her would come back instead. What these messages mean is
+        // coverageDisposition's decision, not this query's, so that rule stays
+        // in one testable place.
         messages: {
           where: { createdAt: { gte: returning.coveredSince } },
           select: { direction: true, senderUserId: true },
@@ -988,20 +987,35 @@ export async function endConversationCoverage(formData: FormData) {
       },
     });
 
-    // A thread closed during coverage stays with whoever closed it, so it is
-    // never a candidate to move - only its mark is cleared. That is the same
-    // rule that kept closed history out of the hand-off in the first place.
+    // One decision per covered thread, taken once in src/lib/coverage.ts. This
+    // action moves threads and writes records; it does not restate the
+    // conditions, because the four holders a covered thread can have crossed
+    // with the reply rule is not a set anybody re-derives correctly twice.
+    const coverUserId = returning.coveredBy.id;
+    const dispositions = new Map(
+      covered.map((conversation) => [
+        conversation.id,
+        coverageDisposition(returningUserId, coverUserId, conversation),
+      ]),
+    );
+
+    // "Leave them with the cover" moves nothing, so only the hand-back reads the
+    // dispositions that move a thread. A thread nobody holds comes back with the
+    // rest: there is no cover holding it for it to stay with.
     const returningIds =
       outcome === "return"
         ? covered
-            .filter(
-              (conversation) =>
-                (openConversationStatuses as readonly string[]).includes(conversation.status) &&
-                conversation.assignedUserId !== returningUserId &&
-                coverageOutcome(returningUserId, conversation.messages) === "returns",
-            )
+            .filter((conversation) => {
+              const disposition = dispositions.get(conversation.id);
+
+              return disposition === "returned" || disposition === "unowned";
+            })
             .map((conversation) => conversation.id)
         : [];
+
+    const alreadyBackIds = covered
+      .filter((conversation) => dispositions.get(conversation.id) === "alreadyHers")
+      .map((conversation) => conversation.id);
 
     if (returningIds.length > 0) {
       // The rows themselves, because who was holding one is a fact about the
@@ -1028,18 +1042,6 @@ export async function endConversationCoverage(formData: FormData) {
         })),
       });
     }
-
-    // A thread can also already be back with the returning advisor without this
-    // action having moved it - updateConversation reassigns by hand and leaves
-    // the mark alone - so the return had nothing to move and the record should
-    // not claim it did.
-    const alreadyBackIds = covered
-      .filter(
-        (conversation) =>
-          !returningIds.includes(conversation.id) &&
-          conversation.assignedUserId === returningUserId,
-      )
-      .map((conversation) => conversation.id);
 
     // Every covered thread that is now hers gets its alerts, whichever way it
     // got back to her: the ones this run moved and the ones somebody had already

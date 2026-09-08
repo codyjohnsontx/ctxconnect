@@ -166,6 +166,12 @@ still switched off, because that would put them back where they started.
 * Given the cover has only left an internal note on a thread, when coverage
   ends, then that thread returns to the advisor - the customer never saw the
   note.
+* Given a covered thread somebody reassigned to a third person during coverage,
+  when coverage ends with the advisor returning, then it stays with that person
+  whether or not anyone has replied.
+* Given a covered thread nobody is assigned to, when coverage ends with the
+  advisor returning, then it goes to her even if the cover had replied - there is
+  no cover holding it for it to stay with.
 * Given the account is still switched off, when somebody posts the hand-back
   anyway, then it is refused and nothing moves.
 * Given coverage ends either way, when it does, then no conversation is left
@@ -194,6 +200,16 @@ still switched off, because that would put them back where they started.
   else covering, so that thread still returns to her.
 * **A thread closed during coverage.** It stays where it was closed and only
   loses its mark. Closed history is not re-attributed.
+* **A covered thread routed to somebody else during coverage.** A manager can
+  hand a covered thread to a parts specialist, and reassigning it does not clear
+  its mark. It stays with them when the advisor returns: they were given it
+  deliberately, and an advisor walking back in must not silently undo that.
+* **A covered thread with no assignee.** Reachable from the picker's explicit
+  unassigned option and from deleting a staff account, whose threads the foreign
+  key nulls. It goes to the returning advisor whatever the reply rule says,
+  because a thread belonging to nobody is the state this feature exists to end.
+  Ending coverage the other way - leaving them with the cover - does not move it;
+  see the open question below.
 * **Nobody available to cover.** The card says so rather than offering an empty
   picker.
 * **Coverage already running.** Starting a second one is refused; end the first.
@@ -259,6 +275,14 @@ inactive accounts, which should be zero.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
+* Should reassigning a covered thread by hand clear its `coveredForUserId` mark,
+  so coverage stops tracking a thread somebody has re-owned? We think so, and it
+  would retire the already-with-her case entirely. It touches
+  `updateConversation`, which every reassignment in the app passes through, so it
+  wants its own validation rather than riding along here - see
+  [content/decisions/2026-09-08-a-hand-reassignment-should-end-that-thread-s-coverage.md](../decisions/2026-09-08-a-hand-reassignment-should-end-that-thread-s-coverage.md).
+  It would not remove the unowned-thread rule: a null assignee also arrives from
+  `onDelete: SetNull` when a staff account is deleted.
 
 ## Implementation Notes
 
