@@ -745,6 +745,19 @@ export async function startConversationCoverage(formData: FormData) {
       }
     }
 
+    // What each moving thread goes back to once it has moved, decided once
+    // because everything that records the move has to agree about it. A
+    // permanent hand-off deliberately leaves a thread that was already covering
+    // for somebody else the mark it was first given, so that thread still goes
+    // back to her whatever button was pressed; only a thread carrying no mark
+    // afterwards has genuinely been given away.
+    const returnsTo = new Map(
+      moving.map((conversation) => [
+        conversation.id,
+        conversation.coveredForUserId ?? (kind === "temporary" ? awayUserId : null),
+      ]),
+    );
+
     // A mark alone is not enough to re-point an account. A thread routed on by
     // hand carries the mark of an advisor this one may never have covered, and
     // moving that advisor's pointer on the strength of the one thread would name
@@ -777,15 +790,14 @@ export async function startConversationCoverage(formData: FormData) {
       }
 
       await tx.message.createMany({
-        data: movingIds.map((conversationId) => ({
-          conversationId,
+        data: moving.map((conversation) => ({
+          conversationId: conversation.id,
           senderUserId: user.id,
           direction: MessageDirection.INTERNAL,
           kind: MessageKind.NOTE,
-          body:
-            kind === "temporary"
-              ? `System: ${user.name ?? "Staff"} handed this conversation to ${cover.name} while ${away.name} is away.`
-              : `System: ${user.name ?? "Staff"} handed this conversation from ${away.name} to ${cover.name} for good.`,
+          body: returnsTo.get(conversation.id)
+            ? `System: ${user.name ?? "Staff"} handed this conversation to ${cover.name} while ${away.name} is away.`
+            : `System: ${user.name ?? "Staff"} handed this conversation from ${away.name} to ${cover.name} for good.`,
           deliveryStatus: DeliveryStatus.INTERNAL,
         })),
       });
@@ -814,13 +826,29 @@ export async function startConversationCoverage(formData: FormData) {
     // log is indexed on (entity, entityId). The User row answers "who covered
     // whom, when, and how many threads moved"; the Conversation rows answer
     // "where did this thread go, and when" for one thread months later.
+    //
+    // `conversations` is her own threads only - the rest of what moved was hers
+    // to hold rather than hers to hand over, and is accounted on the chained row
+    // of whoever it goes back to. `movedInTotal` keeps the difference visible,
+    // because a thread hand-routed to her from an advisor she does not cover
+    // moves with the others and has no chained row of its own.
+    const ownConversations = moving.filter(
+      (conversation) =>
+        conversation.coveredForUserId === null || conversation.coveredForUserId === awayUserId,
+    ).length;
+
     await tx.auditLog.create({
       data: {
         userId: user.id,
         action: "coverage.start",
         entity: "User",
         entityId: awayUserId,
-        metadata: { kind, coveringUserId: cover.id, conversations: movingIds.length },
+        metadata: {
+          kind,
+          coveringUserId: cover.id,
+          conversations: ownConversations,
+          movedInTotal: movingIds.length,
+        },
       },
     });
 
@@ -858,13 +886,7 @@ export async function startConversationCoverage(formData: FormData) {
           entity: "Conversation",
           entityId: conversation.id,
           metadata: {
-            // Whether THIS thread comes back, which is not always the kind of
-            // hand-off that moved it: a permanent one leaves a thread that was
-            // already covering for somebody else the mark it was first given.
-            kind:
-              conversation.coveredForUserId !== null || kind === "temporary"
-                ? "temporary"
-                : "permanent",
+            kind: returnsTo.get(conversation.id) ? "temporary" : "permanent",
             from: awayUserId,
             to: cover.id,
           },

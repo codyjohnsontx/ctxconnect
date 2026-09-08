@@ -221,8 +221,16 @@ still switched off, because that would put them back where they started.
   routed it on to, or with nobody at all, so the row's `heldBy` is the only
   field that names a holder and `null` there means nobody does. `coverage.end`
   counts the three as `returned`, `alreadyBack` and `notReturned`.
+  `coverage.start` counts the advisor's own threads as `conversations` and
+  everything the hand-off moved as `movedInTotal`: a thread she was holding for
+  somebody else is counted on that advisor's chained row instead, and the two
+  numbers differ by whatever was hand-routed to her from an advisor she does not
+  cover, which belongs on no account row at all.
 * An internal note on each conversation that actually changed hands, matching
-  what a manual reassignment already writes.
+  what a manual reassignment already writes. It says the same thing as that
+  thread's `conversation.coverageStart` row, because both read one per-thread
+  decision: only a thread left carrying no mark is described as handed over for
+  good.
 
 ## Analytics / Success Metrics
 
