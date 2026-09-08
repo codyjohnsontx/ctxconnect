@@ -134,49 +134,51 @@ export type CoverageOutcome = "returns" | "stays";
  * Whether a covered thread goes back to the advisor returning, or stays with
  * whoever has been holding it.
  *
- * It stays as soon as anyone else has answered the customer on it since
- * coverage began. The customer is then mid-exchange with the cover, and handing
- * the thread back would be a second change of voice on the same conversation -
- * the exact discontinuity coverage exists to prevent. Everything the cover
- * never answered goes back, so an advisor returning from a week away finds her
- * quiet threads where she left them.
+ * It stays once the cover has answered the customer on it since coverage began.
+ * The customer is then mid-exchange with the cover, and handing the thread back
+ * would be a second change of voice on the same conversation - the exact
+ * discontinuity coverage exists to prevent. Everything the cover never answered
+ * goes back, so an advisor returning from a week away finds her quiet threads
+ * where she left them.
  *
  * Three things decide it, and each is load-bearing:
  *
  * - `OUTBOUND` only. An internal note is not something the customer saw, so it
  *   creates no discontinuity for them; a cover who read a thread and left
  *   herself a note has not taken it over.
- * - Somebody other than the returning advisor. Her own replies from before she
- *   left are not evidence that anyone covered anything.
+ * - The cover, and nobody else. A manager or another advisor who answers once
+ *   on a covered thread has spot-helped, not taken it on, and parking the
+ *   thread with a cover who never spoke to that customer would hand them a
+ *   third voice - the harm this rule exists to prevent. The returning advisor's
+ *   own replies are excluded by the same test, since a cover is never the
+ *   advisor she is covering for (`coverRefusal`).
  * - Since coverage began, which is why `User.coveredSince` is written with
  *   `User.coveredByUserId` and never without it. Replies from an earlier trip,
  *   or from a colleague who happened to answer once last month, are not this
  *   coverage.
  *
- * A reply with no recorded sender is not counted. Nothing in the app writes
- * one, and if something ever does, "a machine sent a text" is not a person the
- * thread can be left with.
+ * A reply with no recorded sender cannot match a cover's id, so "a machine sent
+ * a text" is not a person the thread can be left with.
  *
- * Delivery is deliberately not read. A reply that failed to reach the carrier
- * counts, even though the customer never saw it: the cover is mid-fix on it,
- * with the failure banner in front of her that src/lib/message-delivery.ts
- * puts there, and handing that thread back drops the retry along with the
- * work. "The customer saw it" is why an internal note is excluded; it is not
- * the test for whether the cover has taken the thread on.
+ * Delivery is deliberately not read. A reply from the cover that failed to
+ * reach the carrier counts, even though the customer never saw it: she is
+ * mid-fix on it, with the failure banner in front of her that
+ * src/lib/message-delivery.ts puts there, and handing that thread back drops
+ * the retry along with the work. "The customer saw it" is why an internal note
+ * is excluded; it is not the test for whether the cover has taken the thread
+ * on.
  *
  * Takes the messages rather than a database filter so this decision is made in
  * one place and can be tested as itself: the caller loads the window
  * (`createdAt >= coveredSince`) and this decides the rest.
  */
 export function coverageOutcome(
-  returningUserId: string,
+  coverUserId: string,
   messagesSinceCoverageBegan: ReadonlyArray<{ direction: string; senderUserId: string | null }>,
 ): CoverageOutcome {
   const answeredByTheCover = messagesSinceCoverageBegan.some(
     (message) =>
-      message.direction === MessageDirection.OUTBOUND &&
-      message.senderUserId !== null &&
-      message.senderUserId !== returningUserId,
+      message.direction === MessageDirection.OUTBOUND && message.senderUserId === coverUserId,
   );
 
   return answeredByTheCover ? "stays" : "returns";
@@ -419,7 +421,7 @@ export function coverageDisposition(
     return "staysPut";
   }
 
-  return coverageOutcome(returningUserId, conversation.messages) === "returns"
+  return coverageOutcome(coverUserId, conversation.messages) === "returns"
     ? "returned"
     : "staysPut";
 }

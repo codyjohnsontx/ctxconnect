@@ -195,12 +195,14 @@ still switched off, because that would put them back where they started.
 
 * **Chained coverage.** A covers for B, then A goes away and C takes over.
   Each thread keeps the mark it was first given, so B's own return is what
-  decides it, from wherever it has got to: it comes back to her if nobody has
-  answered the customer on it, and stays with whoever is holding it if a cover
-  has. What the single mark cannot record is A's claim on a thread she answered
-  herself - A's own return does not reclaim it. That is the accepted limitation
-  under Open Questions. The mark is written once
-  and never overwritten. B's account pointer does move: `coveredByUserId` is
+  decides it, from wherever it has got to: it comes back to her unless the cover
+  now holding it has answered the customer herself, in which case it stays with
+  that cover. A thread A answered before leaving goes back to B, because only the
+  cover's own reply keeps a thread and C never spoke to that customer - so the
+  customer hears the voice they had originally rather than a third one. What the
+  single mark cannot record is A's claim on it; A's own return does not reclaim
+  it. That is the accepted limitation under Open Questions. The mark is written
+  once and never overwritten. B's account pointer does move: `coveredByUserId` is
   re-pointed at C, because it has to name whoever is holding her threads now,
   and B gets her own `coverage.start` row carrying `chainedFrom` so the trail
   names every cover rather than only the first. Her `coveredSince` stays where
@@ -306,10 +308,14 @@ inactive accounts, which should be zero.
   when a coverage moves an unmarked thread. So when Ben covers Alyssa, answers a
   thread, and then goes away himself and Cara covers him, that thread moves to
   Cara still marked for Alyssa. Ben's claim on it is recorded nowhere. When
-  Alyssa returns it correctly stays where it is - Ben answered it - and her mark
-  is cleared; Ben's own return loads only the threads marked for him, so it is
-  not among them, in either return order. The thread stays with whoever is
-  holding and reading it.
+  Alyssa returns, the thread goes back to her: Cara is the cover this return is
+  ending and Cara never answered this customer, so nothing keeps it away. That
+  is the right outcome for the customer - the voice they had before any of this,
+  rather than Cara, whom they have never heard from - but it is reached without
+  Ben's claim being consulted, because there is nowhere to record it. Ben's own
+  return loads only the threads marked for him, so it is not among them, in
+  either return order. Had Cara answered the customer herself, it would stay with
+  Cara, which is the ordinary rule working inside the second coverage.
 
   Not fixed here. The fact needed to do it properly - which coverage put this
   thread in this holder's hands - is not persisted, and persisting it (a

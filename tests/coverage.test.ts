@@ -173,34 +173,56 @@ describe("the gap coverage closes", () => {
 });
 
 describe("coverageOutcome", () => {
+  // The first argument is the COVER, not the advisor returning: the rule asks
+  // whether the cover has taken this customer on. Each condition is pinned on
+  // its own, because the rule is a set of deliberate exclusions and a change
+  // that quietly drops one should fail here by name.
   it("hands back a thread the cover never answered", () => {
-    assert.equal(coverageOutcome("alyssa", []), "returns");
-    assert.equal(coverageOutcome("alyssa", [inbound]), "returns");
+    assert.equal(coverageOutcome("ben", []), "returns");
+    assert.equal(coverageOutcome("ben", [inbound]), "returns");
   });
 
   it("leaves a thread the cover has replied to with the cover", () => {
     // The customer is mid-exchange with the cover. Handing the thread back is a
     // second change of voice on the same conversation, which is the exact
     // discontinuity coverage exists to prevent.
-    assert.equal(coverageOutcome("alyssa", [inbound, reply("ben")]), "stays");
+    assert.equal(coverageOutcome("ben", [inbound, reply("ben")]), "stays");
+  });
+
+  it("does not count a reply from somebody who is not the cover", () => {
+    // The case that produced the rule as it now stands. A manager opens a
+    // covered thread - reachable to any admin, and to any colleague in its
+    // department - and answers once; the cover never touches it. That is
+    // spot-help, not taking the thread on, and keeping it away from the advisor
+    // would park it with a cover who never spoke to this customer: a third
+    // voice, which is the harm the rule exists to prevent. It goes back to her.
+    //
+    // Changed from "anyone other than the returning advisor" on 2026-09-08 -
+    // see content/decisions/2026-09-07-a-thread-the-cover-answered-stays-with-the-cover.md.
+    assert.equal(coverageOutcome("ben", [inbound, reply("marcus")]), "returns");
+
+    // And a manager answering does not stop the cover's own reply counting.
+    assert.equal(coverageOutcome("ben", [reply("marcus"), reply("ben")]), "stays");
   });
 
   it("does not count an internal note as having taken the thread over", () => {
     // The customer never saw it, so nothing about the conversation changed for
     // them. A cover who read a thread and left herself a reminder has not
     // stepped into it.
-    assert.equal(coverageOutcome("alyssa", [note("ben")]), "returns");
+    assert.equal(coverageOutcome("ben", [note("ben")]), "returns");
   });
 
   it("does not count the returning advisor's own replies", () => {
     // She can reply on her own thread during coverage - reachable through her
     // department, or after being switched back on - and her own voice on her
-    // own conversation is not somebody else covering it.
-    assert.equal(coverageOutcome("alyssa", [reply("alyssa")]), "returns");
-    assert.equal(coverageOutcome("alyssa", [reply("alyssa"), reply("ben")]), "stays");
+    // own conversation is not somebody else covering it. She is excluded by the
+    // same test as anyone else, because a cover is never the advisor she is
+    // covering for.
+    assert.equal(coverageOutcome("ben", [reply("alyssa")]), "returns");
+    assert.equal(coverageOutcome("ben", [reply("alyssa"), reply("ben")]), "stays");
   });
 
-  it("counts a reply that failed to send", () => {
+  it("counts a reply from the cover that failed to send", () => {
     // The customer never saw it, but the cover is mid-fix on it with the
     // failure banner in front of her. Handing the thread back drops the retry.
     // Delivery is not part of the rule, so a FAILED reply reads the same here
@@ -210,13 +232,19 @@ describe("coverageOutcome", () => {
     // on ignoring.
     const failed = { ...reply("ben"), deliveryStatus: "FAILED" };
 
-    assert.equal(coverageOutcome("alyssa", [failed]), "stays");
+    assert.equal(coverageOutcome("ben", [failed]), "stays");
+
+    // A failed reply from somebody who is not the cover is still not the cover
+    // taking it on - the mid-fix reasoning is about her banner, not anyone's.
+    const failedByAManager = { ...reply("marcus"), deliveryStatus: "FAILED" };
+
+    assert.equal(coverageOutcome("ben", [failedByAManager]), "returns");
   });
 
   it("does not count a reply with no recorded sender", () => {
     // Nothing writes one today. If something ever does, "a machine sent a text"
     // is not a person a customer's thread can be left with.
-    assert.equal(coverageOutcome("alyssa", [reply(null)]), "returns");
+    assert.equal(coverageOutcome("ben", [reply(null)]), "returns");
   });
 });
 
@@ -369,18 +397,38 @@ describe("a thread that passes through two coverages", () => {
     messages: [inbound, reply("ben")],
   };
 
-  it("is left with the account reading it when the advisor it is marked for returns", () => {
-    // Ben answered the customer, so the stays-with-the-cover rule keeps it off
-    // Alyssa - and Cara, who is holding it, is active and reading. Ben does not
-    // get it back, but that follows from the mark rather than from this
-    // decision, so it is not what this asserts.
+  it("goes back to the advisor it belongs to when the cover holding it never answered", () => {
+    // Cara is the cover whose coverage this return is ending, and she has never
+    // spoken to this customer - Ben did, before he left. Under the rule as it
+    // now stands only the cover's own reply keeps a thread, so this goes back to
+    // Alyssa: the voice the customer had before any of this, rather than a
+    // third one they have never heard from.
+    //
+    // This is the case that changed on 2026-09-08. The old rule counted a reply
+    // from anyone but the returning advisor, so Ben's reply parked the thread
+    // with Cara permanently - which is the exact harm the rule exists to
+    // prevent, done by the rule itself.
     const disposition = coverageDisposition("return", "alyssa", "cara", answeredByBenHeldByCara);
 
-    assert.equal(disposition, "staysPut");
+    assert.equal(disposition, "returned");
     assert.equal(
       coverageHolder(disposition, "alyssa", "cara", answeredByBenHeldByCara.assignedUserId),
-      "cara",
+      "alyssa",
     );
+  });
+
+  it("leaves it with the second cover once she has answered the customer herself", () => {
+    // The stays-with-the-cover rule still applies inside the second coverage:
+    // Cara is now mid-exchange, so bouncing it to Alyssa would be the second
+    // discontinuity.
+    const answeredByCara = {
+      ...answeredByBenHeldByCara,
+      messages: [inbound, reply("ben"), reply("cara")],
+    };
+    const disposition = coverageDisposition("return", "alyssa", "cara", answeredByCara);
+
+    assert.equal(disposition, "staysPut");
+    assert.equal(coverageHolder(disposition, "alyssa", "cara", "cara"), "cara");
   });
 
   it("still hands back a thread the second cover never answered", () => {
