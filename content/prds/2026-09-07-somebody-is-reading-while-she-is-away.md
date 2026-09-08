@@ -263,13 +263,16 @@ still switched off, because that would put them back where they started.
   reassigned to the returning advisor by hand during coverage, so the return had
   nothing to move. `coverageNotReturned` is everything else, and its name claims
   only that: a thread can end the coverage with the cover, with somebody she
-  routed it on to, or with nobody at all, so the row's `heldBy` is the only
-  field that names a holder and `null` there means nobody does. `heldBy` is
+  routed it on to, with nobody at all, or finished while she was away, so the
+  row's `heldBy` is the only field that names a holder and `null` there means
+  nobody does. `heldBy` is
   always who holds the thread once the action is done, on every row, and a row
   whose thread moved also carries `movedFrom` - the account it came off - so the
   hop can be read back without either value standing in for the other.
-  `coverage.end` counts the three as `returned`, `alreadyBack` and
-  `notReturned`.
+  `coverage.end` counts them as `returned`, `alreadyBack`, `closed` and
+  `notReturned` - a thread finished during the coverage is counted as `closed`
+  rather than folded into `notReturned`, which would read as open customer work
+  left with somebody else.
   `coverage.start` counts the advisor's own threads as `conversations` and
   everything the hand-off moved as `movedInTotal`: a thread she was holding for
   somebody else is counted on that advisor's chained row instead, and the two

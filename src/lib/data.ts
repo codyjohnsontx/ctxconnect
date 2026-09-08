@@ -1181,7 +1181,7 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
 }
 
 export async function getSettingsData() {
-  const [users, openConversations, dealershipSettings, health] = await Promise.all([
+  const [users, openConversations, holders, dealershipSettings, health] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ role: "asc" }, { name: "asc" }],
       include: { coveredBy: { select: { id: true, name: true } } },
@@ -1190,6 +1190,10 @@ export async function getSettingsData() {
     // that does it says how many are on each account and who, if anyone, is
     // reading them. Counted by the clause coverage itself moves by.
     openConversationCounts(),
+    // The same threads the coverage board reads, so this row can say what that
+    // one says: a covered account can still be holding open work of its own,
+    // and neither screen may report it as fully covered.
+    coveredThreadHolders(),
     getDealershipSettings(),
     getIntegrationHealth(),
   ]);
@@ -1198,6 +1202,7 @@ export async function getSettingsData() {
     users: users.map((user) => ({
       ...user,
       openConversations: openConversations.get(user.id) ?? 0,
+      coveredThreads: holders.get(user.id) ?? [],
     })),
     dealershipSettings,
     health,

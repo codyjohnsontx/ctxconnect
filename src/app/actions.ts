@@ -39,6 +39,7 @@ import {
   coverageHolder,
   coverageLandsOn,
   coverageReturnsTo,
+  isOpenConversation,
   openConversationWhere,
   parseCoverageKind,
   type CoverageDisposition,
@@ -1034,6 +1035,10 @@ export async function endConversationCoverage(formData: FormData) {
     const withDisposition = (disposition: CoverageDisposition) =>
       decided.filter((conversation) => conversation.disposition === disposition);
 
+    const closedCount = covered.filter(
+      (conversation) => !isOpenConversation(conversation.status),
+    ).length;
+
     const returned = withDisposition("returned");
     const returningIds = returned.map((conversation) => conversation.id);
     const alreadyBackIds = withDisposition("alreadyHers").map((conversation) => conversation.id);
@@ -1129,9 +1134,15 @@ export async function endConversationCoverage(formData: FormData) {
           coveredSince: returning.coveredSince.toISOString(),
           returned: returningIds.length,
           alreadyBack: alreadyBackIds.length,
-          // Everything that did not come back, counted without claiming who has
-          // it: the cover, somebody she routed it on to, or nobody at all.
-          notReturned: covered.length - returningIds.length - alreadyBackIds.length,
+          // Finished while she was away, so there was never a hand-off to make.
+          // Counted apart from notReturned, which would otherwise read as open
+          // customer threads left with somebody else.
+          closed: closedCount,
+          // Everything still open that did not come back, counted without
+          // claiming who has it: the cover, somebody she routed it on to, or
+          // nobody at all.
+          notReturned:
+            covered.length - returningIds.length - alreadyBackIds.length - closedCount,
         },
       },
     });

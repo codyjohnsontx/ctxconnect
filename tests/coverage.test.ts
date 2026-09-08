@@ -16,7 +16,9 @@ import {
   coverageOutcome,
   coverageReturnsTo,
   describeCoveredThreads,
+  describeThreadsOffCoverage,
   openConversationStatuses,
+  threadsOffCoverage,
   openConversationWhere,
   parseCoverageKind,
 } from "../src/lib/coverage";
@@ -496,6 +498,62 @@ describe("coverageLandsOn", () => {
     // be cleared at all.
     assert.deepEqual(coverageLandsOn(ben, [closed(ben), closed(null), closed(parts)]), []);
     assert.deepEqual(coverageLandsOn(ben, []), []);
+  });
+});
+
+// The count and the sentence the coverage board and the Settings row both
+// print, so neither can report an away advisor as fully covered while a
+// customer waits on a thread her coverage never moved.
+describe("threads still on the account a coverage does not speak for", () => {
+  const alyssa = "alyssa";
+  const heldBy = (id: string | null) => ({ heldBy: id === null ? null : { id } });
+
+  it("counts nothing when every open thread of hers is out with the cover", () => {
+    assert.equal(threadsOffCoverage(alyssa, 0, [heldBy("ben"), heldBy("ben")]), 0);
+    assert.equal(describeThreadsOffCoverage(0, true, false), null);
+  });
+
+  // The reachable sequence: her book moves to Ben, then a manager triages a new
+  // inbound onto her because the picker still lists her while she is active.
+  it("counts a thread assigned to her after coverage began", () => {
+    assert.equal(threadsOffCoverage(alyssa, 1, [heldBy("ben"), heldBy("ben")]), 1);
+    assert.equal(
+      describeThreadsOffCoverage(1, true, false),
+      "1 more open conversation is still on this account, outside this coverage.",
+    );
+  });
+
+  // A covered thread a manager routed back to her is already named by
+  // describeCoveredThreads as back with her, so counting it here would report
+  // the same thread twice.
+  it("does not count a covered thread routed back to her by hand", () => {
+    assert.equal(threadsOffCoverage(alyssa, 1, [heldBy("ben"), heldBy(alyssa)]), 0);
+  });
+
+  it("counts only the threads her coverage never moved", () => {
+    assert.equal(threadsOffCoverage(alyssa, 3, [heldBy("ben"), heldBy(alyssa)]), 2);
+    assert.equal(
+      describeThreadsOffCoverage(2, true, false),
+      "2 more open conversations are still on this account, outside this coverage.",
+    );
+  });
+
+  it("says nobody is reading them once the account is switched off", () => {
+    assert.equal(
+      describeThreadsOffCoverage(1, false, false),
+      "1 more open conversation is still on this account, outside this coverage, and nobody is reading it.",
+    );
+    assert.equal(
+      describeThreadsOffCoverage(2, false, false),
+      "2 more open conversations are still on this account, outside this coverage, and nobody is reading them.",
+    );
+  });
+
+  it("speaks to the advisor herself on her own card", () => {
+    assert.equal(
+      describeThreadsOffCoverage(1, true, true),
+      "1 more open conversation is still on your account, outside this coverage.",
+    );
   });
 });
 

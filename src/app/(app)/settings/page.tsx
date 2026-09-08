@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
 import { Department, Role } from "@/generated/prisma/client";
+import { describeThreadsOffCoverage, threadsOffCoverage } from "@/lib/coverage";
 import { getSettingsData } from "@/lib/data";
 import { getRequiredEnvironmentNames } from "@/lib/env";
 import { isAdmin, isManagerOrAdmin } from "@/lib/permissions";
@@ -110,8 +111,10 @@ export default async function SettingsPage() {
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
                       {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
                       <OpenConversations
+                        id={user.id}
                         active={user.active}
                         openConversations={user.openConversations}
+                        coveredThreads={user.coveredThreads}
                         coveredBy={user.coveredBy}
                       />
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -248,36 +251,33 @@ export default async function SettingsPage() {
  * for the customers still waiting on them.
  */
 function OpenConversations({
+  id,
   active,
   openConversations,
+  coveredThreads,
   coveredBy,
 }: {
+  id: string;
   active: boolean;
   openConversations: number;
+  coveredThreads: Array<{ heldBy: { id: string } | null }>;
   coveredBy: { id: string; name: string } | null;
 }) {
   if (coveredBy) {
-    const strandedAnyway = !active && openConversations > 0;
+    const offCoverage = threadsOffCoverage(id, openConversations, coveredThreads);
+    const stillOnTheAccount = describeThreadsOffCoverage(offCoverage, active, false);
 
     return (
       <p
         className={cn(
           "mt-2 text-sm",
-          strandedAnyway
+          stillOnTheAccount && !active
             ? "text-amber-700 dark:text-amber-500"
             : "text-zinc-500 dark:text-zinc-400",
         )}
       >
         Conversations covered by {coveredBy.name}.
-        {openConversations > 0
-          ? ` ${openConversations} open ${
-              openConversations === 1 ? "conversation is" : "conversations are"
-            } still on this account${
-              strandedAnyway
-                ? `, and nobody is reading ${openConversations === 1 ? "it" : "them"}`
-                : ""
-            }.`
-          : ""}{" "}
+        {stillOnTheAccount ? ` ${stillOnTheAccount}` : ""}{" "}
         <Link href="/coverage" className="underline underline-offset-2">
           Coverage
         </Link>

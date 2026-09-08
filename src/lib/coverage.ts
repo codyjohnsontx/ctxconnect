@@ -44,6 +44,11 @@ export const openConversationWhere = {
   status: { in: [...openConversationStatuses] },
 } satisfies Prisma.ConversationWhereInput;
 
+/** The same clause asked of one row already loaded. */
+export function isOpenConversation(status: string): boolean {
+  return (openConversationStatuses as readonly string[]).includes(status);
+}
+
 /** How coverage ends, and therefore whether it can end at all. */
 export type CoverageKind = "temporary" | "permanent";
 
@@ -206,7 +211,7 @@ export function coverageLandsOn<Account>(
   covered: ReadonlyArray<{ status: string; heldBy: Account | null }>,
 ): Account[] {
   return covered.flatMap((thread) =>
-    (openConversationStatuses as readonly string[]).includes(thread.status)
+    isOpenConversation(thread.status)
       ? [thread.heldBy ?? cover]
       : [],
   );
@@ -349,6 +354,56 @@ export function describeCoveredThreads(
 }
 
 /**
+ * Open conversations sitting on this account that its coverage does not speak
+ * for - the ones a colleague assigned to somebody the board already shows as
+ * away.
+ *
+ * `describeCoveredThreads` answers only for threads carrying a coverage mark,
+ * so on its own it reports an away advisor as fully covered while a customer
+ * waits on a thread nobody moved. This is the difference: everything open on
+ * her account, less the marked ones a manager routed back to her, which that
+ * sentence already names as hers.
+ *
+ * Here rather than at either caller because the board and the Settings row
+ * answer the same question for the same reader, and a count one of them can
+ * state and the other cannot is how the two came to disagree in the first
+ * place.
+ */
+export function threadsOffCoverage(
+  awayId: string,
+  openConversations: number,
+  covered: ReadonlyArray<{ heldBy: { id: string } | null }>,
+): number {
+  const alreadyBack = covered.filter((thread) => thread.heldBy?.id === awayId).length;
+
+  return Math.max(openConversations - alreadyBack, 0);
+}
+
+/**
+ * That count as the sentence both surfaces print, or null when there is nothing
+ * to say. A switched-off account is the amber case: those threads are open, on
+ * an account nobody can sign in as, and outside the coverage that would have
+ * moved them.
+ */
+export function describeThreadsOffCoverage(
+  offCoverage: number,
+  active: boolean,
+  mine: boolean,
+): string | null {
+  if (offCoverage <= 0) {
+    return null;
+  }
+
+  const whose = mine ? "your account" : "this account";
+  const noun = offCoverage === 1 ? "conversation is" : "conversations are";
+  const sentence = `${offCoverage} more open ${noun} still on ${whose}, outside this coverage`;
+
+  return active
+    ? `${sentence}.`
+    : `${sentence}, and nobody is reading ${offCoverage === 1 ? "it" : "them"}.`;
+}
+
+/**
  * Why coverage cannot be ended this way yet, or null when it can.
  *
  * Both halves say the same thing from opposite ends: after coverage ends, no
@@ -453,7 +508,7 @@ export function coverageDisposition(
     return "alreadyHers";
   }
 
-  if (!(openConversationStatuses as readonly string[]).includes(conversation.status)) {
+  if (!isOpenConversation(conversation.status)) {
     return "staysPut";
   }
 

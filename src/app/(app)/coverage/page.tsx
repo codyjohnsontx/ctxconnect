@@ -9,11 +9,13 @@ import {
   canManageCoverage,
   coverageEndRefusal,
   describeCoveredThreads,
+  describeThreadsOffCoverage,
+  threadsOffCoverage,
 } from "@/lib/coverage";
 import { getCoverageBoard, type AppUser, type CoverageRow } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
-import { labelize } from "@/lib/utils";
+import { cn, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +88,7 @@ function CoverageCard({
 }) {
   const mayAct = canManageCoverage(user, row.id);
   const covers = board.filter((candidate) => canCover(row, candidate));
+  const offCoverage = threadsOffCoverage(row.id, row.openConversations, row.coveredThreads);
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -98,14 +101,19 @@ function CoverageCard({
             {row.active ? null : <Badge variant="red">Inactive</Badge>}
           </div>
         </div>
-        <Badge variant={row.coveredBy ? "amber" : "neutral"}>
-          {row.coveredBy ? "Covered" : `${row.openConversations} open`}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={row.coveredBy ? "amber" : "neutral"}>
+            {row.coveredBy ? "Covered" : `${row.openConversations} open`}
+          </Badge>
+          {row.coveredBy && offCoverage > 0 ? (
+            <Badge variant={row.active ? "neutral" : "red"}>{offCoverage} open</Badge>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-4 p-4">
         {row.coveredBy ? (
-          <CoveredState row={row} mine={mine} />
+          <CoveredState row={row} mine={mine} offCoverage={offCoverage} />
         ) : (
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
             {mine ? "You are" : `${row.name} is`} holding {row.openConversations} open{" "}
@@ -136,23 +144,47 @@ function CoverageCard({
   );
 }
 
-function CoveredState({ row, mine }: { row: CoverageRow; mine: boolean }) {
+function CoveredState({
+  row,
+  mine,
+  offCoverage,
+}: {
+  row: CoverageRow;
+  mine: boolean;
+  offCoverage: number;
+}) {
   const cover = row.coveredBy;
 
   if (!cover) {
     return null;
   }
 
+  const stillOnTheAccount = describeThreadsOffCoverage(offCoverage, row.active, mine);
+
   return (
-    <p className="text-sm text-zinc-600 dark:text-zinc-300">
-      {describeCoveredThreads(row, cover, row.coveredThreads, mine)}
-      {row.coveredSince ? (
-        <>
-          {" "}
-          Covered since <LocalTimestamp value={row.coveredSince} />.
-        </>
+    <>
+      <p className="text-sm text-zinc-600 dark:text-zinc-300">
+        {describeCoveredThreads(row, cover, row.coveredThreads, mine)}
+        {row.coveredSince ? (
+          <>
+            {" "}
+            Covered since <LocalTimestamp value={row.coveredSince} />.
+          </>
+        ) : null}
+      </p>
+      {stillOnTheAccount ? (
+        <p
+          className={cn(
+            "text-sm",
+            row.active
+              ? "text-zinc-600 dark:text-zinc-300"
+              : "text-amber-700 dark:text-amber-500",
+          )}
+        >
+          {stillOnTheAccount}
+        </p>
       ) : null}
-    </p>
+    </>
   );
 }
 
