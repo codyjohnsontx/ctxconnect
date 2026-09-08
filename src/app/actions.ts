@@ -802,7 +802,7 @@ export async function startConversationCoverage(formData: FormData) {
         })),
       });
 
-      await readdressAssigneeNotificationsTx(tx, movingIds, awayUserId, cover.id);
+      await readdressAssigneeNotificationsTx(tx, movingIds, cover.id);
 
       if (chained.length > 0) {
         await tx.user.updateMany({
@@ -1006,9 +1006,8 @@ export async function endConversationCoverage(formData: FormData) {
     if (returningIds.length > 0) {
       // The rows themselves, because who was holding one is a fact about the
       // thread rather than about the account: coverage chains, and a thread can
-      // be routed on by hand mid-coverage. The note and the alerts below both
-      // read the holder from here, so they cannot come to disagree about where
-      // a thread came back from.
+      // be routed on by hand mid-coverage, so the note has to name the holder it
+      // actually came back from.
       const returned = covered.filter((conversation) => returningIds.includes(conversation.id));
 
       await tx.conversation.updateMany({
@@ -1028,23 +1027,6 @@ export async function endConversationCoverage(formData: FormData) {
           deliveryStatus: DeliveryStatus.INTERNAL,
         })),
       });
-
-      const holders = new Map<string, string[]>();
-
-      for (const conversation of returned) {
-        if (!conversation.assignedUserId) {
-          continue;
-        }
-
-        holders.set(conversation.assignedUserId, [
-          ...(holders.get(conversation.assignedUserId) ?? []),
-          conversation.id,
-        ]);
-      }
-
-      for (const [holderId, ids] of holders) {
-        await readdressAssigneeNotificationsTx(tx, ids, holderId, returningUserId);
-      }
     }
 
     // A thread can also already be back with the returning advisor without this
@@ -1058,6 +1040,17 @@ export async function endConversationCoverage(formData: FormData) {
           conversation.assignedUserId === returningUserId,
       )
       .map((conversation) => conversation.id);
+
+    // Every covered thread that is now hers gets its alerts, whichever way it
+    // got back to her: the ones this run moved and the ones somebody had already
+    // routed back by hand. Addressed by where the thread is rather than by where
+    // it came from, because a thread left unassigned mid-coverage has no
+    // previous holder to name and is exactly the one that used to be skipped.
+    await readdressAssigneeNotificationsTx(
+      tx,
+      [...returningIds, ...alreadyBackIds],
+      returningUserId,
+    );
 
     // Every covered thread loses its mark, whichever way this ended: one that
     // returned has arrived, and one that did not is now wherever it has got to.

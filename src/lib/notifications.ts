@@ -254,14 +254,23 @@ export async function resolveConversationNotificationsTx(
  * would restart the clock the alert is a record of. Only the person answerable
  * for it changed.
  *
- * Scoped to `from`, so a manager's own copy of a thread alert is untouched, and
- * to alerts still outstanding, so a resolved row keeps the name of whoever
- * actually resolved it.
+ * Takes only the thread's new holder, never the old one. Every outstanding row
+ * of these three types belongs to whoever was holding the conversation - they
+ * are written by `notifyAssignee` to `Conversation.assignedUserId` and nowhere
+ * else, and the alerts addressed to managers (`SLA_MISSED`, `MESSAGE_FAILED`,
+ * `UNASSIGNED_CONVERSATION`) are other types that `assigneeAddressedTypes`
+ * already excludes. So there is no manager's copy for a `from` filter to
+ * protect, and asking who held a row is what used to strand one: a thread left
+ * unassigned mid-coverage, or routed back by hand, had no previous holder to
+ * name and its alerts stayed with the cover after the thread had gone. Do not
+ * put the filter back.
+ *
+ * Scoped to alerts still outstanding, so a resolved row keeps the name of
+ * whoever actually resolved it.
  */
 export async function readdressAssigneeNotificationsTx(
   client: Prisma.TransactionClient,
   conversationIds: string[],
-  from: string,
   to: string,
 ) {
   if (conversationIds.length === 0) {
@@ -271,7 +280,6 @@ export async function readdressAssigneeNotificationsTx(
   await client.notification.updateMany({
     where: {
       conversationId: { in: conversationIds },
-      recipientUserId: from,
       type: { in: assigneeAddressedTypes },
       status: { not: NotificationStatus.RESOLVED },
     },
