@@ -836,6 +836,14 @@ export async function endConversationCoverage(formData: FormData) {
     throw new Error("Coverage access denied.");
   }
 
+  // Leaving them with the cover is the same irreversible hand-off
+  // startConversationCoverage guards as `permanent`: nothing records where the
+  // threads came from afterwards. The board only offers it to an admin, and a
+  // form posted from a stale tab is not a form this app rendered.
+  if (outcome === "keep" && !canHandOffPermanently(user)) {
+    throw new Error("Only an admin can hand conversations over for good.");
+  }
+
   await prisma.$transaction(async (tx) => {
     const returning = await tx.user.findUnique({
       where: { id: returningUserId },
