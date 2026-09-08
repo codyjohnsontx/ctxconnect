@@ -110,9 +110,11 @@ function CoverageCard({
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
             {mine ? "You are" : `${row.name} is`} holding {row.openConversations} open{" "}
             {row.openConversations === 1 ? "conversation" : "conversations"}.
-            {row.active
+            {row.active || row.openConversations === 0
               ? null
-              : " Nobody is reading them while this account is switched off."}
+              : ` Nobody is reading ${
+                  row.openConversations === 1 ? "it" : "them"
+                } while this account is switched off.`}
           </p>
         )}
 

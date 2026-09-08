@@ -165,12 +165,12 @@ async function notifyManagersWithClient(client: NotificationDbClient, draft: Not
 
 async function resolveConversationNotificationsWithClient(
   client: NotificationDbClient,
-  conversationId: string,
+  conversationId: string | string[],
   types?: NotificationType[],
 ) {
   await client.notification.updateMany({
     where: {
-      conversationId,
+      conversationId: Array.isArray(conversationId) ? { in: conversationId } : conversationId,
       status: { not: NotificationStatus.RESOLVED },
       ...(types ? { type: { in: types } } : {}),
     },
@@ -246,17 +246,7 @@ export async function resolveManyConversationNotificationsTx(
     return;
   }
 
-  await client.notification.updateMany({
-    where: {
-      conversationId: { in: conversationIds },
-      status: { not: NotificationStatus.RESOLVED },
-      type: { in: types },
-    },
-    data: {
-      status: NotificationStatus.RESOLVED,
-      resolvedAt: new Date(),
-    },
-  });
+  await resolveConversationNotificationsWithClient(client, conversationIds, types);
 }
 
 export async function resolveConversationNotificationsTx(

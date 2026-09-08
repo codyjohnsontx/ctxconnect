@@ -257,9 +257,27 @@ function OpenConversations({
   coveredBy: { id: string; name: string } | null;
 }) {
   if (coveredBy) {
+    const strandedAnyway = !active && openConversations > 0;
+
     return (
-      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-        Conversations covered by {coveredBy.name}.{" "}
+      <p
+        className={cn(
+          "mt-2 text-sm",
+          strandedAnyway
+            ? "text-amber-700 dark:text-amber-500"
+            : "text-zinc-500 dark:text-zinc-400",
+        )}
+      >
+        Conversations covered by {coveredBy.name}.
+        {openConversations > 0
+          ? ` ${openConversations} open ${
+              openConversations === 1 ? "conversation is" : "conversations are"
+            } still on this account${
+              strandedAnyway
+                ? `, and nobody is reading ${openConversations === 1 ? "it" : "them"}`
+                : ""
+            }.`
+          : ""}{" "}
         <Link href="/coverage" className="underline underline-offset-2">
           Coverage
         </Link>
