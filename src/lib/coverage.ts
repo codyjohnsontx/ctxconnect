@@ -182,8 +182,41 @@ export function coverageOutcome(
   return answeredByTheCover ? "stays" : "returns";
 }
 
+/** The two ways coverage can be ended, and therefore what the end does. */
+export type CoverageEnd = "return" | "keep";
+
+/**
+ * Why coverage cannot be ended this way yet, or null when it can.
+ *
+ * Both halves say the same thing from opposite ends: after coverage ends, no
+ * open thread may be left with somebody who is not reading. Handing threads
+ * back to a switched-off account puts them exactly where they started, and
+ * finalising them onto a switched-off cover is worse - it also destroys the
+ * mark that would have brought them back. Starting coverage already refuses an
+ * inactive cover; this is the same rule at the other end.
+ *
+ * A sentence rather than a boolean because both the board and the action need
+ * it: the board disables the button and prints the reason, and the action
+ * refuses a form posted from a stale tab with the same words.
+ */
+export function coverageEndRefusal(
+  end: CoverageEnd,
+  returning: { active: boolean },
+  cover: { active: boolean; name: string },
+): string | null {
+  if (end === "return") {
+    return returning.active
+      ? null
+      : "Reactivate the account before handing its conversations back, or leave them with the cover.";
+  }
+
+  return cover.active
+    ? null
+    : `${cover.name}'s account is switched off, so leaving these conversations with ${cover.name} would put them straight back with nobody reading. Reactivate that account, or arrange cover for it.`;
+}
+
 /** Where one covered thread ends up when coverage ends. */
-export type CoverageDisposition = "returned" | "alreadyHers" | "unowned" | "staysPut";
+export type CoverageDisposition = "returned" | "alreadyHers" | "toTheCover" | "staysPut";
 
 /**
  * What becomes of one covered thread when the advisor it belongs to comes back.
@@ -202,17 +235,21 @@ export type CoverageDisposition = "returned" | "alreadyHers" | "unowned" | "stay
  *   coverage. There is nothing for the return to move, whatever else is true.
  * - **It is finished.** Closed history is not re-attributed - the same rule that
  *   kept closed threads out of the hand-off in the first place.
- * - **Nobody holds it.** It goes to her even when the cover has replied, because
- *   "stays with the cover" needs a cover holding it, and a thread belonging to
- *   nobody is the exact state coverage exists to end. A null assignee is
- *   reachable both from the assignee picker's explicit unassigned option and
- *   from deleting a staff account, whose threads the foreign key nulls.
+ * - **Nobody holds it.** It goes to somebody, always, because a thread
+ *   belonging to nobody is the exact state coverage exists to end - to her on
+ *   the hand-back even when the cover has replied, since "stays with the cover"
+ *   needs a cover holding it, and to the cover on "leave them with the cover",
+ *   which is what the admin pressed. A null assignee is reachable both from the
+ *   assignee picker's explicit unassigned option and from deleting a staff
+ *   account, whose threads the foreign key nulls.
  * - **Somebody else holds it.** A manager routing a covered thread to a parts
  *   specialist made a decision, and an advisor walking back in must not silently
  *   undo it. It stays with them whether or not anyone has replied.
- * - Otherwise the cover holds it, and the reply rule decides.
+ * - Otherwise the cover holds it: she keeps it on "leave them with the cover",
+ *   and on the hand-back the reply rule decides.
  */
 export function coverageDisposition(
+  end: CoverageEnd,
   returningUserId: string,
   coverUserId: string,
   conversation: {
@@ -231,10 +268,14 @@ export function coverageDisposition(
   }
 
   if (conversation.assignedUserId === null) {
-    return "unowned";
+    return end === "return" ? "returned" : "toTheCover";
   }
 
   if (conversation.assignedUserId !== coverUserId) {
+    return "staysPut";
+  }
+
+  if (end === "keep") {
     return "staysPut";
   }
 

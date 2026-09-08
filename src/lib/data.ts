@@ -1081,7 +1081,7 @@ export type CoverageRow = {
   active: boolean;
   coveredByUserId: string | null;
   /** Who is holding this advisor's conversations, and from when. */
-  coveredBy: { id: string; name: string } | null;
+  coveredBy: { id: string; name: string; active: boolean } | null;
   coveredSince: Date | null;
   /** Open conversations assigned to this advisor right now. */
   openConversations: number;
@@ -1112,7 +1112,7 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
         active: true,
         coveredByUserId: true,
         coveredSince: true,
-        coveredBy: { select: { id: true, name: true } },
+        coveredBy: { select: { id: true, name: true, active: true } },
         covering: { select: { id: true, name: true }, orderBy: { name: "asc" } },
       },
     }),

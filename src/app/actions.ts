@@ -23,6 +23,7 @@ import {
   notifyAssignee,
   notifyManagers,
   readdressAssigneeNotificationsTx,
+  resolveManyConversationNotificationsTx,
   reopenConversationNotifications,
   resolveConversationNotifications,
   resolveTaskNotifications,
@@ -33,8 +34,10 @@ import {
   canManageCoverage,
   coverRefusal,
   coverageDisposition,
+  coverageEndRefusal,
   openConversationWhere,
   parseCoverageKind,
+  type CoverageDisposition,
 } from "@/lib/coverage";
 import {
   type CustomerProfileSaveResult,
@@ -949,7 +952,7 @@ export async function endConversationCoverage(formData: FormData) {
         name: true,
         active: true,
         coveredSince: true,
-        coveredBy: { select: { id: true, name: true } },
+        coveredBy: { select: { id: true, name: true, active: true } },
       },
     });
 
@@ -961,10 +964,14 @@ export async function endConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are not covered.");
     }
 
-    if (outcome === "return" && !returning.active) {
-      throw new Error(
-        "Reactivate the account before handing its conversations back, or leave them with the cover.",
-      );
+    // The board renders this rule to decide whether either button is pressable,
+    // and it is re-asked here because a form posted from a stale tab is not a
+    // form this app rendered - and because the account it names may have been
+    // switched off since the page was drawn.
+    const endRefusal = coverageEndRefusal(outcome, returning, returning.coveredBy);
+
+    if (endRefusal) {
+      throw new Error(endRefusal);
     }
 
     const covered = await tx.conversation.findMany({
@@ -992,30 +999,22 @@ export async function endConversationCoverage(formData: FormData) {
     // conditions, because the four holders a covered thread can have crossed
     // with the reply rule is not a set anybody re-derives correctly twice.
     const coverUserId = returning.coveredBy.id;
+    const coverName = returning.coveredBy.name;
     const dispositions = new Map(
       covered.map((conversation) => [
         conversation.id,
-        coverageDisposition(returningUserId, coverUserId, conversation),
+        coverageDisposition(outcome, returningUserId, coverUserId, conversation),
       ]),
     );
 
-    // "Leave them with the cover" moves nothing, so only the hand-back reads the
-    // dispositions that move a thread. A thread nobody holds comes back with the
-    // rest: there is no cover holding it for it to stay with.
-    const returningIds =
-      outcome === "return"
-        ? covered
-            .filter((conversation) => {
-              const disposition = dispositions.get(conversation.id);
+    const idsWith = (disposition: CoverageDisposition) =>
+      covered
+        .filter((conversation) => dispositions.get(conversation.id) === disposition)
+        .map((conversation) => conversation.id);
 
-              return disposition === "returned" || disposition === "unowned";
-            })
-            .map((conversation) => conversation.id)
-        : [];
-
-    const alreadyBackIds = covered
-      .filter((conversation) => dispositions.get(conversation.id) === "alreadyHers")
-      .map((conversation) => conversation.id);
+    const returningIds = idsWith("returned");
+    const alreadyBackIds = idsWith("alreadyHers");
+    const toCoverIds = idsWith("toTheCover");
 
     if (returningIds.length > 0) {
       // The rows themselves, because who was holding one is a fact about the
@@ -1042,6 +1041,37 @@ export async function endConversationCoverage(formData: FormData) {
         })),
       });
     }
+
+    if (toCoverIds.length > 0) {
+      // Nobody was holding these, and "leave them with the cover" is what was
+      // pressed, so they go where the button says rather than out of coverage
+      // owned by nobody.
+      await tx.conversation.updateMany({
+        where: { id: { in: toCoverIds } },
+        data: { assignedUserId: coverUserId },
+      });
+
+      await tx.message.createMany({
+        data: toCoverIds.map((conversationId) => ({
+          conversationId,
+          senderUserId: user.id,
+          direction: MessageDirection.INTERNAL,
+          kind: MessageKind.NOTE,
+          body: `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
+          deliveryStatus: DeliveryStatus.INTERNAL,
+        })),
+      });
+
+      await readdressAssigneeNotificationsTx(tx, toCoverIds, coverUserId);
+    }
+
+    // Exactly the threads this action gave an owner. "Nobody is holding this"
+    // has stopped being true for them, and an alert about a fact that has
+    // stopped being true is withdrawn - the same thing updateConversation does
+    // when an assignment lands there.
+    await resolveManyConversationNotificationsTx(tx, [...returningIds, ...toCoverIds], [
+      NotificationType.UNASSIGNED_CONVERSATION,
+    ]);
 
     // Every covered thread that is now hers gets its alerts, whichever way it
     // got back to her: the ones this run moved and the ones somebody had already
@@ -1102,7 +1132,10 @@ export async function endConversationCoverage(formData: FormData) {
             // says nothing about one. `null` here reads as nobody holds it: the
             // assignee picker has an explicit unassigned option, and deleting a
             // staff account nulls the assignment on everything they held.
-            heldBy: conversation.assignedUserId,
+            heldBy:
+              dispositions.get(conversation.id) === "toTheCover"
+                ? coverUserId
+                : conversation.assignedUserId,
           },
         })),
       });

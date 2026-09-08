@@ -9,6 +9,7 @@ import {
   canManageCoverage,
   coverRefusal,
   coverageDisposition,
+  coverageEndRefusal,
   coverageOutcome,
   openConversationStatuses,
   openConversationWhere,
@@ -117,49 +118,49 @@ const coverReplied = [reply("ben")];
 
 describe("coverageDisposition", () => {
   it("hands back what the cover never answered", () => {
-    assert.equal(coverageDisposition("alyssa", "ben", thread("ben")), "returned");
-    assert.equal(coverageDisposition("alyssa", "ben", thread("ben", [note("ben")])), "returned");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("ben")), "returned");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("ben", [note("ben")])), "returned");
   });
 
   it("leaves the cover a thread she has answered", () => {
-    assert.equal(coverageDisposition("alyssa", "ben", thread("ben", coverReplied)), "staysPut");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("ben", coverReplied)), "staysPut");
   });
 
   it("has nothing to move when the thread is already hers", () => {
     // Somebody reassigned it back to her by hand mid-coverage, so the return
     // moves nothing whether or not the cover had answered it.
-    assert.equal(coverageDisposition("alyssa", "ben", thread("alyssa")), "alreadyHers");
-    assert.equal(coverageDisposition("alyssa", "ben", thread("alyssa", coverReplied)), "alreadyHers");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("alyssa")), "alreadyHers");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("alyssa", coverReplied)), "alreadyHers");
   });
 
   it("does not take a thread back off somebody a manager routed it to", () => {
     // A manager handing a covered thread to a parts specialist made a decision.
     // An advisor walking back in must not silently undo it - and she did undo
     // it, because the old rule only asked whether the holder was her.
-    assert.equal(coverageDisposition("alyssa", "ben", thread("parts")), "staysPut");
-    assert.equal(coverageDisposition("alyssa", "ben", thread("parts", coverReplied)), "staysPut");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("parts")), "staysPut");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread("parts", coverReplied)), "staysPut");
   });
 
   it("gives her a thread nobody is holding, answered or not", () => {
     // "Stays with the cover" needs a cover holding it. With no assignee the
     // reply rule would have stranded an open customer thread owned by nobody -
     // the exact state coverage exists to end.
-    assert.equal(coverageDisposition("alyssa", "ben", thread(null)), "unowned");
-    assert.equal(coverageDisposition("alyssa", "ben", thread(null, coverReplied)), "unowned");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread(null)), "returned");
+    assert.equal(coverageDisposition("return", "alyssa", "ben", thread(null, coverReplied)), "returned");
   });
 
   it("never moves a thread closed during coverage", () => {
     // Closed history is not re-attributed, whoever happens to hold it.
     for (const holder of ["ben", "parts", null]) {
       assert.equal(
-        coverageDisposition("alyssa", "ben", thread(holder, [], ConversationStatus.CLOSED)),
+        coverageDisposition("return", "alyssa", "ben", thread(holder, [], ConversationStatus.CLOSED)),
         "staysPut",
         `closed thread held by ${holder ?? "nobody"}`,
       );
     }
 
     assert.equal(
-      coverageDisposition("alyssa", "ben", thread("alyssa", [], ConversationStatus.CLOSED)),
+      coverageDisposition("return", "alyssa", "ben", thread("alyssa", [], ConversationStatus.CLOSED)),
       "alreadyHers",
     );
   });
@@ -167,8 +168,67 @@ describe("coverageDisposition", () => {
   it("moves a thread waiting on either side", () => {
     // Every open status the hand-off moves is a status the return moves back.
     for (const status of openConversationStatuses) {
-      assert.equal(coverageDisposition("alyssa", "ben", thread("ben", [], status)), "returned", status);
+      assert.equal(coverageDisposition("return", "alyssa", "ben", thread("ben", [], status)), "returned", status);
     }
+  });
+});
+
+describe("coverageDisposition when the coverage is left with the cover", () => {
+  it("gives the cover a thread nobody is holding", () => {
+    // "Leave them with the cover" is what was pressed, so an unassigned thread
+    // goes there rather than out of coverage owned by nobody - the mark that
+    // would have brought it back is about to be cleared.
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", thread(null)), "toTheCover");
+    assert.equal(
+      coverageDisposition("keep", "alyssa", "ben", thread(null, coverReplied)),
+      "toTheCover",
+    );
+  });
+
+  it("moves nothing the cover or anyone else is already holding", () => {
+    // The whole point of this ending is that it moves nothing.
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("ben")), "staysPut");
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("ben", coverReplied)), "staysPut");
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("parts")), "staysPut");
+    assert.equal(
+      coverageDisposition("keep", "alyssa", "ben", thread(null, [], ConversationStatus.CLOSED)),
+      "staysPut",
+    );
+  });
+
+  it("still reports a thread already back with the departing advisor", () => {
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("alyssa")), "alreadyHers");
+  });
+});
+
+describe("coverageEndRefusal", () => {
+  const active = { active: true, name: "Ben" };
+  const switchedOffCover = { active: false, name: "Ben" };
+
+  it("lets coverage end either way while both accounts are on", () => {
+    assert.equal(coverageEndRefusal("return", { active: true }, active), null);
+    assert.equal(coverageEndRefusal("keep", { active: true }, active), null);
+  });
+
+  it("refuses to hand conversations back to a switched-off account", () => {
+    // That puts them exactly where they started: assigned to somebody who is
+    // not reading.
+    assert.ok(coverageEndRefusal("return", { active: false }, active));
+  });
+
+  it("refuses to finalise conversations onto a switched-off cover", () => {
+    // Worse than the hand-back it mirrors: it also clears the mark that would
+    // have brought them back, so nothing is left to undo it with.
+    assert.ok(coverageEndRefusal("keep", { active: true }, switchedOffCover));
+    assert.match(coverageEndRefusal("keep", { active: true }, switchedOffCover) ?? "", /Ben/);
+  });
+
+  it("judges each ending by the account that ending lands on", () => {
+    // The hand-back reads the returning advisor, the hand-over reads the cover.
+    // Reading the wrong one is how "leave them with the cover" came to accept a
+    // cover nobody can sign in as.
+    assert.equal(coverageEndRefusal("keep", { active: false }, active), null);
+    assert.equal(coverageEndRefusal("return", { active: true }, switchedOffCover), null);
   });
 });
 
@@ -295,7 +355,7 @@ describe("one copy of each rule", () => {
     // this guards.
     const source = read(actions);
 
-    assert.match(source, /coverageDisposition\(returningUserId, coverUserId, conversation\)/);
+    assert.match(source, /coverageDisposition\(outcome, returningUserId, coverUserId, conversation\)/);
     assert.match(source, /createdAt: \{ gte: returning\.coveredSince \}/);
   });
 

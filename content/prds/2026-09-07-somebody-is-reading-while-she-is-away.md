@@ -174,6 +174,10 @@ still switched off, because that would put them back where they started.
   no cover holding it for it to stay with.
 * Given the account is still switched off, when somebody posts the hand-back
   anyway, then it is refused and nothing moves.
+* Given the cover's account has been switched off during the coverage, when
+  somebody tries to leave the conversations with her, then it is refused and
+  nothing moves - the board disables the button and says why, and the action
+  refuses a stale post with the same sentence.
 * Given coverage ends either way, when it does, then no conversation is left
   carrying a mark and the account's coverage record is cleared.
 * Given an alert addressed to the advisor on a thread that moves, when it moves,
@@ -206,10 +210,10 @@ still switched off, because that would put them back where they started.
   deliberately, and an advisor walking back in must not silently undo that.
 * **A covered thread with no assignee.** Reachable from the picker's explicit
   unassigned option and from deleting a staff account, whose threads the foreign
-  key nulls. It goes to the returning advisor whatever the reply rule says,
-  because a thread belonging to nobody is the state this feature exists to end.
-  Ending coverage the other way - leaving them with the cover - does not move it;
-  see the open question below.
+  key nulls. It goes to somebody whichever way coverage ends, because a thread
+  belonging to nobody is the state this feature exists to end: to the returning
+  advisor on the hand-back, whatever the reply rule says, and to the cover when
+  the coverage is left with her, which is what that button says it does.
 * **Nobody available to cover.** The card says so rather than offering an empty
   picker.
 * **Coverage already running.** Starting a second one is refused; end the first.
@@ -275,6 +279,19 @@ inactive accounts, which should be zero.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
+* The board's covered line reads "<cover> is holding N of <advisor>'s
+  conversations", but N is `coveredAway`, which counts every open thread still
+  marked `coveredForUserId = advisor` regardless of who holds it now
+  (`openConversationCounts("coveredForUserId")` in `src/lib/data.ts`). A thread
+  routed on to a third person, or left unassigned, is still counted against the
+  cover - so with 5 covered threads of which a manager sent 2 to parts, the card
+  says 5 while the cover holds 3, and that is the number an admin reads before
+  deciding how to end the coverage. Recorded rather than fixed: it is a display
+  inaccuracy, not an orphaning and not a silent reversal of anyone's decision.
+  The fix is either to count what the cover actually holds (`assignedUserId =
+  coveredByUserId` as well as the mark) or to reword the line to what the number
+  is - "N of <advisor>'s conversations are out with a cover" - which is a copy
+  decision rather than a mechanical correction.
 * Should reassigning a covered thread by hand clear its `coveredForUserId` mark,
   so coverage stops tracking a thread somebody has re-owned? We think so, and it
   would retire the already-with-her case entirely. It touches

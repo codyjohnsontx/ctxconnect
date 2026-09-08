@@ -230,6 +230,35 @@ export async function notifyAssigneeTx(
   await createIfMissingWithClient(client, draft);
 }
 
+/**
+ * Withdraws alerts across the batch of threads one action has just given an
+ * owner. Same rule as the single-thread form - an alert about a state that has
+ * stopped being true is resolved rather than deleted, so the rail keeps the
+ * record of it - in the shape a batch needs, because looping an updateMany per
+ * thread inside a transaction is the same write done N times.
+ */
+export async function resolveManyConversationNotificationsTx(
+  client: Prisma.TransactionClient,
+  conversationIds: string[],
+  types: NotificationType[],
+) {
+  if (conversationIds.length === 0) {
+    return;
+  }
+
+  await client.notification.updateMany({
+    where: {
+      conversationId: { in: conversationIds },
+      status: { not: NotificationStatus.RESOLVED },
+      type: { in: types },
+    },
+    data: {
+      status: NotificationStatus.RESOLVED,
+      resolvedAt: new Date(),
+    },
+  });
+}
+
 export async function resolveConversationNotificationsTx(
   client: Prisma.TransactionClient,
   conversationId: string,

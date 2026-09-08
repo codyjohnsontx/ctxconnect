@@ -3,7 +3,12 @@ import { LocalTimestamp } from "@/components/local-timestamp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/field";
-import { canCover, canHandOffPermanently, canManageCoverage } from "@/lib/coverage";
+import {
+  canCover,
+  canHandOffPermanently,
+  canManageCoverage,
+  coverageEndRefusal,
+} from "@/lib/coverage";
 import { getCoverageBoard, type AppUser, type CoverageRow } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
@@ -197,28 +202,47 @@ function StartCoverageForm({
 }
 
 function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser; mine: boolean }) {
+  const cover = row.coveredBy;
+
+  if (!cover) {
+    return null;
+  }
+
+  // Both refusals come from the same rule the action re-asks, so a button this
+  // page offers is never one the action turns into an error page - and the
+  // reason printed underneath is the sentence the action would have thrown.
+  const returnRefusal = coverageEndRefusal("return", row, cover);
+  const keepRefusal = coverageEndRefusal("keep", row, cover);
+  const reasons = [keepRefusal, returnRefusal].filter((reason) => reason !== null);
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
         <form action={endConversationCoverage}>
           <input type="hidden" name="userId" value={row.id} />
-          <Button type="submit" name="outcome" value="return" disabled={!row.active}>
+          <Button type="submit" name="outcome" value="return" disabled={returnRefusal !== null}>
             {mine ? "I'm back" : `${row.name} is back`}
           </Button>
         </form>
         {canHandOffPermanently(user) ? (
           <form action={endConversationCoverage}>
             <input type="hidden" name="userId" value={row.id} />
-            <Button type="submit" name="outcome" value="keep" variant="secondary">
-              Leave them with {row.coveredBy?.name}
+            <Button
+              type="submit"
+              name="outcome"
+              value="keep"
+              variant="secondary"
+              disabled={keepRefusal !== null}
+            >
+              Leave them with {cover.name}
             </Button>
           </form>
         ) : null}
       </div>
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        {row.active
-          ? `Anything ${row.coveredBy?.name} has already replied to stays with ${row.coveredBy?.name} until it closes - handing a live exchange back would be a second change of voice for the customer. Everything else comes back.`
-          : "Handing conversations back to a switched-off account would leave them unread again. Reactivate it first, or leave them with the cover."}
+        {reasons.length > 0
+          ? reasons.join(" ")
+          : `Anything ${cover.name} has already replied to stays with ${cover.name} until it closes - handing a live exchange back would be a second change of voice for the customer. Everything else comes back.`}
       </p>
     </div>
   );

@@ -70,13 +70,13 @@ nulls the assignment on every thread they held, mark included. A covered thread
 can therefore be held by nobody however the mark behaves, and the return still
 has to give it to somebody.
 
-One case is left open either way, and is not fixed here: ending coverage with
-"leave them with the cover" on a thread that has no assignee leaves it with no
-assignee. Assigning it to the returning advisor would be wrong - she is the one
-leaving, and her account may already be switched off - and assigning it to the
-cover is behaviour no review round has asked for. The operational sweep does
-raise `UNASSIGNED_CONVERSATION` to managers for it, so it is visible rather than
-silent.
+This was first written with one case left open: ending coverage with "leave them
+with the cover" on a thread that had no assignee left it with no assignee. That
+has since been closed the obvious way - such a thread goes to the cover, which is
+what the button says - because leaving a thread owned by nobody is the same
+orphaning whichever ending produced it. Assigning it to the returning advisor
+would have been wrong, since she is the one leaving and her account may be
+switched off; the cover is not an invented owner.
 
 ## Portfolio Notes
 
