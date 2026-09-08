@@ -1016,34 +1016,29 @@ export async function endConversationCoverage(formData: FormData) {
     // with the reply rule is not a set anybody re-derives correctly twice.
     const coverUserId = cover.id;
     const coverName = cover.name;
-    const dispositions = new Map(
-      covered.map((conversation) => [
-        conversation.id,
-        coverageDisposition(outcome, returningUserId, coverUserId, conversation),
-      ]),
-    );
+    const decided = covered.map((conversation) => ({
+      ...conversation,
+      disposition: coverageDisposition(outcome, returningUserId, coverUserId, conversation),
+    }));
 
-    const idsWith = (disposition: CoverageDisposition) =>
-      covered
-        .filter((conversation) => dispositions.get(conversation.id) === disposition)
-        .map((conversation) => conversation.id);
+    const withDisposition = (disposition: CoverageDisposition) =>
+      decided.filter((conversation) => conversation.disposition === disposition);
 
-    const returningIds = idsWith("returned");
-    const alreadyBackIds = idsWith("alreadyHers");
-    const toCoverIds = idsWith("toTheCover");
+    const returned = withDisposition("returned");
+    const returningIds = returned.map((conversation) => conversation.id);
+    const alreadyBackIds = withDisposition("alreadyHers").map((conversation) => conversation.id);
+    const toCoverIds = withDisposition("toTheCover").map((conversation) => conversation.id);
 
     if (returningIds.length > 0) {
-      // The rows themselves, because who was holding one is a fact about the
-      // thread rather than about the account: coverage chains, and a thread can
-      // be routed on by hand mid-coverage, so the note has to name the holder it
-      // actually came back from.
-      const returned = covered.filter((conversation) => returningIds.includes(conversation.id));
-
       await tx.conversation.updateMany({
         where: { id: { in: returningIds } },
         data: { assignedUserId: returningUserId },
       });
 
+      // The rows themselves, because who was holding one is a fact about the
+      // thread rather than about the account: coverage chains, and a thread can
+      // be routed on by hand mid-coverage, so the note has to name the holder it
+      // actually came back from.
       await tx.message.createMany({
         data: returned.map((conversation) => ({
           conversationId: conversation.id,
@@ -1131,31 +1126,32 @@ export async function endConversationCoverage(formData: FormData) {
       },
     });
 
-    const moved = (conversation: { id: string }) => {
-      const disposition = dispositions.get(conversation.id);
-
-      return disposition === "returned" || disposition === "toTheCover";
+    const auditActions: Record<CoverageDisposition, string> = {
+      returned: "conversation.coverageReturned",
+      alreadyHers: "conversation.coverageAlreadyBack",
+      toTheCover: "conversation.coverageNotReturned",
+      staysPut: "conversation.coverageNotReturned",
     };
 
-    const heldAfterwards = (conversation: { id: string; assignedUserId: string | null }) => {
-      const disposition = dispositions.get(conversation.id);
+    const moved = (disposition: CoverageDisposition) =>
+      disposition === "returned" || disposition === "toTheCover";
 
-      if (disposition === "returned" || disposition === "alreadyHers") {
+    const heldAfterwards = (conversation: {
+      disposition: CoverageDisposition;
+      assignedUserId: string | null;
+    }) => {
+      if (conversation.disposition === "returned" || conversation.disposition === "alreadyHers") {
         return returningUserId;
       }
 
-      return disposition === "toTheCover" ? coverUserId : conversation.assignedUserId;
+      return conversation.disposition === "toTheCover" ? coverUserId : conversation.assignedUserId;
     };
 
-    if (covered.length > 0) {
+    if (decided.length > 0) {
       await tx.auditLog.createMany({
-        data: covered.map((conversation) => ({
+        data: decided.map((conversation) => ({
           userId: user.id,
-          action: returningIds.includes(conversation.id)
-            ? "conversation.coverageReturned"
-            : alreadyBackIds.includes(conversation.id)
-              ? "conversation.coverageAlreadyBack"
-              : "conversation.coverageNotReturned",
+          action: auditActions[conversation.disposition],
           entity: "Conversation",
           entityId: conversation.id,
           metadata: {
@@ -1169,7 +1165,9 @@ export async function endConversationCoverage(formData: FormData) {
             // `movedFrom` carries the account it came off, so the hop can be
             // reconstructed without either value standing in for the other.
             heldBy: heldAfterwards(conversation),
-            ...(moved(conversation) ? { movedFrom: conversation.assignedUserId } : {}),
+            ...(moved(conversation.disposition)
+              ? { movedFrom: conversation.assignedUserId }
+              : {}),
           },
         })),
       });

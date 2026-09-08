@@ -16,7 +16,12 @@ import {
   openConversationWhere,
   parseCoverageKind,
 } from "../src/lib/coverage";
-import { ConversationStatus, MessageDirection } from "../src/generated/prisma/enums";
+import { assigneeAddressedTypes } from "../src/lib/notification-facts";
+import {
+  ConversationStatus,
+  MessageDirection,
+  NotificationType,
+} from "../src/generated/prisma/enums";
 
 // An advisor goes away and her open conversations stay assigned to her, so the
 // customers in them are mid-conversation with somebody who is not reading.
@@ -488,15 +493,11 @@ describe("the alerts that follow a thread", () => {
     // Those are addressed to the *task's* assignee. Coverage moves
     // conversations, not follow-ups, and src/lib/task-access.ts already lets
     // the department work one either way.
-    const facts = read(join("src", "lib", "notification-facts.ts"));
-    const [, addressed] = facts.split("export const assigneeAddressedTypes");
-
-    assert.ok(addressed);
-
-    const list = addressed.split("];")[0];
-
-    assert.doesNotMatch(list, /FOLLOW_UP/);
-    assert.doesNotMatch(list, /SLA_MISSED|UNASSIGNED_CONVERSATION|MESSAGE_FAILED/);
+    assert.deepEqual([...assigneeAddressedTypes].sort(), [
+      NotificationType.CONVERSATION_ASSIGNED,
+      NotificationType.CONVERSATION_REASSIGNED,
+      NotificationType.NEW_INBOUND_MESSAGE,
+    ]);
   });
 });
 
