@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { accountFullName, accountInitials, accountShortName } from "@/lib/account-identity";
@@ -60,6 +61,12 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
           <div className="truncate text-sm font-medium">{accountFullName(name)}</div>
           <div className="text-xs text-zinc-500 dark:text-zinc-400">{role}</div>
         </div>
+        <Link
+          href="/coverage"
+          className="mt-3 block text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          Coverage
+        </Link>
         <div className="mt-3 flex gap-2">
           <ThemeToggle />
           <SignOutButton userId={userId} />

@@ -15,6 +15,7 @@ import { endOfDealershipDay } from "@/lib/dealership-day";
 import { prisma } from "@/lib/prisma";
 import {
   activeNotificationWhere,
+  assigneeAddressedTypes,
   notificationFactCountQuery,
   notificationSubjectColumns,
   type NotificationSubject,
@@ -235,6 +236,47 @@ export async function resolveConversationNotificationsTx(
   types?: NotificationType[],
 ) {
   await resolveConversationNotificationsWithClient(client, conversationId, types);
+}
+
+/**
+ * Re-addresses the alerts a thread raises against whoever holds it, when the
+ * thread changes hands.
+ *
+ * Coverage moves the assignment; without this the alerts already standing on
+ * those threads keep naming the advisor who has gone away. A `Notification` row
+ * is stored once per recipient, so those rows are then in nobody's rail: the
+ * cover has the threads in her queue and no alert telling her which of them are
+ * waiting on her - see `assigneeAddressedTypes` for which alerts those are and
+ * which deliberately stay put.
+ *
+ * Moves rather than resolves-and-raises. The fact has not changed - a customer
+ * is still waiting on that thread, since the moment they were - and re-raising
+ * would restart the clock the alert is a record of. Only the person answerable
+ * for it changed.
+ *
+ * Scoped to `from`, so a manager's own copy of a thread alert is untouched, and
+ * to alerts still outstanding, so a resolved row keeps the name of whoever
+ * actually resolved it.
+ */
+export async function readdressAssigneeNotificationsTx(
+  client: Prisma.TransactionClient,
+  conversationIds: string[],
+  from: string,
+  to: string,
+) {
+  if (conversationIds.length === 0) {
+    return;
+  }
+
+  await client.notification.updateMany({
+    where: {
+      conversationId: { in: conversationIds },
+      recipientUserId: from,
+      type: { in: assigneeAddressedTypes },
+      status: { not: NotificationStatus.RESOLVED },
+    },
+    data: { recipientUserId: to },
+  });
 }
 
 export async function resolveTaskNotifications(taskId: string) {

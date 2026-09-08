@@ -79,6 +79,25 @@ export const readResolvesNotificationTypes: NotificationType[] = [
   NotificationType.NEW_INBOUND_MESSAGE,
 ];
 
+/**
+ * The alerts a thread raises against whoever is holding it, which is why they
+ * follow the thread when it changes hands. A row is stored per recipient, so an
+ * alert left addressed to an advisor who has gone away is an alert nobody's
+ * rail can show - the work is still there and the one person now doing it is
+ * not told about it.
+ *
+ * The three types here are the ones written to `conversation.assignedUserId`.
+ * Everything else on a thread is addressed to managers, who are not the ones
+ * changing, and a follow-up's alerts go to the *task's* assignee - coverage
+ * moves conversations, not follow-ups, and `src/lib/task-access.ts` already
+ * lets the department work one either way.
+ */
+export const assigneeAddressedTypes: NotificationType[] = [
+  NotificationType.NEW_INBOUND_MESSAGE,
+  NotificationType.CONVERSATION_ASSIGNED,
+  NotificationType.CONVERSATION_REASSIGNED,
+];
+
 // The two lists are fixed tuples so the shapes a writer may build can be
 // derived from them below. A stored row's `type` arrives here as a plain
 // string, though, so widen them again to ask whether it is in one.

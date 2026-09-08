@@ -146,9 +146,20 @@ model User {
   // The last request this account was allowed through on, so an admin can see
   // that nothing succeeded after access ended. Only granted requests move it.
   lastSeenAt    DateTime?
+  // Who is holding this account's open conversations while they are away, and
+  // from when. Set together or not at all: `coveredSince` is the instant the
+  // return rule measures a reply against, so a cover with no start is a
+  // coverage nobody can end correctly. A permanent hand-off leaves both null -
+  // there is nothing to return.
+  coveredByUserId String?
+  coveredSince    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  coveredBy User?  @relation("Coverage", fields: [coveredByUserId], references: [id], onDelete: SetNull)
+  covering  User[] @relation("Coverage")
+
+  coveredConversations  Conversation[] @relation("CoveredConversations")
   assignedConversations Conversation[] @relation("AssignedConversations")
   sentMessages          Message[]      @relation("SentMessages")
   assignedTasks         Task[]         @relation("AssignedTasks")
@@ -212,6 +223,10 @@ model Conversation {
   id             String             @id @default(cuid())
   customerId     String
   assignedUserId String?
+  // The advisor this thread belongs to while somebody else is holding it. Set
+  // only for coverage that can end; a permanent hand-off moves the assignee and
+  // leaves this null, because there is nobody for it to go back to.
+  coveredForUserId String?
   department     Department
   status         ConversationStatus @default(OPEN)
   priority       Priority           @default(NORMAL)
@@ -223,6 +238,7 @@ model Conversation {
 
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   assignedUser User?             @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  coveredFor   User?             @relation("CoveredConversations", fields: [coveredForUserId], references: [id], onDelete: SetNull)
   messages     Message[]
   tasks        Task[]
   tags         ConversationTag[]
@@ -232,6 +248,7 @@ model Conversation {
 
   @@index([customerId])
   @@index([assignedUserId])
+  @@index([coveredForUserId])
   @@index([department, status])
   @@index([lastMessageAt])
 }

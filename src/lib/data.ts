@@ -19,6 +19,7 @@ import {
   scopedConversationWhere,
   unreachableDepartments,
 } from "@/lib/conversation-access";
+import { openConversationWhere } from "@/lib/coverage";
 import { getIntegrationHealth } from "@/lib/env";
 import {
   activeNotificationWhere,
@@ -1051,17 +1052,101 @@ export async function getTemplates() {
   });
 }
 
+/**
+ * How many still-open conversations each staff member is holding right now.
+ *
+ * Coverage moves exactly these, so the number the board shows before the click
+ * and the rows the hand-off actually moves are counted by one clause - see
+ * openConversationWhere in src/lib/coverage.ts. A staff member holding none is
+ * absent from the map rather than zero, which is what `?? 0` at each reader is
+ * for.
+ */
+async function openConversationCounts(by: "assignedUserId" | "coveredForUserId") {
+  const rows = await prisma.conversation.groupBy({
+    by: [by],
+    where: openConversationWhere,
+    _count: { _all: true },
+  });
+
+  return new Map(
+    rows.flatMap((row) => (row[by] ? [[row[by] as string, row._count._all] as const] : [])),
+  );
+}
+
+export type CoverageRow = {
+  id: string;
+  name: string;
+  role: string;
+  department: string | null;
+  active: boolean;
+  coveredByUserId: string | null;
+  /** Who is holding this advisor's conversations, and from when. */
+  coveredBy: { id: string; name: string } | null;
+  coveredSince: Date | null;
+  /** Open conversations assigned to this advisor right now. */
+  openConversations: number;
+  /** Open conversations of hers that are out with a cover. */
+  coveredAway: number;
+  /** The advisors this staff member is currently covering for. */
+  covering: Array<{ id: string; name: string }>;
+};
+
+/**
+ * The floor's coverage, for the page that arranges it.
+ *
+ * Everyone is returned, including inactive accounts: an advisor who has already
+ * been switched off is the case the feature was asked for, and her card is the
+ * only place her stranded conversations are visible. Who the reader may act on,
+ * and who may be offered as a cover, are decided by src/lib/coverage.ts from
+ * these rows rather than by filtering them away here - a colleague missing from
+ * the picker has to be able to say why.
+ */
+export async function getCoverageBoard(): Promise<CoverageRow[]> {
+  const [users, assigned, coveredAway] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        department: true,
+        active: true,
+        coveredByUserId: true,
+        coveredSince: true,
+        coveredBy: { select: { id: true, name: true } },
+        covering: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+      },
+    }),
+    openConversationCounts("assignedUserId"),
+    openConversationCounts("coveredForUserId"),
+  ]);
+
+  return users.map((user) => ({
+    ...user,
+    openConversations: assigned.get(user.id) ?? 0,
+    coveredAway: coveredAway.get(user.id) ?? 0,
+  }));
+}
+
 export async function getSettingsData() {
-  const [users, dealershipSettings, health] = await Promise.all([
+  const [users, openConversations, dealershipSettings, health] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ role: "asc" }, { name: "asc" }],
+      include: { coveredBy: { select: { id: true, name: true } } },
     }),
+    // Deactivating an account is where conversations get stranded, so the screen
+    // that does it says how many are on each account and who, if anyone, is
+    // reading them. Counted by the clause coverage itself moves by.
+    openConversationCounts("assignedUserId"),
     getDealershipSettings(),
     getIntegrationHealth(),
   ]);
 
   return {
-    users,
+    users: users.map((user) => ({
+      ...user,
+      openConversations: openConversations.get(user.id) ?? 0,
+    })),
     dealershipSettings,
     health,
   };

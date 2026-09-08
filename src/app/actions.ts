@@ -22,11 +22,20 @@ import {
 import {
   notifyAssignee,
   notifyManagers,
+  readdressAssigneeNotificationsTx,
   reopenConversationNotifications,
   resolveConversationNotifications,
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import {
+  canHandOffPermanently,
+  canManageCoverage,
+  coverRefusal,
+  coverageOutcome,
+  openConversationWhere,
+  parseCoverageKind,
+} from "@/lib/coverage";
 import {
   type CustomerProfileSaveResult,
   checkCustomerProfile,
@@ -636,6 +645,342 @@ export async function createStaffUser(formData: FormData) {
   });
 
   revalidatePath("/settings");
+}
+
+/**
+ * Hands an advisor's open conversations to somebody who is here.
+ *
+ * The gap this closes: an advisor goes on holiday, or leaves, or is switched
+ * off, and her open threads stay assigned to her. Nothing in the app moved
+ * them, so the customers in them are mid-conversation with a person who is not
+ * reading. Whether anyone else could even open those threads was luck - an
+ * advisor in the same department could, and a thread routed to a department
+ * nobody else works was reachable by no one at all.
+ *
+ * Two shapes, and the difference is only whether it can end. Temporary coverage
+ * marks each thread with the advisor it goes back to and records who is holding
+ * them from when; a permanent hand-off moves the assignment and marks nothing,
+ * because there is nobody for it to go back to.
+ *
+ * The customer is not told. That is deliberate and is not this action's call to
+ * make - see the PRD's non-goals.
+ */
+export async function startConversationCoverage(formData: FormData) {
+  const user = await requireUser();
+  const awayUserId = String(formData.get("userId") ?? "");
+  const coveringUserId = String(formData.get("coveringUserId") ?? "");
+  const kind = parseCoverageKind(String(formData.get("kind") ?? ""));
+
+  if (!awayUserId || !coveringUserId) {
+    throw new Error("An advisor and a cover are both required.");
+  }
+
+  if (!kind) {
+    throw new Error("Coverage must be temporary or permanent.");
+  }
+
+  // The board renders the same two rules to decide whose card carries a form
+  // and whether it offers "for good"; they are re-asked here because a form
+  // posted from a stale tab is not a form this app rendered.
+  if (!canManageCoverage(user, awayUserId)) {
+    throw new Error("Coverage access denied.");
+  }
+
+  if (kind === "permanent" && !canHandOffPermanently(user)) {
+    throw new Error("Only an admin can hand conversations over for good.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const [away, cover] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: awayUserId },
+        select: { id: true, name: true, active: true, coveredByUserId: true },
+      }),
+      tx.user.findUnique({
+        where: { id: coveringUserId },
+        select: { id: true, name: true, active: true, coveredByUserId: true },
+      }),
+    ]);
+
+    if (!away) {
+      throw new Error("That staff account no longer exists.");
+    }
+
+    // Reported as the sentence the picker would have shown, so an advisor who
+    // picked a colleague who went away in the meantime reads why rather than a
+    // bare failure.
+    const refusal = coverRefusal(away, cover);
+
+    if (refusal || !cover) {
+      throw new Error(refusal ?? "That staff account no longer exists.");
+    }
+
+    if (away.coveredByUserId) {
+      throw new Error("Those conversations are already covered. End that coverage first.");
+    }
+
+    const moving = await tx.conversation.findMany({
+      where: { assignedUserId: awayUserId, ...openConversationWhere },
+      select: { id: true },
+    });
+
+    const movingIds = moving.map((conversation) => conversation.id);
+
+    if (movingIds.length > 0) {
+      await tx.conversation.updateMany({
+        where: { id: { in: movingIds } },
+        data: { assignedUserId: cover.id },
+      });
+
+      // Only where nothing is recorded yet. A thread this advisor was herself
+      // covering already names the advisor it goes back to, and overwriting
+      // that would strand it with her when she returns - it belongs to somebody
+      // further back who is still away.
+      if (kind === "temporary") {
+        await tx.conversation.updateMany({
+          where: { id: { in: movingIds }, coveredForUserId: null },
+          data: { coveredForUserId: awayUserId },
+        });
+      }
+
+      await tx.message.createMany({
+        data: movingIds.map((conversationId) => ({
+          conversationId,
+          senderUserId: user.id,
+          direction: MessageDirection.INTERNAL,
+          kind: MessageKind.NOTE,
+          body:
+            kind === "temporary"
+              ? `System: ${user.name ?? "Staff"} handed this conversation to ${cover.name} while ${away.name} is away.`
+              : `System: ${user.name ?? "Staff"} handed this conversation from ${away.name} to ${cover.name} for good.`,
+          deliveryStatus: DeliveryStatus.INTERNAL,
+        })),
+      });
+
+      await readdressAssigneeNotificationsTx(tx, movingIds, awayUserId, cover.id);
+    }
+
+    if (kind === "temporary") {
+      // Written together: coveredSince is the instant the return rule measures
+      // a reply against, so coverage with no start is coverage nobody can end
+      // correctly.
+      await tx.user.update({
+        where: { id: awayUserId },
+        data: { coveredByUserId: cover.id, coveredSince: new Date() },
+      });
+    }
+
+    // Two records, because they answer two different questions and the audit
+    // log is indexed on (entity, entityId). The User row answers "who covered
+    // whom, when, and how many threads moved"; the Conversation rows answer
+    // "where did this thread go, and when" for one thread months later.
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "coverage.start",
+        entity: "User",
+        entityId: awayUserId,
+        metadata: { kind, coveringUserId: cover.id, conversations: movingIds.length },
+      },
+    });
+
+    if (movingIds.length > 0) {
+      await tx.auditLog.createMany({
+        data: movingIds.map((conversationId) => ({
+          userId: user.id,
+          action: "conversation.coverageStart",
+          entity: "Conversation",
+          entityId: conversationId,
+          metadata: { kind, from: awayUserId, to: cover.id },
+        })),
+      });
+    }
+  });
+
+  revalidatePath("/coverage");
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * Ends coverage, either way it can end.
+ *
+ * `return` is the advisor coming back. Everything the cover never answered goes
+ * back to her; anything the cover has replied to since coverage began stays
+ * with the cover until it closes, because handing a live exchange back is a
+ * second change of voice on the same conversation - see coverageOutcome in
+ * src/lib/coverage.ts, which is where that rule lives and is tested.
+ *
+ * `keep` is the trip that turned into a departure. Nothing moves; the marks
+ * that said these threads would go back are cleared, because now they will not.
+ *
+ * Handing threads back to an account that is switched off would recreate the
+ * exact state coverage exists to end, so that half is refused until the account
+ * is active again. Leaving them with the cover never is.
+ */
+export async function endConversationCoverage(formData: FormData) {
+  const user = await requireUser();
+  const returningUserId = String(formData.get("userId") ?? "");
+  const outcome = String(formData.get("outcome") ?? "");
+
+  if (!returningUserId) {
+    throw new Error("An advisor is required.");
+  }
+
+  if (outcome !== "return" && outcome !== "keep") {
+    throw new Error("Coverage ends either by handing the conversations back or by leaving them.");
+  }
+
+  if (!canManageCoverage(user, returningUserId)) {
+    throw new Error("Coverage access denied.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const returning = await tx.user.findUnique({
+      where: { id: returningUserId },
+      select: {
+        id: true,
+        name: true,
+        active: true,
+        coveredSince: true,
+        coveredBy: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!returning) {
+      throw new Error("That staff account no longer exists.");
+    }
+
+    if (!returning.coveredBy || !returning.coveredSince) {
+      throw new Error("Those conversations are not covered.");
+    }
+
+    if (outcome === "return" && !returning.active) {
+      throw new Error(
+        "Reactivate the account before handing its conversations back, or leave them with the cover.",
+      );
+    }
+
+    const covered = await tx.conversation.findMany({
+      where: { coveredForUserId: returningUserId },
+      select: {
+        id: true,
+        status: true,
+        assignedUserId: true,
+        // The coverage window only. Which of these messages counts as the cover
+        // having answered is coverageOutcome's decision, not this query's, so
+        // that rule stays in one testable place.
+        messages: {
+          where: { createdAt: { gte: returning.coveredSince } },
+          select: { direction: true, senderUserId: true },
+        },
+      },
+    });
+
+    // A thread closed during coverage stays with whoever closed it, so it is
+    // never a candidate to move - only its mark is cleared. That is the same
+    // rule that kept closed history out of the hand-off in the first place.
+    const returningIds =
+      outcome === "return"
+        ? covered
+            .filter(
+              (conversation) =>
+                conversation.status !== ConversationStatus.CLOSED &&
+                conversation.assignedUserId !== returningUserId &&
+                coverageOutcome(returningUserId, conversation.messages) === "returns",
+            )
+            .map((conversation) => conversation.id)
+        : [];
+
+    if (returningIds.length > 0) {
+      await tx.conversation.updateMany({
+        where: { id: { in: returningIds } },
+        data: { assignedUserId: returningUserId },
+      });
+
+      await tx.message.createMany({
+        data: returningIds.map((conversationId) => ({
+          conversationId,
+          senderUserId: user.id,
+          direction: MessageDirection.INTERNAL,
+          kind: MessageKind.NOTE,
+          body: `System: ${returning.name} is back, so this conversation returned to her from ${returning.coveredBy?.name}.`,
+          deliveryStatus: DeliveryStatus.INTERNAL,
+        })),
+      });
+
+      // Grouped by who was actually holding each thread: coverage can be
+      // chained, so the cover named on the account is not always the person the
+      // alerts on every returning thread are addressed to.
+      const holders = new Map<string, string[]>();
+
+      for (const conversation of covered) {
+        if (!conversation.assignedUserId || !returningIds.includes(conversation.id)) {
+          continue;
+        }
+
+        holders.set(conversation.assignedUserId, [
+          ...(holders.get(conversation.assignedUserId) ?? []),
+          conversation.id,
+        ]);
+      }
+
+      for (const [holderId, ids] of holders) {
+        await readdressAssigneeNotificationsTx(tx, ids, holderId, returningUserId);
+      }
+    }
+
+    // Every covered thread loses its mark, whichever way this ended: one that
+    // returned has arrived, and one that stayed is now genuinely the cover's.
+    await tx.conversation.updateMany({
+      where: { coveredForUserId: returningUserId },
+      data: { coveredForUserId: null },
+    });
+
+    await tx.user.update({
+      where: { id: returningUserId },
+      data: { coveredByUserId: null, coveredSince: null },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "coverage.end",
+        entity: "User",
+        entityId: returningUserId,
+        metadata: {
+          outcome,
+          coveringUserId: returning.coveredBy.id,
+          coveredSince: returning.coveredSince.toISOString(),
+          returned: returningIds.length,
+          stayed: covered.length - returningIds.length,
+        },
+      },
+    });
+
+    if (covered.length > 0) {
+      await tx.auditLog.createMany({
+        data: covered.map((conversation) => ({
+          userId: user.id,
+          action: returningIds.includes(conversation.id)
+            ? "conversation.coverageReturned"
+            : "conversation.coverageKept",
+          entity: "Conversation",
+          entityId: conversation.id,
+          metadata: {
+            coveredFor: returningUserId,
+            heldBy: conversation.assignedUserId,
+          },
+        })),
+      });
+    }
+  });
+
+  revalidatePath("/coverage");
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
 }
 
 export async function updateStaffUserStatus(formData: FormData) {

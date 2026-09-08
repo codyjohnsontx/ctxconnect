@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   createStaffUser,
@@ -14,7 +15,7 @@ import { getSettingsData } from "@/lib/data";
 import { getRequiredEnvironmentNames } from "@/lib/env";
 import { isAdmin, isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
-import { labelize } from "@/lib/utils";
+import { cn, labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +109,11 @@ export default async function SettingsPage() {
                       </div>
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
                       {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
+                      <OpenConversations
+                        active={user.active}
+                        openConversations={user.openConversations}
+                        coveredBy={user.coveredBy}
+                      />
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge>{labelize(user.role)}</Badge>
                         {user.department ? <Badge>{labelize(user.department)}</Badge> : null}
@@ -229,6 +235,57 @@ export default async function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What is still on this account, and whether anyone is reading it.
+ *
+ * Switching an account off ends its access and stops there - by design, so that
+ * one decision does not quietly become two. The conversations stay where they
+ * were, which is the state this line exists to make impossible to miss: an
+ * admin who has just deactivated somebody is one click from arranging cover
+ * for the customers still waiting on them.
+ */
+function OpenConversations({
+  active,
+  openConversations,
+  coveredBy,
+}: {
+  active: boolean;
+  openConversations: number;
+  coveredBy: { id: string; name: string } | null;
+}) {
+  if (coveredBy) {
+    return (
+      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+        Conversations covered by {coveredBy.name}.{" "}
+        <Link href="/coverage" className="underline underline-offset-2">
+          Coverage
+        </Link>
+      </p>
+    );
+  }
+
+  if (openConversations === 0) {
+    return null;
+  }
+
+  const stranded = !active;
+
+  return (
+    <p
+      className={cn(
+        "mt-2 text-sm",
+        stranded ? "text-amber-700 dark:text-amber-500" : "text-zinc-500 dark:text-zinc-400",
+      )}
+    >
+      {openConversations} open {openConversations === 1 ? "conversation" : "conversations"}
+      {stranded ? ", and nobody is reading them." : "."}{" "}
+      <Link href="/coverage" className="underline underline-offset-2">
+        {stranded ? "Arrange cover" : "Coverage"}
+      </Link>
+    </p>
   );
 }
 
