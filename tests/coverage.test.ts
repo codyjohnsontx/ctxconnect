@@ -13,6 +13,7 @@ import {
   coverageHolder,
   coverageLandsOn,
   coverageOutcome,
+  describeCoveredThreads,
   openConversationStatuses,
   openConversationWhere,
   parseCoverageKind,
@@ -389,6 +390,61 @@ describe("coverageLandsOn", () => {
     // be cleared at all.
     assert.deepEqual(coverageLandsOn(ben, [closed(ben), closed(null), closed(parts)]), []);
     assert.deepEqual(coverageLandsOn(ben, []), []);
+  });
+});
+
+describe("describeCoveredThreads", () => {
+  const ben = { id: "ben", name: "Ben" };
+  const parts = { id: "parts", name: "Parts" };
+  const held = (heldBy: typeof ben | null) => ({ heldBy });
+
+  it("counts what the cover is actually holding", () => {
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(ben), held(ben), held(ben)]),
+      "Ben is holding 3 of your open conversations.",
+    );
+    assert.equal(
+      describeCoveredThreads(ben, "Alyssa's", [held(ben)]),
+      "Ben is holding 1 of Alyssa's open conversation.",
+    );
+  });
+
+  it("does not claim the cover holds a thread somebody routed on by hand", () => {
+    // The line used to count the coverage mark, which a hand-reassignment
+    // deliberately leaves in place, so it told an admin the cover had five
+    // while a parts specialist had two of them - on the screen whose whole job
+    // is answering who is reading these customers.
+    assert.equal(
+      describeCoveredThreads(ben, "Alyssa's", [held(ben), held(ben), held(ben), held(parts), held(parts)]),
+      "5 of Alyssa's open conversations are covered: Ben has 3 and Parts has 2.",
+    );
+  });
+
+  it("says plainly when nobody is holding one", () => {
+    // The state coverage exists to end, so it is named rather than folded into
+    // the cover's count - which is what reading landsOn here would do.
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(ben), held(null)]),
+      "2 of your open conversations are covered: Ben has 1 and 1 is with nobody.",
+    );
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(null), held(null)]),
+      "2 of your open conversations are covered: 2 are with nobody.",
+    );
+  });
+
+  it("names the cover first and everyone else after", () => {
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(parts), held(null), held(ben)]),
+      "3 of your open conversations are covered: Ben has 1, Parts has 1 and 1 is with nobody.",
+    );
+  });
+
+  it("reports a coverage with nothing still open rather than counting to zero", () => {
+    // Reachable once the cover has closed everything, and the card is still
+    // rendered because the coverage record has not been ended. "Ben is holding
+    // 0" was the old reading.
+    assert.equal(describeCoveredThreads(ben, "your", []), "None of your conversations are still open.");
   });
 });
 

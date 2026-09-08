@@ -211,6 +211,77 @@ export function coverageLandsOn<Account>(
 }
 
 /**
+ * Who is actually reading an advisor's covered conversations right now.
+ *
+ * Counted by the account each thread is assigned to, never by the coverage
+ * mark. A covered thread keeps its mark when a manager routes it on by hand -
+ * that is deliberate, because the return still has to decide its fate - so
+ * counting marks and naming the cover told an admin "Ben is holding 5" while
+ * Ben held 3 and a parts specialist had the other two. Coverage chains for the
+ * same reason.
+ *
+ * Deliberately not `coverageLandsOn`, which is the other tense: that answers
+ * where a thread would end up if the coverage were left with the cover, and so
+ * reports one nobody holds as the cover's. Today nobody is reading that thread,
+ * and this is the line that says so.
+ *
+ * Returned as the sentence, the way describeOtherDepartments is, because the
+ * card is its only reader and the wording is the part that has to stay true.
+ * `whose` is the possessive the card is already using - "your" on her own card,
+ * "Alyssa's" on the floor.
+ */
+export function describeCoveredThreads(
+  cover: { id: string; name: string },
+  whose: string,
+  covered: ReadonlyArray<{ heldBy: { id: string; name: string } | null }>,
+): string {
+  const tally: Array<{ id: string | null; name: string | null; count: number }> = [];
+
+  for (const thread of covered) {
+    const id = thread.heldBy?.id ?? null;
+    const seen = tally.find((entry) => entry.id === id);
+
+    if (seen) {
+      seen.count += 1;
+    } else {
+      tally.push({ id, name: thread.heldBy?.name ?? null, count: 1 });
+    }
+  }
+
+  if (tally.length === 0) {
+    return `None of ${whose} conversations are still open.`;
+  }
+
+  const total = covered.length;
+
+  if (tally.length === 1 && tally[0].id === cover.id) {
+    return `${cover.name} is holding ${total} of ${whose} open ${
+      total === 1 ? "conversation" : "conversations"
+    }.`;
+  }
+
+  const ordered = [
+    ...tally.filter((entry) => entry.id === cover.id),
+    ...tally.filter((entry) => entry.id !== cover.id),
+  ];
+
+  const phrases = ordered.map((entry) =>
+    entry.name === null
+      ? `${entry.count} ${entry.count === 1 ? "is" : "are"} with nobody`
+      : `${entry.name} has ${entry.count}`,
+  );
+
+  const named =
+    phrases.length === 1
+      ? phrases[0]
+      : `${phrases.slice(0, -1).join(", ")} and ${phrases[phrases.length - 1]}`;
+
+  return `${total} of ${whose} open ${
+    total === 1 ? "conversation is" : "conversations are"
+  } covered: ${named}.`;
+}
+
+/**
  * Why coverage cannot be ended this way yet, or null when it can.
  *
  * Both halves say the same thing from opposite ends: after coverage ends, no

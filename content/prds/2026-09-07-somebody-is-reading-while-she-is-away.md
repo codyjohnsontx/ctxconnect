@@ -237,7 +237,13 @@ still switched off, because that would put them back where they started.
   stays put, because advancing it would stop counting the earlier cover's
   replies and threads that should stay with a cover would come back instead.
 * `Conversation.coveredForUserId` - the advisor a thread goes back to. Set only
-  by coverage that can end.
+  by coverage that can end. It is the mark, never the answer to "who is reading
+  this": a hand-reassignment deliberately leaves it in place, so the covered
+  line on the board counts each thread's real `assignedUserId` instead
+  (`describeCoveredThreads`), names anybody a thread has been routed on to, and
+  says outright how many nobody is holding. That is a different question from
+  `landsOn`, which reports a thread nobody holds as the cover's because that is
+  where leaving the coverage with her would put it.
 * `AuditLog` - `coverage.start` and `coverage.end` on the account, and
   `conversation.coverageStart` / `coverageReturned` / `coverageAlreadyBack` /
   `coverageNotReturned` on each conversation. The account row answers "who
@@ -299,19 +305,6 @@ inactive accounts, which should be zero.
   about to press goes unstated. Recorded rather than fixed: display only, and
   the narrower form is to append the note and keep the existing sentence
   whenever the hand-back is still available.
-* The board's covered line reads "<cover> is holding N of <advisor>'s
-  conversations", but N is `coveredAway`, which counts every open thread still
-  marked `coveredForUserId = advisor` regardless of who holds it now
-  (`openConversationCounts("coveredForUserId")` in `src/lib/data.ts`). A thread
-  routed on to a third person, or left unassigned, is still counted against the
-  cover - so with 5 covered threads of which a manager sent 2 to parts, the card
-  says 5 while the cover holds 3, and that is the number an admin reads before
-  deciding how to end the coverage. Recorded rather than fixed: it is a display
-  inaccuracy, not an orphaning and not a silent reversal of anyone's decision.
-  The fix is either to count what the cover actually holds (`assignedUserId =
-  coveredByUserId` as well as the mark) or to reword the line to what the number
-  is - "N of <advisor>'s conversations are out with a cover" - which is a copy
-  decision rather than a mechanical correction.
 * Should reassigning a covered thread by hand clear its `coveredForUserId` mark,
   so coverage stops tracking a thread somebody has re-owned? We think so, and it
   would retire the already-with-her case entirely. It touches

@@ -1122,8 +1122,13 @@ export type CoverageRow = {
   coveredSince: Date | null;
   /** Open conversations assigned to this advisor right now. */
   openConversations: number;
-  /** Open conversations of hers that are out with a cover. */
-  coveredAway: number;
+  /**
+   * Her open covered threads and who is actually reading each one, `heldBy`
+   * null for one nobody holds. `landsOn` below cannot answer that question: it
+   * reports a thread nobody holds as the cover's, because that is where leaving
+   * the coverage with her would put it.
+   */
+  coveredThreads: Array<{ heldBy: { id: string; name: string; active: boolean } | null }>;
   /**
    * The accounts that would actually be left holding those if this coverage were
    * left with the cover - each thread's current holder, or the cover for one
@@ -1144,7 +1149,7 @@ export type CoverageRow = {
  * these rows rather than by filtering them away here.
  */
 export async function getCoverageBoard(): Promise<CoverageRow[]> {
-  const [users, assigned, coveredAway, holders] = await Promise.all([
+  const [users, assigned, holders] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ name: "asc" }],
       select: {
@@ -1160,14 +1165,13 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
       },
     }),
     openConversationCounts("assignedUserId"),
-    openConversationCounts("coveredForUserId"),
     coveredThreadHolders(),
   ]);
 
   return users.map((user) => ({
     ...user,
     openConversations: assigned.get(user.id) ?? 0,
-    coveredAway: coveredAway.get(user.id) ?? 0,
+    coveredThreads: holders.get(user.id) ?? [],
     landsOn: user.coveredBy
       ? coverageLandsOn(user.coveredBy, holders.get(user.id) ?? [])
       : [],

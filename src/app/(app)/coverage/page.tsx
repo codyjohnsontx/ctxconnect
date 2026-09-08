@@ -8,6 +8,7 @@ import {
   canHandOffPermanently,
   canManageCoverage,
   coverageEndRefusal,
+  describeCoveredThreads,
 } from "@/lib/coverage";
 import { getCoverageBoard, type AppUser, type CoverageRow } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
@@ -134,11 +135,15 @@ function CoverageCard({
 }
 
 function CoveredState({ row, mine }: { row: CoverageRow; mine: boolean }) {
+  const cover = row.coveredBy;
+
+  if (!cover) {
+    return null;
+  }
+
   return (
     <p className="text-sm text-zinc-600 dark:text-zinc-300">
-      <span className="font-medium text-zinc-900 dark:text-zinc-100">{row.coveredBy?.name}</span> is
-      holding {row.coveredAway} of {mine ? "your" : `${row.name}'s`}{" "}
-      {row.coveredAway === 1 ? "conversation" : "conversations"}.
+      {describeCoveredThreads(cover, mine ? "your" : `${row.name}'s`, row.coveredThreads)}
       {row.coveredSince ? (
         <>
           {" "}
