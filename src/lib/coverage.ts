@@ -65,10 +65,12 @@ export type CoverageAccount = {
  * Why this person cannot be handed somebody else's conversations, or null when
  * they can.
  *
- * Returned as the sentence rather than as a boolean because the board has to
- * say why a colleague is missing from the picker - "she is away herself" and
- * "her account is switched off" are different facts about different people, and
- * an advisor deciding who to hand her customers to needs the difference.
+ * Returned as the sentence rather than as a boolean because the server action
+ * refuses the hand-off with it. The board never shows these: it filters its
+ * picker through `canCover`, so a name that reaches startConversationCoverage
+ * came from a stale or racing tab, and "she went away herself in the meantime"
+ * and "her account was switched off" are different facts about different
+ * people that whoever posted it needs told apart.
  */
 export function coverRefusal(
   away: CoverageAccount,
@@ -178,15 +180,4 @@ export function coverageOutcome(
   );
 
   return answeredByTheCover ? "stays" : "returns";
-}
-
-/**
- * The line each surface uses for one thread's outcome. Says what happened to
- * the thread and why, because "stays with the cover" is the half of this
- * feature nobody asked for explicitly and every reader will want the reason.
- */
-export function describeCoverageOutcome(outcome: CoverageOutcome, coverName: string) {
-  return outcome === "stays"
-    ? `Stays with ${coverName}, who has replied to the customer since coverage began.`
-    : "Returned, untouched by the cover.";
 }

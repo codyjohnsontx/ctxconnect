@@ -33,6 +33,7 @@ import {
   canManageCoverage,
   coverRefusal,
   coverageOutcome,
+  openConversationStatuses,
   openConversationWhere,
   parseCoverageKind,
 } from "@/lib/coverage";
@@ -721,7 +722,7 @@ export async function startConversationCoverage(formData: FormData) {
 
     const moving = await tx.conversation.findMany({
       where: { assignedUserId: awayUserId, ...openConversationWhere },
-      select: { id: true },
+      select: { id: true, coveredForUserId: true },
     });
 
     const movingIds = moving.map((conversation) => conversation.id);
@@ -758,6 +759,28 @@ export async function startConversationCoverage(formData: FormData) {
       });
 
       await readdressAssigneeNotificationsTx(tx, movingIds, awayUserId, cover.id);
+
+      // Coverage chains: threads this advisor was herself covering move on with
+      // the rest, so the advisors they go back to are now covered by this cover
+      // rather than by her. `coveredByUserId` has to follow the threads or the
+      // board, the return note and the audit all name somebody who is no longer
+      // holding anything. `coveredSince` deliberately does not move - it is the
+      // instant the return rule measures replies against, and shifting it would
+      // silently change which replies count.
+      const chained = [
+        ...new Set(
+          moving
+            .map((conversation) => conversation.coveredForUserId)
+            .filter((id): id is string => id !== null && id !== awayUserId),
+        ),
+      ];
+
+      if (chained.length > 0) {
+        await tx.user.updateMany({
+          where: { id: { in: chained } },
+          data: { coveredByUserId: cover.id },
+        });
+      }
     }
 
     if (kind === "temporary") {
@@ -894,7 +917,7 @@ export async function endConversationCoverage(formData: FormData) {
         ? covered
             .filter(
               (conversation) =>
-                conversation.status !== ConversationStatus.CLOSED &&
+                (openConversationStatuses as readonly string[]).includes(conversation.status) &&
                 conversation.assignedUserId !== returningUserId &&
                 coverageOutcome(returningUserId, conversation.messages) === "returns",
             )
@@ -913,7 +936,7 @@ export async function endConversationCoverage(formData: FormData) {
           senderUserId: user.id,
           direction: MessageDirection.INTERNAL,
           kind: MessageKind.NOTE,
-          body: `System: ${returning.name} is back, so this conversation returned to her from ${returning.coveredBy?.name}.`,
+          body: `System: ${returning.name} is back, so this conversation returned to them from ${returning.coveredBy?.name}.`,
           deliveryStatus: DeliveryStatus.INTERNAL,
         })),
       });
@@ -939,6 +962,18 @@ export async function endConversationCoverage(formData: FormData) {
       }
     }
 
+    // A thread can also already be back with the returning advisor without this
+    // action having moved it - updateConversation reassigns by hand and leaves
+    // the mark alone - and that is neither returned nor kept. Logging it as kept
+    // would have the audit assert the cover held a thread she does not.
+    const alreadyBackIds = covered
+      .filter(
+        (conversation) =>
+          !returningIds.includes(conversation.id) &&
+          conversation.assignedUserId === returningUserId,
+      )
+      .map((conversation) => conversation.id);
+
     // Every covered thread loses its mark, whichever way this ended: one that
     // returned has arrived, and one that stayed is now genuinely the cover's.
     await tx.conversation.updateMany({
@@ -962,7 +997,8 @@ export async function endConversationCoverage(formData: FormData) {
           coveringUserId: returning.coveredBy.id,
           coveredSince: returning.coveredSince.toISOString(),
           returned: returningIds.length,
-          stayed: covered.length - returningIds.length,
+          stayed: covered.length - returningIds.length - alreadyBackIds.length,
+          alreadyBack: alreadyBackIds.length,
         },
       },
     });
@@ -973,7 +1009,9 @@ export async function endConversationCoverage(formData: FormData) {
           userId: user.id,
           action: returningIds.includes(conversation.id)
             ? "conversation.coverageReturned"
-            : "conversation.coverageKept",
+            : alreadyBackIds.includes(conversation.id)
+              ? "conversation.coverageAlreadyBack"
+              : "conversation.coverageKept",
           entity: "Conversation",
           entityId: conversation.id,
           metadata: {

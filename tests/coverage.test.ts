@@ -128,9 +128,9 @@ describe("coverRefusal", () => {
   });
 
   it("gives a different reason for each refusal", () => {
-    // The board shows these to somebody choosing who to hand her customers to.
-    // "She is away herself" and "her account is switched off" are facts about
-    // different people and must not collapse into one sentence.
+    // The server action refuses a stale post with these. "She is away herself"
+    // and "her account is switched off" are facts about different people and
+    // must not collapse into one sentence.
     const reasons = [
       coverRefusal(alyssa, alyssa),
       coverRefusal(alyssa, switchedOff),
@@ -205,6 +205,17 @@ describe("what coverage moves", () => {
 describe("one copy of each rule", () => {
   const actions = join("src", "app", "actions.ts");
 
+  // One server action's own body, so a rule asserted here cannot be satisfied
+  // by a different action further down the file. Same slicing as
+  // tests/session-revocation.test.ts.
+  function serverAction(name: string) {
+    const [, body] = read(actions).split(`export async function ${name}(`);
+
+    assert.ok(body, `expected a ${name} server action`);
+
+    return body.split("\nexport ")[0];
+  }
+
   it("decides the return thread by thread through coverageOutcome", () => {
     // The action loads the coverage window and nothing more; which of those
     // messages counts as the cover having answered is decided in one tested
@@ -223,13 +234,26 @@ describe("one copy of each rule", () => {
     assert.match(read(join("src", "lib", "data.ts")), /where: openConversationWhere/);
   });
 
-  it("re-checks in the action every rule the board rendered", () => {
-    // A form posted from a stale tab is not a form this app rendered.
-    const source = read(actions);
+  it("re-checks in each action every rule the board rendered", () => {
+    // A form posted from a stale tab is not a form this app rendered, and both
+    // spellings of the permanent hand-off are the admin's alone: `permanent` on
+    // the way in, `keep` on the way out.
+    //
+    // Asserted against each action's own body rather than the whole file,
+    // because a whole-file grep for canHandOffPermanently passed before the way
+    // out was gated at all - the way in already mentioned it. Deleting the end
+    // gate would have left this green while an advisor could arrange her own
+    // coverage and then re-post the form with outcome flipped to keep.
+    const start = serverAction("startConversationCoverage");
+    const end = serverAction("endConversationCoverage");
 
-    for (const rule of ["canManageCoverage", "canHandOffPermanently", "coverRefusal"]) {
-      assert.match(source, new RegExp(`\\b${rule}\\(`), rule);
+    for (const body of [start, end]) {
+      assert.match(body, /!canManageCoverage\(user, /);
+      assert.match(body, /!canHandOffPermanently\(user\)/);
     }
+
+    // Only the hand-off picks a cover, so only it re-checks who may be one.
+    assert.match(start, /coverRefusal\(/);
   });
 
   it("keeps the rules out of the surfaces that render them", () => {
