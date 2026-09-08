@@ -35,6 +35,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  openConversationStatuses,
   openConversationWhere,
   parseCoverageKind,
   type CoverageDisposition,
@@ -964,23 +965,13 @@ export async function endConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are not covered.");
     }
 
-    // The board renders this rule to decide whether either button is pressable,
-    // and it is re-asked here because a form posted from a stale tab is not a
-    // form this app rendered - and because the account it names may have been
-    // switched off since the page was drawn.
-    const endRefusal = coverageEndRefusal(outcome, returning, returning.coveredBy);
-
-    if (endRefusal) {
-      throw new Error(endRefusal);
-    }
-
     const covered = await tx.conversation.findMany({
       where: { coveredForUserId: returningUserId },
       select: {
         id: true,
         status: true,
         assignedUserId: true,
-        assignedUser: { select: { name: true } },
+        assignedUser: { select: { name: true, active: true } },
         // The coverage window only, anchored on `coveredSince`, which is why
         // nothing may advance it once coverage has begun: a later instant stops
         // counting an earlier cover's replies, so threads that should stay with
@@ -993,6 +984,30 @@ export async function endConversationCoverage(formData: FormData) {
         },
       },
     });
+
+    // Every account a thread could be left holding, which is not only the cover:
+    // coverage chains, and a thread can be routed on by hand. Closed threads are
+    // left out because nothing is finalised onto anybody by leaving history where
+    // it is.
+    const landsOn = [
+      returning.coveredBy,
+      ...covered.flatMap((conversation) =>
+        conversation.assignedUser &&
+        (openConversationStatuses as readonly string[]).includes(conversation.status)
+          ? [conversation.assignedUser]
+          : [],
+      ),
+    ];
+
+    // The board renders this rule to decide whether either button is pressable,
+    // and it is re-asked here because a form posted from a stale tab is not a
+    // form this app rendered - and because any of those accounts may have been
+    // switched off since the page was drawn.
+    const endRefusal = coverageEndRefusal(outcome, returning, landsOn);
+
+    if (endRefusal) {
+      throw new Error(endRefusal);
+    }
 
     // One decision per covered thread, taken once in src/lib/coverage.ts. This
     // action moves threads and writes records; it does not restate the

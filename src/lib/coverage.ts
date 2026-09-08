@@ -191,9 +191,16 @@ export type CoverageEnd = "return" | "keep";
  * Both halves say the same thing from opposite ends: after coverage ends, no
  * open thread may be left with somebody who is not reading. Handing threads
  * back to a switched-off account puts them exactly where they started, and
- * finalising them onto a switched-off cover is worse - it also destroys the
- * mark that would have brought them back. Starting coverage already refuses an
- * inactive cover; this is the same rule at the other end.
+ * finalising them onto one is worse - it also destroys the mark that would have
+ * brought them back. Starting coverage already refuses an inactive cover; this
+ * is the same rule at the other end.
+ *
+ * `landsOn` is every account a thread could be left holding, not just the one
+ * the button names. Coverage can chain and a thread can be routed on by hand,
+ * so the cover is not always the account a thread would be finalised onto, and
+ * judging the ending by the named cover alone let a switched-off third party
+ * keep one. The hand-back needs it too, but only to know whether the other
+ * ending is still worth suggesting.
  *
  * A sentence rather than a boolean because both the board and the action need
  * it: the board disables the button and prints the reason, and the action
@@ -202,17 +209,23 @@ export type CoverageEnd = "return" | "keep";
 export function coverageEndRefusal(
   end: CoverageEnd,
   returning: { active: boolean },
-  cover: { active: boolean; name: string },
+  landsOn: ReadonlyArray<{ name: string; active: boolean }>,
 ): string | null {
+  const notReading = landsOn.find((account) => !account.active);
+
   if (end === "return") {
-    return returning.active
-      ? null
+    if (returning.active) {
+      return null;
+    }
+
+    return notReading
+      ? "Reactivate this account before handing its conversations back."
       : "Reactivate the account before handing its conversations back, or leave them with the cover.";
   }
 
-  return cover.active
-    ? null
-    : `${cover.name}'s account is switched off, so leaving these conversations with ${cover.name} would put them straight back with nobody reading. Reactivate that account, or arrange cover for it.`;
+  return notReading
+    ? `${notReading.name}'s account is switched off, so leaving these conversations there would put them straight back with nobody reading. Reactivate that account, or arrange cover for it.`
+    : null;
 }
 
 /** Where one covered thread ends up when coverage ends. */
@@ -242,6 +255,15 @@ export type CoverageDisposition = "returned" | "alreadyHers" | "toTheCover" | "s
  *   which is what the admin pressed. A null assignee is reachable both from the
  *   assignee picker's explicit unassigned option and from deleting a staff
  *   account, whose threads the foreign key nulls.
+ * - **Whoever holds it cannot read it.** On the hand-back it goes to her
+ *   instead. Staying put exists because the holder is mid-exchange with the
+ *   customer; a switched-off account is mid-nothing, so the reason to leave it
+ *   there is gone and honouring it would strand the thread for good - the mark
+ *   that could have brought it back is cleared as coverage ends. This
+ *   deliberately overrides the rule below: a routing decision to an account
+ *   nobody can sign in as is not a live decision, and it is not worth orphaning
+ *   a customer's thread to honour. The advisor returning is necessarily active,
+ *   because coverageEndRefusal refuses the hand-back otherwise.
  * - **Somebody else holds it.** A manager routing a covered thread to a parts
  *   specialist made a decision, and an advisor walking back in must not silently
  *   undo it. It stays with them whether or not anyone has replied.
@@ -255,6 +277,8 @@ export function coverageDisposition(
   conversation: {
     status: string;
     assignedUserId: string | null;
+    /** The account holding it now, so this can ask whether that account reads. */
+    assignedUser: { active: boolean } | null;
     /** The coverage window only - see coverageOutcome. */
     messages: ReadonlyArray<{ direction: string; senderUserId: string | null }>;
   },
@@ -269,6 +293,10 @@ export function coverageDisposition(
 
   if (conversation.assignedUserId === null) {
     return end === "return" ? "returned" : "toTheCover";
+  }
+
+  if (conversation.assignedUser && !conversation.assignedUser.active) {
+    return end === "return" ? "returned" : "staysPut";
   }
 
   if (conversation.assignedUserId !== coverUserId) {

@@ -208,12 +208,28 @@ function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser;
     return null;
   }
 
-  // Both refusals come from the same rule the action re-asks, so a button this
-  // page offers is never one the action turns into an error page - and the
-  // reason printed underneath is the sentence the action would have thrown.
-  const returnRefusal = coverageEndRefusal("return", row, cover);
-  const keepRefusal = coverageEndRefusal("keep", row, cover);
-  const reasons = [keepRefusal, returnRefusal].filter((reason) => reason !== null);
+  // Both refusals come from the same rule the action re-asks, over the same set
+  // of accounts, so a button this page offers is never one the action turns into
+  // an error page - and the reason printed underneath is the sentence the action
+  // would have thrown.
+  const landsOn = [cover, ...row.heldBy];
+  const notReading = landsOn.find((account) => !account.active);
+  const returnRefusal = coverageEndRefusal("return", row, landsOn);
+  const keepRefusal = coverageEndRefusal("keep", row, landsOn);
+  const mayHandOff = canHandOffPermanently(user);
+
+  // Only about buttons this reader is shown, and only where the hand-back is
+  // still off the table: an advisor has no "leave them with" control, so telling
+  // her why it is refused replaces the explanation of the one button she has.
+  const sentences = [
+    returnRefusal,
+    mayHandOff ? keepRefusal : null,
+    returnRefusal
+      ? null
+      : notReading
+        ? `Anything ${notReading.name} was holding comes back too - that account is switched off, so leaving a conversation there would leave it unread.`
+        : `Anything ${cover.name} has already replied to stays with ${cover.name} until it closes - handing a live exchange back would be a second change of voice for the customer. Everything else comes back.`,
+  ].filter((sentence) => sentence !== null);
 
   return (
     <div className="space-y-2">
@@ -224,7 +240,7 @@ function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser;
             {mine ? "I'm back" : `${row.name} is back`}
           </Button>
         </form>
-        {canHandOffPermanently(user) ? (
+        {mayHandOff ? (
           <form action={endConversationCoverage}>
             <input type="hidden" name="userId" value={row.id} />
             <Button
@@ -239,11 +255,7 @@ function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser;
           </form>
         ) : null}
       </div>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        {reasons.length > 0
-          ? reasons.join(" ")
-          : `Anything ${cover.name} has already replied to stays with ${cover.name} until it closes - handing a live exchange back would be a second change of voice for the customer. Everything else comes back.`}
-      </p>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">{sentences.join(" ")}</p>
     </div>
   );
 }

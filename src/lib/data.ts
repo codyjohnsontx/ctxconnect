@@ -1073,6 +1073,37 @@ async function openConversationCounts(by: "assignedUserId" | "coveredForUserId")
   );
 }
 
+/**
+ * Who is holding each advisor's covered threads right now, which is not always
+ * the cover - coverage chains, and a thread can be routed on by hand. The board
+ * needs it so it can ask coverageEndRefusal the same question the action asks,
+ * rather than offering a button the action would refuse.
+ */
+async function coveredThreadHolders() {
+  const rows = await prisma.conversation.findMany({
+    where: { coveredForUserId: { not: null }, ...openConversationWhere },
+    select: {
+      coveredForUserId: true,
+      assignedUser: { select: { id: true, name: true, active: true } },
+    },
+  });
+
+  const byAdvisor = new Map<string, Map<string, { id: string; name: string; active: boolean }>>();
+
+  for (const row of rows) {
+    if (!row.coveredForUserId || !row.assignedUser) {
+      continue;
+    }
+
+    const holders = byAdvisor.get(row.coveredForUserId) ?? new Map();
+
+    holders.set(row.assignedUser.id, row.assignedUser);
+    byAdvisor.set(row.coveredForUserId, holders);
+  }
+
+  return new Map([...byAdvisor].map(([advisor, holders]) => [advisor, [...holders.values()]]));
+}
+
 export type CoverageRow = {
   id: string;
   name: string;
@@ -1087,6 +1118,8 @@ export type CoverageRow = {
   openConversations: number;
   /** Open conversations of hers that are out with a cover. */
   coveredAway: number;
+  /** The accounts actually holding those, which is not always the cover. */
+  heldBy: Array<{ id: string; name: string; active: boolean }>;
   /** The advisors this staff member is currently covering for. */
   covering: Array<{ id: string; name: string }>;
 };
@@ -1101,7 +1134,7 @@ export type CoverageRow = {
  * these rows rather than by filtering them away here.
  */
 export async function getCoverageBoard(): Promise<CoverageRow[]> {
-  const [users, assigned, coveredAway] = await Promise.all([
+  const [users, assigned, coveredAway, holders] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ name: "asc" }],
       select: {
@@ -1118,12 +1151,14 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
     }),
     openConversationCounts("assignedUserId"),
     openConversationCounts("coveredForUserId"),
+    coveredThreadHolders(),
   ]);
 
   return users.map((user) => ({
     ...user,
     openConversations: assigned.get(user.id) ?? 0,
     coveredAway: coveredAway.get(user.id) ?? 0,
+    heldBy: holders.get(user.id) ?? [],
   }));
 }
 

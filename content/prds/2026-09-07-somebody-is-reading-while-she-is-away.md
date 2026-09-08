@@ -174,10 +174,14 @@ still switched off, because that would put them back where they started.
   no cover holding it for it to stay with.
 * Given the account is still switched off, when somebody posts the hand-back
   anyway, then it is refused and nothing moves.
-* Given the cover's account has been switched off during the coverage, when
-  somebody tries to leave the conversations with her, then it is refused and
-  nothing moves - the board disables the button and says why, and the action
-  refuses a stale post with the same sentence.
+* Given any account holding one of the covered conversations has been switched
+  off during the coverage, when somebody tries to leave the conversations with
+  the cover, then it is refused and nothing moves - the board disables the button
+  and names the account, and the action refuses a stale post with the same
+  sentence.
+* Given a covered conversation whose holder has been switched off, when the
+  advisor returns, then it comes back to her rather than staying put - whether
+  the holder was the cover or somebody a manager routed it to.
 * Given coverage ends either way, when it does, then no conversation is left
   carrying a mark and the account's coverage record is cleared.
 * Given an alert addressed to the advisor on a thread that moves, when it moves,
@@ -207,7 +211,11 @@ still switched off, because that would put them back where they started.
 * **A covered thread routed to somebody else during coverage.** A manager can
   hand a covered thread to a parts specialist, and reassigning it does not clear
   its mark. It stays with them when the advisor returns: they were given it
-  deliberately, and an advisor walking back in must not silently undo that.
+  deliberately, and an advisor walking back in must not silently undo that -
+  unless that account has since been switched off, in which case the thread comes
+  back to her. A routing decision to an account nobody can sign in as is not a
+  live decision, and coverage is about to clear the mark that would otherwise
+  have brought the thread back.
 * **A covered thread with no assignee.** Reachable from the picker's explicit
   unassigned option and from deleting a staff account, whose threads the foreign
   key nulls. It goes to somebody whichever way coverage ends, because a thread
