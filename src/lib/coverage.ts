@@ -249,15 +249,13 @@ export function describeCoveredThreads(
   }
 
   if (tally.length === 0) {
-    return `None of ${whose} conversations are still open.`;
+    return `Nothing handed to ${cover.name} is still open.`;
   }
 
   const total = covered.length;
 
   if (tally.length === 1 && tally[0].id === cover.id) {
-    return `${cover.name} is holding ${total} of ${whose} open ${
-      total === 1 ? "conversation" : "conversations"
-    }.`;
+    return `${cover.name} is holding ${total} of ${whose} open conversations.`;
   }
 
   const ordered = [
@@ -276,8 +274,8 @@ export function describeCoveredThreads(
       ? phrases[0]
       : `${phrases.slice(0, -1).join(", ")} and ${phrases[phrases.length - 1]}`;
 
-  return `${total} of ${whose} open ${
-    total === 1 ? "conversation is" : "conversations are"
+  return `${total} of ${whose} open conversations ${
+    total === 1 ? "is" : "are"
   } covered: ${named}.`;
 }
 

@@ -1061,15 +1061,17 @@ export async function getTemplates() {
  * absent from the map rather than zero, which is what `?? 0` at each reader is
  * for.
  */
-async function openConversationCounts(by: "assignedUserId" | "coveredForUserId") {
+async function openConversationCounts() {
   const rows = await prisma.conversation.groupBy({
-    by: [by],
+    by: ["assignedUserId"],
     where: openConversationWhere,
     _count: { _all: true },
   });
 
   return new Map(
-    rows.flatMap((row) => (row[by] ? [[row[by] as string, row._count._all] as const] : [])),
+    rows.flatMap((row) =>
+      row.assignedUserId ? [[row.assignedUserId, row._count._all] as const] : [],
+    ),
   );
 }
 
@@ -1164,7 +1166,7 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
         covering: { select: { id: true, name: true }, orderBy: { name: "asc" } },
       },
     }),
-    openConversationCounts("assignedUserId"),
+    openConversationCounts(),
     coveredThreadHolders(),
   ]);
 
@@ -1187,7 +1189,7 @@ export async function getSettingsData() {
     // Deactivating an account is where conversations get stranded, so the screen
     // that does it says how many are on each account and who, if anyone, is
     // reading them. Counted by the clause coverage itself moves by.
-    openConversationCounts("assignedUserId"),
+    openConversationCounts(),
     getDealershipSettings(),
     getIntegrationHealth(),
   ]);

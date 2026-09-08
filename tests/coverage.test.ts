@@ -403,9 +403,23 @@ describe("describeCoveredThreads", () => {
       describeCoveredThreads(ben, "your", [held(ben), held(ben), held(ben)]),
       "Ben is holding 3 of your open conversations.",
     );
+  });
+
+  it("keeps the set it is counting from plural and agrees only the verb", () => {
+    // One thread left is the routine end of a coverage - the cover closes them
+    // one at a time - so this is the reading an advisor sees most often, and
+    // "1 of Alyssa's open conversation" was the wrong half to pluralise.
     assert.equal(
       describeCoveredThreads(ben, "Alyssa's", [held(ben)]),
-      "Ben is holding 1 of Alyssa's open conversation.",
+      "Ben is holding 1 of Alyssa's open conversations.",
+    );
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(null)]),
+      "1 of your open conversations is covered: 1 is with nobody.",
+    );
+    assert.equal(
+      describeCoveredThreads(ben, "your", [held(parts)]),
+      "1 of your open conversations is covered: Parts has 1.",
     );
   });
 
@@ -440,11 +454,12 @@ describe("describeCoveredThreads", () => {
     );
   });
 
-  it("reports a coverage with nothing still open rather than counting to zero", () => {
-    // Reachable once the cover has closed everything, and the card is still
-    // rendered because the coverage record has not been ended. "Ben is holding
-    // 0" was the old reading.
-    assert.equal(describeCoveredThreads(ben, "your", []), "None of your conversations are still open.");
+  it("speaks only for the threads that were handed over", () => {
+    // Reachable once the cover has closed everything and the coverage record is
+    // still standing. It must not read as "your book is clear": a thread
+    // triaged onto her after coverage began carries no mark, so it is not in
+    // this set and is still open on somebody nobody has told her about.
+    assert.equal(describeCoveredThreads(ben, "your", []), "Nothing handed to Ben is still open.");
   });
 });
 
