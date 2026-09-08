@@ -186,30 +186,6 @@ export function coverageOutcome(
 export type CoverageEnd = "return" | "keep";
 
 /**
- * Why coverage cannot be ended this way yet, or null when it can.
- *
- * Both halves say the same thing from opposite ends: after coverage ends, no
- * open thread may be left with somebody who is not reading. Handing threads
- * back to a switched-off account puts them exactly where they started, and
- * finalising them onto one is worse - it also destroys the mark that would have
- * brought them back. Starting coverage already refuses an inactive cover; this
- * is the same rule at the other end.
- *
- * `landsOn` is every account that would actually be left holding one of these
- * threads if the coverage were left with the cover - each open thread's current
- * holder, or the cover for one nobody holds. Coverage can chain and a thread can
- * be routed on by hand, so the cover is not always the account a thread would be
- * finalised onto, and judging the ending by the named cover alone let a
- * switched-off third party keep one. Naming the cover regardless was wrong the
- * other way: it refused an ending that would have put nothing with her. The
- * hand-back reads the same set, but only to know whether the other ending is
- * still worth suggesting.
- *
- * A sentence rather than a boolean because both the board and the action need
- * it: the board disables the button and prints the reason, and the action
- * refuses a form posted from a stale tab with the same words.
- */
-/**
  * The accounts a coverage would leave holding something, which is what
  * coverageEndRefusal has to judge an ending by.
  *
@@ -234,6 +210,30 @@ export function coverageLandsOn<Account>(
   );
 }
 
+/**
+ * Why coverage cannot be ended this way yet, or null when it can.
+ *
+ * Both halves say the same thing from opposite ends: after coverage ends, no
+ * open thread may be left with somebody who is not reading. Handing threads
+ * back to a switched-off account puts them exactly where they started, and
+ * finalising them onto one is worse - it also destroys the mark that would have
+ * brought them back. Starting coverage already refuses an inactive cover; this
+ * is the same rule at the other end.
+ *
+ * `landsOn` is every account that would actually be left holding one of these
+ * threads if the coverage were left with the cover - each open thread's current
+ * holder, or the cover for one nobody holds. Coverage can chain and a thread can
+ * be routed on by hand, so the cover is not always the account a thread would be
+ * finalised onto, and judging the ending by the named cover alone let a
+ * switched-off third party keep one. Naming the cover regardless was wrong the
+ * other way: it refused an ending that would have put nothing with her. The
+ * hand-back reads the same set, but only to know whether the other ending is
+ * still worth suggesting.
+ *
+ * A sentence rather than a boolean because both the board and the action need
+ * it: the board disables the button and prints the reason, and the action
+ * refuses a form posted from a stale tab with the same words.
+ */
 export function coverageEndRefusal(
   end: CoverageEnd,
   returning: { active: boolean },
