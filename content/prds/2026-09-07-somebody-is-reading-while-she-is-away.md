@@ -157,7 +157,8 @@ still switched off, because that would put them back where they started.
   then the covering advisor can open it - and before coverage she could not.
 * Given coverage starts, when it is temporary, then each moved conversation
   records the advisor it goes back to; when it is permanent, then it records
-  nobody.
+  nobody - except a thread that was already covering for somebody else, which
+  keeps the mark it was first given and still goes back to her.
 * Given a closed conversation, when coverage starts, then it does not move.
 * Given the cover has replied to the customer on a thread since coverage began,
   when coverage ends with the advisor returning, then that thread stays with the

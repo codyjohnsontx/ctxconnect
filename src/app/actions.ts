@@ -735,15 +735,29 @@ export async function startConversationCoverage(formData: FormData) {
     // instant the return rule measures replies against, and advancing it would
     // stop counting the earlier cover's replies - so when the hand-off happened
     // is recorded in the audit log rather than on the account.
-    const chained = new Map<string, number>();
+    const marked = new Map<string, number>();
 
     for (const conversation of moving) {
       const markedFor = conversation.coveredForUserId;
 
       if (markedFor && markedFor !== awayUserId) {
-        chained.set(markedFor, (chained.get(markedFor) ?? 0) + 1);
+        marked.set(markedFor, (marked.get(markedFor) ?? 0) + 1);
       }
     }
+
+    // A mark alone is not enough to re-point an account. A thread routed on by
+    // hand carries the mark of an advisor this one may never have covered, and
+    // moving that advisor's pointer on the strength of the one thread would name
+    // a cover holding none of her others - her real cover still holds those.
+    // Only the advisors she is genuinely covering come with her, and this is the
+    // single list both the pointer rewrite and the audit rows below read.
+    const chained =
+      marked.size > 0
+        ? await tx.user.findMany({
+            where: { id: { in: [...marked.keys()] }, coveredByUserId: awayUserId },
+            select: { id: true },
+          })
+        : [];
 
     if (movingIds.length > 0) {
       await tx.conversation.updateMany({
@@ -778,9 +792,9 @@ export async function startConversationCoverage(formData: FormData) {
 
       await readdressAssigneeNotificationsTx(tx, movingIds, awayUserId, cover.id);
 
-      if (chained.size > 0) {
+      if (chained.length > 0) {
         await tx.user.updateMany({
-          where: { id: { in: [...chained.keys()] } },
+          where: { id: { in: chained.map(({ id }) => id) } },
           data: { coveredByUserId: cover.id },
         });
       }
@@ -815,26 +829,45 @@ export async function startConversationCoverage(formData: FormData) {
     // only the first. `chainedFrom` is what tells the two apart: the row on the
     // advisor actually going away carries none, and her `coveredSince` still
     // says when her coverage began rather than when this cover took over.
-    if (chained.size > 0) {
+    //
+    // Always temporary, whatever moved her threads on. Only temporary coverage
+    // writes a mark, and a permanent hand-off leaves an already-marked thread
+    // its mark, so her threads still come back to her.
+    if (chained.length > 0) {
       await tx.auditLog.createMany({
-        data: [...chained].map(([chainedUserId, conversations]) => ({
+        data: chained.map(({ id }) => ({
           userId: user.id,
           action: "coverage.start",
           entity: "User",
-          entityId: chainedUserId,
-          metadata: { kind, coveringUserId: cover.id, conversations, chainedFrom: awayUserId },
+          entityId: id,
+          metadata: {
+            kind: "temporary",
+            coveringUserId: cover.id,
+            conversations: marked.get(id) ?? 0,
+            chainedFrom: awayUserId,
+          },
         })),
       });
     }
 
     if (movingIds.length > 0) {
       await tx.auditLog.createMany({
-        data: movingIds.map((conversationId) => ({
+        data: moving.map((conversation) => ({
           userId: user.id,
           action: "conversation.coverageStart",
           entity: "Conversation",
-          entityId: conversationId,
-          metadata: { kind, from: awayUserId, to: cover.id },
+          entityId: conversation.id,
+          metadata: {
+            // Whether THIS thread comes back, which is not always the kind of
+            // hand-off that moved it: a permanent one leaves a thread that was
+            // already covering for somebody else the mark it was first given.
+            kind:
+              conversation.coveredForUserId !== null || kind === "temporary"
+                ? "temporary"
+                : "permanent",
+            from: awayUserId,
+            to: cover.id,
+          },
         })),
       });
     }
