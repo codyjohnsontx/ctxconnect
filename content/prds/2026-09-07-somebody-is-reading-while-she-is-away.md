@@ -328,12 +328,16 @@ inactive accounts, which should be zero.
   reply once", and it wrote fresh coverage marks onto closed history.
 
   What is not harmed: no conversation is left with nobody, and no customer is
-  abandoned. The holder is active and reading, and the thread simply does not
-  move a second time. `tests/coverage.test.ts` pins the return decision that
-  leaves it there. It does not pin the ordering: which advisor's return can even
-  see the thread is decided by `endConversationCoverage`'s loading clause and by
-  the mark-clearing scoped to the same id, and this repo's tests are
-  database-free and execute neither.
+  abandoned. The thread does move a second time, and it moves to the right
+  person - back to Alyssa, whose customer it is, rather than staying with a
+  cover they have never heard from. What is lost is only Ben's claim on it,
+  which nothing recorded. `tests/coverage.test.ts` pins both sides of that
+  return: the thread goes back to the advisor it belongs to when the cover
+  holding it never answered, and stays with the second cover once she has
+  answered the customer herself. It does not pin the ordering: which advisor's
+  return can even see the thread is decided by `endConversationCoverage`'s
+  loading clause and by the mark-clearing scoped to the same id, and this repo's
+  tests are database-free and execute neither.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
