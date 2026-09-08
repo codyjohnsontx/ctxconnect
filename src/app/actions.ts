@@ -35,7 +35,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
-  openConversationStatuses,
+  coverageLandsOn,
   openConversationWhere,
   parseCoverageKind,
   type CoverageDisposition,
@@ -965,6 +965,8 @@ export async function endConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are not covered.");
     }
 
+    const cover = returning.coveredBy;
+
     const covered = await tx.conversation.findMany({
       where: { coveredForUserId: returningUserId },
       select: {
@@ -985,19 +987,18 @@ export async function endConversationCoverage(formData: FormData) {
       },
     });
 
-    // Every account a thread could be left holding, which is not only the cover:
-    // coverage chains, and a thread can be routed on by hand. Closed threads are
-    // left out because nothing is finalised onto anybody by leaving history where
-    // it is.
-    const landsOn = [
-      returning.coveredBy,
-      ...covered.flatMap((conversation) =>
-        conversation.assignedUser &&
-        (openConversationStatuses as readonly string[]).includes(conversation.status)
-          ? [conversation.assignedUser]
-          : [],
-      ),
-    ];
+    // Every account that would actually be left holding one of these threads if
+    // the coverage were left with the cover: each open thread's current holder,
+    // or the cover for one nobody holds, which is the only case she is left with
+    // anything. Closed threads are left out because nothing is finalised onto
+    // anybody by leaving history where it is.
+    const landsOn = coverageLandsOn(
+      cover,
+      covered.map((conversation) => ({
+        status: conversation.status,
+        heldBy: conversation.assignedUser,
+      })),
+    );
 
     // The board renders this rule to decide whether either button is pressable,
     // and it is re-asked here because a form posted from a stale tab is not a
@@ -1013,8 +1014,8 @@ export async function endConversationCoverage(formData: FormData) {
     // action moves threads and writes records; it does not restate the
     // conditions, because the four holders a covered thread can have crossed
     // with the reply rule is not a set anybody re-derives correctly twice.
-    const coverUserId = returning.coveredBy.id;
-    const coverName = returning.coveredBy.name;
+    const coverUserId = cover.id;
+    const coverName = cover.name;
     const dispositions = new Map(
       covered.map((conversation) => [
         conversation.id,
@@ -1130,6 +1131,22 @@ export async function endConversationCoverage(formData: FormData) {
       },
     });
 
+    const moved = (conversation: { id: string }) => {
+      const disposition = dispositions.get(conversation.id);
+
+      return disposition === "returned" || disposition === "toTheCover";
+    };
+
+    const heldAfterwards = (conversation: { id: string; assignedUserId: string | null }) => {
+      const disposition = dispositions.get(conversation.id);
+
+      if (disposition === "returned" || disposition === "alreadyHers") {
+        return returningUserId;
+      }
+
+      return disposition === "toTheCover" ? coverUserId : conversation.assignedUserId;
+    };
+
     if (covered.length > 0) {
       await tx.auditLog.createMany({
         data: covered.map((conversation) => ({
@@ -1143,14 +1160,16 @@ export async function endConversationCoverage(formData: FormData) {
           entityId: conversation.id,
           metadata: {
             coveredFor: returningUserId,
-            // The only field that names a holder, which is why the action above
-            // says nothing about one. `null` here reads as nobody holds it: the
-            // assignee picker has an explicit unassigned option, and deleting a
-            // staff account nulls the assignment on everything they held.
-            heldBy:
-              dispositions.get(conversation.id) === "toTheCover"
-                ? coverUserId
-                : conversation.assignedUserId,
+            // Who holds the thread once this action is done, on every row and
+            // whichever way it got there, so the field means one thing wherever
+            // it is read. `null` reads as nobody holds it, which only a thread
+            // nothing moved can now be: the assignee picker has an explicit
+            // unassigned option, and deleting a staff account nulls the
+            // assignment on everything they held. Where the thread did move,
+            // `movedFrom` carries the account it came off, so the hop can be
+            // reconstructed without either value standing in for the other.
+            heldBy: heldAfterwards(conversation),
+            ...(moved(conversation) ? { movedFrom: conversation.assignedUserId } : {}),
           },
         })),
       });

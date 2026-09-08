@@ -247,8 +247,12 @@ still switched off, because that would put them back where they started.
   nothing to move. `coverageNotReturned` is everything else, and its name claims
   only that: a thread can end the coverage with the cover, with somebody she
   routed it on to, or with nobody at all, so the row's `heldBy` is the only
-  field that names a holder and `null` there means nobody does. `coverage.end`
-  counts the three as `returned`, `alreadyBack` and `notReturned`.
+  field that names a holder and `null` there means nobody does. `heldBy` is
+  always who holds the thread once the action is done, on every row, and a row
+  whose thread moved also carries `movedFrom` - the account it came off - so the
+  hop can be read back without either value standing in for the other.
+  `coverage.end` counts the three as `returned`, `alreadyBack` and
+  `notReturned`.
   `coverage.start` counts the advisor's own threads as `conversations` and
   everything the hand-off moved as `movedInTotal`: a thread she was holding for
   somebody else is counted on that advisor's chained row instead, and the two
@@ -287,6 +291,14 @@ inactive accounts, which should be zero.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
+* `EndCoverageForm` in `src/app/(app)/coverage/page.tsx` replaces the
+  stays-with-the-cover explanation with the inactive-holder note rather than
+  adding to it, so an advisor on her own card - who has no "leave them with"
+  button - can be shown only "Anything <holder> was holding comes back too...",
+  whose "too" has no antecedent, while the rule governing the button she is
+  about to press goes unstated. Recorded rather than fixed: display only, and
+  the narrower form is to append the note and keep the existing sentence
+  whenever the hand-back is still available.
 * The board's covered line reads "<cover> is holding N of <advisor>'s
   conversations", but N is `coveredAway`, which counts every open thread still
   marked `coveredForUserId = advisor` regardless of who holds it now

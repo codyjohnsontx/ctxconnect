@@ -195,17 +195,45 @@ export type CoverageEnd = "return" | "keep";
  * brought them back. Starting coverage already refuses an inactive cover; this
  * is the same rule at the other end.
  *
- * `landsOn` is every account a thread could be left holding, not just the one
- * the button names. Coverage can chain and a thread can be routed on by hand,
- * so the cover is not always the account a thread would be finalised onto, and
- * judging the ending by the named cover alone let a switched-off third party
- * keep one. The hand-back needs it too, but only to know whether the other
- * ending is still worth suggesting.
+ * `landsOn` is every account that would actually be left holding one of these
+ * threads if the coverage were left with the cover - each open thread's current
+ * holder, or the cover for one nobody holds. Coverage can chain and a thread can
+ * be routed on by hand, so the cover is not always the account a thread would be
+ * finalised onto, and judging the ending by the named cover alone let a
+ * switched-off third party keep one. Naming the cover regardless was wrong the
+ * other way: it refused an ending that would have put nothing with her. The
+ * hand-back reads the same set, but only to know whether the other ending is
+ * still worth suggesting.
  *
  * A sentence rather than a boolean because both the board and the action need
  * it: the board disables the button and prints the reason, and the action
  * refuses a form posted from a stale tab with the same words.
  */
+/**
+ * The accounts a coverage would leave holding something, which is what
+ * coverageEndRefusal has to judge an ending by.
+ *
+ * One open thread lands on whoever holds it now, and one nobody holds lands on
+ * the cover, because that is the only case the cover is left with anything -
+ * every other thread is finalised onto its current holder. Closed threads land
+ * on nobody: leaving history where it is finalises nothing onto anyone.
+ *
+ * Here rather than at each caller because the board and the action both build
+ * it, from different queries, and they have to agree - naming the cover
+ * regardless once refused an ending that would have put nothing with her, which
+ * left a coverage whose only two endings were both disabled.
+ */
+export function coverageLandsOn<Account>(
+  cover: Account,
+  covered: ReadonlyArray<{ status: string; heldBy: Account | null }>,
+): Account[] {
+  return covered.flatMap((thread) =>
+    (openConversationStatuses as readonly string[]).includes(thread.status)
+      ? [thread.heldBy ?? cover]
+      : [],
+  );
+}
+
 export function coverageEndRefusal(
   end: CoverageEnd,
   returning: { active: boolean },

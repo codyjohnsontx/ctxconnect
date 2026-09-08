@@ -19,7 +19,7 @@ import {
   scopedConversationWhere,
   unreachableDepartments,
 } from "@/lib/conversation-access";
-import { openConversationWhere } from "@/lib/coverage";
+import { coverageLandsOn, openConversationWhere } from "@/lib/coverage";
 import { getIntegrationHealth } from "@/lib/env";
 import {
   activeNotificationWhere,
@@ -1075,33 +1075,39 @@ async function openConversationCounts(by: "assignedUserId" | "coveredForUserId")
 
 /**
  * Who is holding each advisor's covered threads right now, which is not always
- * the cover - coverage chains, and a thread can be routed on by hand. The board
- * needs it so it can ask coverageEndRefusal the same question the action asks,
- * rather than offering a button the action would refuse.
+ * the cover - coverage chains, and a thread can be routed on by hand - and
+ * whether any of them is held by nobody, which is the only case the cover
+ * herself would be left with one. The board needs both so it can ask
+ * coverageEndRefusal the same question the action asks, rather than offering a
+ * button the action would refuse or refusing one the action would allow.
  */
 async function coveredThreadHolders() {
   const rows = await prisma.conversation.findMany({
     where: { coveredForUserId: { not: null }, ...openConversationWhere },
     select: {
       coveredForUserId: true,
+      status: true,
       assignedUser: { select: { id: true, name: true, active: true } },
     },
   });
 
-  const byAdvisor = new Map<string, Map<string, { id: string; name: string; active: boolean }>>();
+  const byAdvisor = new Map<
+    string,
+    Array<{ status: string; heldBy: { id: string; name: string; active: boolean } | null }>
+  >();
 
   for (const row of rows) {
-    if (!row.coveredForUserId || !row.assignedUser) {
+    if (!row.coveredForUserId) {
       continue;
     }
 
-    const holders = byAdvisor.get(row.coveredForUserId) ?? new Map();
-
-    holders.set(row.assignedUser.id, row.assignedUser);
-    byAdvisor.set(row.coveredForUserId, holders);
+    byAdvisor.set(row.coveredForUserId, [
+      ...(byAdvisor.get(row.coveredForUserId) ?? []),
+      { status: row.status, heldBy: row.assignedUser },
+    ]);
   }
 
-  return new Map([...byAdvisor].map(([advisor, holders]) => [advisor, [...holders.values()]]));
+  return byAdvisor;
 }
 
 export type CoverageRow = {
@@ -1118,8 +1124,12 @@ export type CoverageRow = {
   openConversations: number;
   /** Open conversations of hers that are out with a cover. */
   coveredAway: number;
-  /** The accounts actually holding those, which is not always the cover. */
-  heldBy: Array<{ id: string; name: string; active: boolean }>;
+  /**
+   * The accounts that would actually be left holding those if this coverage were
+   * left with the cover - each thread's current holder, or the cover for one
+   * nobody holds. Not always the cover, and empty when nothing is still open.
+   */
+  landsOn: Array<{ id: string; name: string; active: boolean }>;
   /** The advisors this staff member is currently covering for. */
   covering: Array<{ id: string; name: string }>;
 };
@@ -1158,7 +1168,9 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
     ...user,
     openConversations: assigned.get(user.id) ?? 0,
     coveredAway: coveredAway.get(user.id) ?? 0,
-    heldBy: holders.get(user.id) ?? [],
+    landsOn: user.coveredBy
+      ? coverageLandsOn(user.coveredBy, holders.get(user.id) ?? [])
+      : [],
   }));
 }
 

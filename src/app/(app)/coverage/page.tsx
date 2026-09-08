@@ -212,7 +212,7 @@ function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser;
   // of accounts, so a button this page offers is never one the action turns into
   // an error page - and the reason printed underneath is the sentence the action
   // would have thrown.
-  const landsOn = [cover, ...row.heldBy];
+  const landsOn = row.landsOn;
   const notReading = landsOn.find((account) => !account.active);
   const returnRefusal = coverageEndRefusal("return", row, landsOn);
   const keepRefusal = coverageEndRefusal("keep", row, landsOn);

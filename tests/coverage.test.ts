@@ -10,6 +10,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageLandsOn,
   coverageOutcome,
   openConversationStatuses,
   openConversationWhere,
@@ -228,6 +229,33 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
   });
 });
 
+describe("coverageLandsOn", () => {
+  const ben = { name: "Ben", active: true };
+  const parts = { name: "Parts", active: true };
+  const open = (heldBy: typeof ben | null) => ({ status: ConversationStatus.OPEN, heldBy });
+  const closed = (heldBy: typeof ben | null) => ({ status: ConversationStatus.CLOSED, heldBy });
+
+  it("lands each open thread on whoever holds it now", () => {
+    // Not on the cover: coverage chains, and a thread can be routed on by hand,
+    // so the account a thread is finalised onto is its own holder.
+    assert.deepEqual(coverageLandsOn(ben, [open(parts)]), [parts]);
+  });
+
+  it("lands a thread nobody holds on the cover", () => {
+    // The only case the cover is left with anything.
+    assert.deepEqual(coverageLandsOn(ben, [open(null)]), [ben]);
+  });
+
+  it("names nobody when every covered thread is closed", () => {
+    // Leaving history where it is finalises nothing onto anyone. Naming the
+    // cover regardless refused an ending that would have put nothing with her,
+    // which left a coverage whose two endings were both disabled and could not
+    // be cleared at all.
+    assert.deepEqual(coverageLandsOn(ben, [closed(ben), closed(null), closed(parts)]), []);
+    assert.deepEqual(coverageLandsOn(ben, []), []);
+  });
+});
+
 describe("coverageEndRefusal", () => {
   const ben = { active: true, name: "Ben" };
   const benIsOff = { active: false, name: "Ben" };
@@ -255,6 +283,15 @@ describe("coverageEndRefusal", () => {
     // now. Judging the ending by the named cover alone let a switched-off third
     // party keep one for good.
     assert.match(coverageEndRefusal("keep", { active: true }, [ben, partsIsOff]) ?? "", /Parts/);
+  });
+
+  it("allows an ending that would leave nothing with the switched-off account", () => {
+    // The cover used to be named unconditionally, so once she and the advisor
+    // had both left and every covered thread was closed, neither ending was
+    // pressable and the coverage record could not be cleared at all. An account
+    // belongs in the set only when a thread would really be left with it.
+    assert.equal(coverageEndRefusal("keep", { active: true }, []), null);
+    assert.equal(coverageEndRefusal("keep", { active: false }, []), null);
   });
 
   it("stops offering the hand-over as the alternative when it is refused too", () => {
