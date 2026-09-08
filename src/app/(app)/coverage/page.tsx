@@ -133,14 +133,13 @@ function CoveredState({ row, mine }: { row: CoverageRow; mine: boolean }) {
     <p className="text-sm text-zinc-600 dark:text-zinc-300">
       <span className="font-medium text-zinc-900 dark:text-zinc-100">{row.coveredBy?.name}</span> is
       holding {row.coveredAway} of {mine ? "your" : `${row.name}'s`}{" "}
-      {row.coveredAway === 1 ? "conversation" : "conversations"}
+      {row.coveredAway === 1 ? "conversation" : "conversations"}.
       {row.coveredSince ? (
         <>
           {" "}
-          since <LocalTimestamp value={row.coveredSince} />
+          Covered since <LocalTimestamp value={row.coveredSince} />.
         </>
       ) : null}
-      .
     </p>
   );
 }

@@ -178,7 +178,11 @@ still switched off, because that would put them back where they started.
 * **Chained coverage.** A covers for B, then A goes away and C takes over.
   Each thread keeps the mark it was first given, so B's thread returns to B
   whenever B comes back, from wherever it has got to. The mark is written once
-  and never overwritten.
+  and never overwritten. B's account pointer does move: `coveredByUserId` is
+  re-pointed at C, because it has to name whoever is holding her threads now,
+  and B gets her own `coverage.start` row carrying `chainedFrom` so the trail
+  names every cover rather than only the first. Her `coveredSince` stays where
+  it was - it is when B's coverage began, not when C took over.
 * **A reply that failed to send.** It counts as the cover having taken the
   thread on. The customer never saw it, but the cover is mid-fix with the
   failure banner in front of her, and handing the thread back drops the retry.
@@ -196,8 +200,13 @@ still switched off, because that would put them back where they started.
 ## Data Requirements
 
 * `User.coveredByUserId`, `User.coveredSince` - who is holding this account's
-  conversations and from when. Written together or not at all: `coveredSince` is
-  the instant the return rule measures a reply against.
+  conversations and from when. Both are written when coverage begins, or
+  neither is: `coveredSince` is the instant the return rule measures a reply
+  against, so a cover with no start is a coverage nobody can end correctly.
+  After that they part company. `coveredByUserId` follows the threads, so a
+  chained hand-off re-points it at whoever is holding them now. `coveredSince`
+  stays put, because advancing it would stop counting the earlier cover's
+  replies and threads that should stay with a cover would come back instead.
 * `Conversation.coveredForUserId` - the advisor a thread goes back to. Set only
   by coverage that can end.
 * `AuditLog` - `coverage.start` and `coverage.end` on the account, and

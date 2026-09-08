@@ -727,6 +727,24 @@ export async function startConversationCoverage(formData: FormData) {
 
     const movingIds = moving.map((conversation) => conversation.id);
 
+    // Coverage chains: threads this advisor was herself covering move on with
+    // the rest, so the advisors they go back to are now covered by this cover
+    // rather than by her. `coveredByUserId` has to follow the threads or the
+    // board, the return note and the audit all name somebody who is no longer
+    // holding anything. `coveredSince` deliberately does not move - it is the
+    // instant the return rule measures replies against, and advancing it would
+    // stop counting the earlier cover's replies - so when the hand-off happened
+    // is recorded in the audit log rather than on the account.
+    const chained = new Map<string, number>();
+
+    for (const conversation of moving) {
+      const markedFor = conversation.coveredForUserId;
+
+      if (markedFor && markedFor !== awayUserId) {
+        chained.set(markedFor, (chained.get(markedFor) ?? 0) + 1);
+      }
+    }
+
     if (movingIds.length > 0) {
       await tx.conversation.updateMany({
         where: { id: { in: movingIds } },
@@ -760,24 +778,9 @@ export async function startConversationCoverage(formData: FormData) {
 
       await readdressAssigneeNotificationsTx(tx, movingIds, awayUserId, cover.id);
 
-      // Coverage chains: threads this advisor was herself covering move on with
-      // the rest, so the advisors they go back to are now covered by this cover
-      // rather than by her. `coveredByUserId` has to follow the threads or the
-      // board, the return note and the audit all name somebody who is no longer
-      // holding anything. `coveredSince` deliberately does not move - it is the
-      // instant the return rule measures replies against, and shifting it would
-      // silently change which replies count.
-      const chained = [
-        ...new Set(
-          moving
-            .map((conversation) => conversation.coveredForUserId)
-            .filter((id): id is string => id !== null && id !== awayUserId),
-        ),
-      ];
-
-      if (chained.length > 0) {
+      if (chained.size > 0) {
         await tx.user.updateMany({
-          where: { id: { in: chained } },
+          where: { id: { in: [...chained.keys()] } },
           data: { coveredByUserId: cover.id },
         });
       }
@@ -806,6 +809,23 @@ export async function startConversationCoverage(formData: FormData) {
         metadata: { kind, coveringUserId: cover.id, conversations: movingIds.length },
       },
     });
+
+    // An advisor whose cover has itself gone away gets her own start row, so her
+    // account's trail names every person who has held her threads rather than
+    // only the first. `chainedFrom` is what tells the two apart: the row on the
+    // advisor actually going away carries none, and her `coveredSince` still
+    // says when her coverage began rather than when this cover took over.
+    if (chained.size > 0) {
+      await tx.auditLog.createMany({
+        data: [...chained].map(([chainedUserId, conversations]) => ({
+          userId: user.id,
+          action: "coverage.start",
+          entity: "User",
+          entityId: chainedUserId,
+          metadata: { kind, coveringUserId: cover.id, conversations, chainedFrom: awayUserId },
+        })),
+      });
+    }
 
     if (movingIds.length > 0) {
       await tx.auditLog.createMany({
@@ -899,9 +919,13 @@ export async function endConversationCoverage(formData: FormData) {
         id: true,
         status: true,
         assignedUserId: true,
-        // The coverage window only. Which of these messages counts as the cover
-        // having answered is coverageOutcome's decision, not this query's, so
-        // that rule stays in one testable place.
+        assignedUser: { select: { name: true } },
+        // The coverage window only, anchored on `coveredSince`, which is why
+        // nothing may advance it once coverage has begun: a later instant stops
+        // counting an earlier cover's replies, so threads that should stay with
+        // her would come back instead. Which of these messages counts as the
+        // cover having answered is coverageOutcome's decision, not this query's,
+        // so that rule stays in one testable place.
         messages: {
           where: { createdAt: { gte: returning.coveredSince } },
           select: { direction: true, senderUserId: true },
@@ -925,29 +949,35 @@ export async function endConversationCoverage(formData: FormData) {
         : [];
 
     if (returningIds.length > 0) {
+      // The rows themselves, because who was holding one is a fact about the
+      // thread rather than about the account: coverage chains, and a thread can
+      // be routed on by hand mid-coverage. The note and the alerts below both
+      // read the holder from here, so they cannot come to disagree about where
+      // a thread came back from.
+      const returned = covered.filter((conversation) => returningIds.includes(conversation.id));
+
       await tx.conversation.updateMany({
         where: { id: { in: returningIds } },
         data: { assignedUserId: returningUserId },
       });
 
       await tx.message.createMany({
-        data: returningIds.map((conversationId) => ({
-          conversationId,
+        data: returned.map((conversation) => ({
+          conversationId: conversation.id,
           senderUserId: user.id,
           direction: MessageDirection.INTERNAL,
           kind: MessageKind.NOTE,
-          body: `System: ${returning.name} is back, so this conversation returned to them from ${returning.coveredBy?.name}.`,
+          body: conversation.assignedUser
+            ? `System: ${returning.name} is back, so this conversation returned to them from ${conversation.assignedUser.name}.`
+            : `System: ${returning.name} is back, so this conversation returned to them.`,
           deliveryStatus: DeliveryStatus.INTERNAL,
         })),
       });
 
-      // Grouped by who was actually holding each thread: coverage can be
-      // chained, so the cover named on the account is not always the person the
-      // alerts on every returning thread are addressed to.
       const holders = new Map<string, string[]>();
 
-      for (const conversation of covered) {
-        if (!conversation.assignedUserId || !returningIds.includes(conversation.id)) {
+      for (const conversation of returned) {
+        if (!conversation.assignedUserId) {
           continue;
         }
 

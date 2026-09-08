@@ -1098,8 +1098,7 @@ export type CoverageRow = {
  * been switched off is the case the feature was asked for, and her card is the
  * only place her stranded conversations are visible. Who the reader may act on,
  * and who may be offered as a cover, are decided by src/lib/coverage.ts from
- * these rows rather than by filtering them away here - a colleague missing from
- * the picker has to be able to say why.
+ * these rows rather than by filtering them away here.
  */
 export async function getCoverageBoard(): Promise<CoverageRow[]> {
   const [users, assigned, coveredAway] = await Promise.all([

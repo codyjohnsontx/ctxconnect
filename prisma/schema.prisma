@@ -147,10 +147,15 @@ model User {
   // that nothing succeeded after access ended. Only granted requests move it.
   lastSeenAt    DateTime?
   // Who is holding this account's open conversations while they are away, and
-  // from when. Set together or not at all: `coveredSince` is the instant the
-  // return rule measures a reply against, so a cover with no start is a
-  // coverage nobody can end correctly. A permanent hand-off leaves both null -
-  // there is nothing to return.
+  // from when. Both are set when coverage begins, or neither is: `coveredSince`
+  // is the instant the return rule measures a reply against, so a cover with no
+  // start is a coverage nobody can end correctly. After that they part company.
+  // `coveredByUserId` follows the threads, so a chained hand-off re-points it at
+  // whoever is holding them now. `coveredSince` must NOT move: advancing it
+  // stops counting the earlier cover's replies, so threads that should stay with
+  // a cover would come back instead. When a chained hand-off happened is
+  // recorded in AuditLog. A permanent hand-off leaves both null - there is
+  // nothing to return.
   coveredByUserId String?
   coveredSince    DateTime?
   createdAt     DateTime @default(now())
