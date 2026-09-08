@@ -1027,8 +1027,8 @@ export async function endConversationCoverage(formData: FormData) {
 
     // A thread can also already be back with the returning advisor without this
     // action having moved it - updateConversation reassigns by hand and leaves
-    // the mark alone - and that is neither returned nor kept. Logging it as kept
-    // would have the audit assert the cover held a thread she does not.
+    // the mark alone - so the return had nothing to move and the record should
+    // not claim it did.
     const alreadyBackIds = covered
       .filter(
         (conversation) =>
@@ -1038,7 +1038,7 @@ export async function endConversationCoverage(formData: FormData) {
       .map((conversation) => conversation.id);
 
     // Every covered thread loses its mark, whichever way this ended: one that
-    // returned has arrived, and one that stayed is now genuinely the cover's.
+    // returned has arrived, and one that did not is now wherever it has got to.
     await tx.conversation.updateMany({
       where: { coveredForUserId: returningUserId },
       data: { coveredForUserId: null },
@@ -1060,8 +1060,10 @@ export async function endConversationCoverage(formData: FormData) {
           coveringUserId: returning.coveredBy.id,
           coveredSince: returning.coveredSince.toISOString(),
           returned: returningIds.length,
-          stayed: covered.length - returningIds.length - alreadyBackIds.length,
           alreadyBack: alreadyBackIds.length,
+          // Everything that did not come back, counted without claiming who has
+          // it: the cover, somebody she routed it on to, or nobody at all.
+          notReturned: covered.length - returningIds.length - alreadyBackIds.length,
         },
       },
     });
@@ -1074,11 +1076,15 @@ export async function endConversationCoverage(formData: FormData) {
             ? "conversation.coverageReturned"
             : alreadyBackIds.includes(conversation.id)
               ? "conversation.coverageAlreadyBack"
-              : "conversation.coverageKept",
+              : "conversation.coverageNotReturned",
           entity: "Conversation",
           entityId: conversation.id,
           metadata: {
             coveredFor: returningUserId,
+            // The only field that names a holder, which is why the action above
+            // says nothing about one. `null` here reads as nobody holds it: the
+            // assignee picker has an explicit unassigned option, and deleting a
+            // staff account nulls the assignment on everything they held.
             heldBy: conversation.assignedUserId,
           },
         })),

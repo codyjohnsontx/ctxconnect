@@ -211,14 +211,16 @@ still switched off, because that would put them back where they started.
 * `Conversation.coveredForUserId` - the advisor a thread goes back to. Set only
   by coverage that can end.
 * `AuditLog` - `coverage.start` and `coverage.end` on the account, and
-  `conversation.coverageStart` / `coverageReturned` / `coverageKept` /
-  `coverageAlreadyBack` on each conversation. The account row answers "who
+  `conversation.coverageStart` / `coverageReturned` / `coverageAlreadyBack` /
+  `coverageNotReturned` on each conversation. The account row answers "who
   covered whom and when"; the conversation rows answer "where did this thread
   go" for one thread months later. `coverageAlreadyBack` is the thread somebody
-  reassigned to the returning advisor by hand during coverage: it is neither
-  one the cover kept nor one the return moved, so `coverage.end` counts it as
-  `alreadyBack` beside `returned` and `stayed` rather than overstating what the
-  cover held.
+  reassigned to the returning advisor by hand during coverage, so the return had
+  nothing to move. `coverageNotReturned` is everything else, and its name claims
+  only that: a thread can end the coverage with the cover, with somebody she
+  routed it on to, or with nobody at all, so the row's `heldBy` is the only
+  field that names a holder and `null` there means nobody does. `coverage.end`
+  counts the three as `returned`, `alreadyBack` and `notReturned`.
 * An internal note on each conversation that actually changed hands, matching
   what a manual reassignment already writes.
 
