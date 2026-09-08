@@ -281,7 +281,9 @@ function OpenConversations({
       )}
     >
       {openConversations} open {openConversations === 1 ? "conversation" : "conversations"}
-      {stranded ? ", and nobody is reading them." : "."}{" "}
+      {stranded
+        ? `, and nobody is reading ${openConversations === 1 ? "it" : "them"}.`
+        : "."}{" "}
       <Link href="/coverage" className="underline underline-offset-2">
         {stranded ? "Arrange cover" : "Coverage"}
       </Link>

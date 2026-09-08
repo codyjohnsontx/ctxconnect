@@ -10,9 +10,11 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageHandOffNote,
   coverageHolder,
   coverageLandsOn,
   coverageOutcome,
+  coverageReturnsTo,
   describeCoveredThreads,
   openConversationStatuses,
   openConversationWhere,
@@ -603,6 +605,66 @@ describe("describeCoveredThreads", () => {
     assert.equal(
       describeCoveredThreads(alyssaAway, ben, [], onHerCard),
       "Nothing handed to Ben is still open.",
+    );
+  });
+});
+
+// The sentence a hand-off leaves in the thread, and the fact it is written
+// from. A note naming the wrong advisor is worse than no note: it is the
+// permanent in-thread trail somebody reads to work out whose customer this is.
+describe("what a hand-off writes in the thread", () => {
+  const alyssa = { id: "alyssa", name: "Alyssa" };
+  const ben = { id: "ben", name: "Ben" };
+  const cara = { id: "cara", name: "Cara" };
+  const unmarked = { coveredForUserId: null };
+  const markedForAlyssa = { coveredForUserId: "alyssa" };
+
+  const noteFor = (
+    kind: "temporary" | "permanent",
+    away: { id: string; name: string },
+    conversation: { coveredForUserId: string | null },
+    marked: ReadonlyArray<{ id: string; name: string }>,
+  ) =>
+    coverageHandOffNote({
+      byName: "Dana",
+      awayName: away.name,
+      coverName: cara.name,
+      returnsToName: coverageReturnsTo(kind, away, conversation, marked)?.name ?? null,
+    });
+
+  it("names the advisor going away when the thread is her own", () => {
+    assert.deepEqual(coverageReturnsTo("temporary", ben, unmarked, []), ben);
+    assert.equal(
+      noteFor("temporary", ben, unmarked, []),
+      "System: Dana handed this conversation to Cara while Ben is away.",
+    );
+  });
+
+  it("names nobody when a thread is genuinely given away", () => {
+    assert.equal(coverageReturnsTo("permanent", ben, unmarked, []), null);
+    assert.equal(
+      noteFor("permanent", ben, unmarked, []),
+      "System: Dana handed this conversation from Ben to Cara for good.",
+    );
+  });
+
+  // Ben is covering Alyssa, so this thread is Ben's to hold but Alyssa's to
+  // come back to. Ben then leaves for good and Cara takes his book. The thread
+  // goes with it and keeps Alyssa's mark, so it still returns to Alyssa - and
+  // the note has to say Alyssa, not Ben, who has not gone away but left.
+  it("names the advisor a chained thread returns to, not the one whose book moved", () => {
+    assert.deepEqual(coverageReturnsTo("permanent", ben, markedForAlyssa, [alyssa]), alyssa);
+    assert.equal(
+      noteFor("permanent", ben, markedForAlyssa, [alyssa]),
+      "System: Dana handed this conversation to Cara while Alyssa is away.",
+    );
+  });
+
+  it("names her the same way when the cover has only gone away", () => {
+    assert.deepEqual(coverageReturnsTo("temporary", ben, markedForAlyssa, [alyssa]), alyssa);
+    assert.equal(
+      noteFor("temporary", ben, markedForAlyssa, [alyssa]),
+      "System: Dana handed this conversation to Cara while Alyssa is away.",
     );
   });
 });

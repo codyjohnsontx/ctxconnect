@@ -213,6 +213,58 @@ export function coverageLandsOn<Account>(
 }
 
 /**
+ * The advisor a thread goes back to once this hand-off has moved it.
+ *
+ * A thread already carrying a mark keeps it, whichever button was pressed: it
+ * is covering for an advisor further back, and handing a cover's book over -
+ * even for good - does not give that advisor's customer away. So the advisor a
+ * thread returns to is not always the advisor the hand-off is about. Only a
+ * thread left carrying no mark has genuinely been handed over, and that is the
+ * one case this names nobody for.
+ *
+ * Here rather than inline at the action because three records read it and have
+ * to agree: the conversation's audit row, the in-thread note, and the note's
+ * choice of wording.
+ */
+export function coverageReturnsTo(
+  kind: CoverageKind,
+  away: { id: string; name: string },
+  conversation: { coveredForUserId: string | null },
+  marked: ReadonlyArray<{ id: string; name: string }>,
+): { id: string; name: string } | null {
+  const goesBackTo = conversation.coveredForUserId ?? (kind === "temporary" ? away.id : null);
+
+  if (goesBackTo === null) {
+    return null;
+  }
+
+  return [away, ...marked].find((advisor) => advisor.id === goesBackTo) ?? null;
+}
+
+/**
+ * The note a hand-off leaves in the thread itself - the trail an advisor reads
+ * months later to work out who has been talking to her customer, and why.
+ *
+ * It names the advisor the thread genuinely returns to rather than the advisor
+ * whose book was handed over, because on a chained thread those are different
+ * people. Naming the wrong one puts a false sentence in a permanent record, and
+ * a note naming the wrong person is worse than no note.
+ *
+ * Nobody to return to is the only genuine give-away, and is the only case that
+ * reads as one.
+ */
+export function coverageHandOffNote(handOff: {
+  byName: string;
+  awayName: string;
+  coverName: string;
+  returnsToName: string | null;
+}): string {
+  return handOff.returnsToName
+    ? `System: ${handOff.byName} handed this conversation to ${handOff.coverName} while ${handOff.returnsToName} is away.`
+    : `System: ${handOff.byName} handed this conversation from ${handOff.awayName} to ${handOff.coverName} for good.`;
+}
+
+/**
  * Who is actually reading an advisor's covered conversations right now.
  *
  * Counted by the account each thread is assigned to, never by the coverage

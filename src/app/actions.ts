@@ -35,8 +35,10 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageHandOffNote,
   coverageHolder,
   coverageLandsOn,
+  coverageReturnsTo,
   openConversationWhere,
   parseCoverageKind,
   type CoverageDisposition,
@@ -750,16 +752,22 @@ export async function startConversationCoverage(formData: FormData) {
       }
     }
 
+    // Every advisor a moving thread is marked for, named, because the thread's
+    // note has to say whose customer it is rather than whose book moved.
+    const markedAdvisors =
+      marked.size > 0
+        ? await tx.user.findMany({
+            where: { id: { in: [...marked.keys()] } },
+            select: { id: true, name: true, coveredByUserId: true },
+          })
+        : [];
+
     // What each moving thread goes back to once it has moved, decided once
-    // because everything that records the move has to agree about it. A
-    // permanent hand-off deliberately leaves a thread that was already covering
-    // for somebody else the mark it was first given, so that thread still goes
-    // back to her whatever button was pressed; only a thread carrying no mark
-    // afterwards has genuinely been given away.
+    // because everything that records the move has to agree about it.
     const returnsTo = new Map(
       moving.map((conversation) => [
         conversation.id,
-        conversation.coveredForUserId ?? (kind === "temporary" ? awayUserId : null),
+        coverageReturnsTo(kind, away, conversation, markedAdvisors),
       ]),
     );
 
@@ -769,13 +777,9 @@ export async function startConversationCoverage(formData: FormData) {
     // a cover holding none of her others - her real cover still holds those.
     // Only the advisors she is genuinely covering come with her, and this is the
     // single list both the pointer rewrite and the audit rows below read.
-    const chained =
-      marked.size > 0
-        ? await tx.user.findMany({
-            where: { id: { in: [...marked.keys()] }, coveredByUserId: awayUserId },
-            select: { id: true },
-          })
-        : [];
+    const chained = markedAdvisors.filter(
+      (advisor) => advisor.coveredByUserId === awayUserId,
+    );
 
     if (movingIds.length > 0) {
       await tx.conversation.updateMany({
@@ -800,9 +804,12 @@ export async function startConversationCoverage(formData: FormData) {
           senderUserId: user.id,
           direction: MessageDirection.INTERNAL,
           kind: MessageKind.NOTE,
-          body: returnsTo.get(conversation.id)
-            ? `System: ${user.name ?? "Staff"} handed this conversation to ${cover.name} while ${away.name} is away.`
-            : `System: ${user.name ?? "Staff"} handed this conversation from ${away.name} to ${cover.name} for good.`,
+          body: coverageHandOffNote({
+            byName: user.name ?? "Staff",
+            awayName: away.name,
+            coverName: cover.name,
+            returnsToName: returnsTo.get(conversation.id)?.name ?? null,
+          }),
           deliveryStatus: DeliveryStatus.INTERNAL,
         })),
       });
