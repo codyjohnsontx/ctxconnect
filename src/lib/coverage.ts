@@ -396,7 +396,7 @@ export function describeThreadsOffCoverage(
 
   const whose = mine ? "your account" : "this account";
   const noun = offCoverage === 1 ? "conversation is" : "conversations are";
-  const sentence = `${offCoverage} more open ${noun} still on ${whose}, outside this coverage`;
+  const sentence = `${offCoverage} open ${noun} still on ${whose}, outside this coverage`;
 
   return active
     ? `${sentence}.`
@@ -450,7 +450,12 @@ export function coverageEndRefusal(
 }
 
 /** Where one covered thread ends up when coverage ends. */
-export type CoverageDisposition = "returned" | "alreadyHers" | "toTheCover" | "staysPut";
+export type CoverageDisposition =
+  | "returned"
+  | "alreadyHers"
+  | "toTheCover"
+  | "closed"
+  | "staysPut";
 
 /**
  * What becomes of one covered thread when the advisor it belongs to comes back.
@@ -509,7 +514,7 @@ export function coverageDisposition(
   }
 
   if (!isOpenConversation(conversation.status)) {
-    return "staysPut";
+    return "closed";
   }
 
   if (conversation.assignedUserId === null) {
@@ -555,7 +560,33 @@ export function coverageHolder(
       return returningUserId;
     case "toTheCover":
       return coverUserId;
+    case "closed":
     case "staysPut":
       return heldNow;
   }
+}
+
+/**
+ * What one coverage ended up doing, counted for the `coverage.end` audit row.
+ *
+ * A partition of the dispositions: every covered thread falls in exactly one
+ * bucket and the buckets sum to the total, because each is counted from the one
+ * decision `coverageDisposition` already made about that thread. Counting any
+ * of them a second way - re-reading a thread's status here, say - is how a
+ * thread came to be counted twice and `notReturned` came to be short by one.
+ *
+ * `closed` is finished business rather than an unmade hand-off, so it is not
+ * folded into `notReturned`, which would otherwise read as open customer
+ * threads left with somebody else.
+ */
+export function coverageEndTally(dispositions: ReadonlyArray<CoverageDisposition>) {
+  const count = (...of: CoverageDisposition[]) =>
+    dispositions.filter((disposition) => of.includes(disposition)).length;
+
+  return {
+    returned: count("returned"),
+    alreadyBack: count("alreadyHers"),
+    closed: count("closed"),
+    notReturned: count("toTheCover", "staysPut"),
+  };
 }

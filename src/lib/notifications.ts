@@ -231,29 +231,22 @@ export async function notifyAssigneeTx(
 }
 
 /**
- * Withdraws alerts across the batch of threads one action has just given an
- * owner. Same rule as the single-thread form - an alert about a state that has
- * stopped being true is resolved rather than deleted, so the rail keeps the
- * record of it - in the shape a batch needs, because looping an updateMany per
- * thread inside a transaction is the same write done N times.
+ * Withdraws the alerts about a state that has stopped being true - resolved
+ * rather than deleted, so the rail keeps the record of it.
+ *
+ * Takes one thread or a batch of them, because an action that has just given a
+ * whole coverage's worth of threads an owner wants one write rather than the
+ * same write N times inside its transaction. An empty batch skips the write.
  */
-export async function resolveManyConversationNotificationsTx(
+export async function resolveConversationNotificationsTx(
   client: Prisma.TransactionClient,
-  conversationIds: string[],
-  types: NotificationType[],
+  conversationId: string | string[],
+  types?: NotificationType[],
 ) {
-  if (conversationIds.length === 0) {
+  if (Array.isArray(conversationId) && conversationId.length === 0) {
     return;
   }
 
-  await resolveConversationNotificationsWithClient(client, conversationIds, types);
-}
-
-export async function resolveConversationNotificationsTx(
-  client: Prisma.TransactionClient,
-  conversationId: string,
-  types?: NotificationType[],
-) {
   await resolveConversationNotificationsWithClient(client, conversationId, types);
 }
 

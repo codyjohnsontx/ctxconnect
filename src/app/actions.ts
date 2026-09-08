@@ -23,9 +23,9 @@ import {
   notifyAssignee,
   notifyManagers,
   readdressAssigneeNotificationsTx,
-  resolveManyConversationNotificationsTx,
   reopenConversationNotifications,
   resolveConversationNotifications,
+  resolveConversationNotificationsTx,
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
@@ -35,11 +35,11 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageEndTally,
   coverageHandOffNote,
   coverageHolder,
   coverageLandsOn,
   coverageReturnsTo,
-  isOpenConversation,
   openConversationWhere,
   parseCoverageKind,
   type CoverageDisposition,
@@ -1035,9 +1035,7 @@ export async function endConversationCoverage(formData: FormData) {
     const withDisposition = (disposition: CoverageDisposition) =>
       decided.filter((conversation) => conversation.disposition === disposition);
 
-    const closedCount = covered.filter(
-      (conversation) => !isOpenConversation(conversation.status),
-    ).length;
+    const tally = coverageEndTally(decided.map((conversation) => conversation.disposition));
 
     const returned = withDisposition("returned");
     const returningIds = returned.map((conversation) => conversation.id);
@@ -1095,7 +1093,7 @@ export async function endConversationCoverage(formData: FormData) {
     // has stopped being true for them, and an alert about a fact that has
     // stopped being true is withdrawn - the same thing updateConversation does
     // when an assignment lands there.
-    await resolveManyConversationNotificationsTx(tx, [...returningIds, ...toCoverIds], [
+    await resolveConversationNotificationsTx(tx, [...returningIds, ...toCoverIds], [
       NotificationType.UNASSIGNED_CONVERSATION,
     ]);
 
@@ -1132,17 +1130,10 @@ export async function endConversationCoverage(formData: FormData) {
           outcome,
           coveringUserId: returning.coveredBy.id,
           coveredSince: returning.coveredSince.toISOString(),
-          returned: returningIds.length,
-          alreadyBack: alreadyBackIds.length,
-          // Finished while she was away, so there was never a hand-off to make.
-          // Counted apart from notReturned, which would otherwise read as open
-          // customer threads left with somebody else.
-          closed: closedCount,
-          // Everything still open that did not come back, counted without
-          // claiming who has it: the cover, somebody she routed it on to, or
-          // nobody at all.
-          notReturned:
-            covered.length - returningIds.length - alreadyBackIds.length - closedCount,
+          // One bucket per thread, from the decision already made about it -
+          // `notReturned` counts the threads that stayed rather than being what
+          // is left over when the others are taken away.
+          ...tally,
         },
       },
     });
@@ -1151,6 +1142,7 @@ export async function endConversationCoverage(formData: FormData) {
       returned: "conversation.coverageReturned",
       alreadyHers: "conversation.coverageAlreadyBack",
       toTheCover: "conversation.coverageNotReturned",
+      closed: "conversation.coverageNotReturned",
       staysPut: "conversation.coverageNotReturned",
     };
 

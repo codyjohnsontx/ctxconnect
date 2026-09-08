@@ -10,6 +10,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageEndTally,
   coverageHandOffNote,
   coverageHolder,
   coverageLandsOn,
@@ -331,7 +332,7 @@ describe("coverageDisposition", () => {
     for (const holder of ["ben", "parts", null]) {
       assert.equal(
         coverageDisposition("return", "alyssa", "ben", thread(holder, [], ConversationStatus.CLOSED)),
-        "staysPut",
+        "closed",
         `closed thread held by ${holder ?? "nobody"}`,
       );
     }
@@ -369,7 +370,7 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
     assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("parts")), "staysPut");
     assert.equal(
       coverageDisposition("keep", "alyssa", "ben", thread(null, [], ConversationStatus.CLOSED)),
-      "staysPut",
+      "closed",
     );
   });
 
@@ -448,6 +449,66 @@ describe("a thread that passes through two coverages", () => {
   });
 });
 
+// The counts on the `coverage.end` audit row. They are a partition by
+// construction - each thread contributes its one disposition and nothing is
+// counted a second way - which is the property that matters: a bucket derived
+// independently, or a count arrived at by subtracting the others, is how a
+// closed thread already back with the advisor came to be counted twice and
+// notReturned came out short.
+describe("what a coverage ended up doing", () => {
+  // Every case a covered thread can be in when the advisor comes back, mixed in
+  // one set, including the closed-and-already-back thread that overlapped.
+  const wholeCoverage = [
+    thread("ben"), // quiet with the cover - returns
+    thread("ben", coverReplied), // the cover answered - stays with her
+    thread("alyssa"), // routed back to her by hand - already hers
+    thread("alyssa", [], ConversationStatus.CLOSED), // hers, and finished
+    thread("ben", [], ConversationStatus.CLOSED), // finished with the cover
+    thread("parts"), // routed on to a third party - stays there
+    thread(null), // nobody holds it - returns
+  ];
+
+  const dispositions = wholeCoverage.map((conversation) =>
+    coverageDisposition("return", "alyssa", "ben", conversation),
+  );
+
+  it("counts each thread once, in exactly one bucket", () => {
+    const tally = coverageEndTally(dispositions);
+    const total = tally.returned + tally.alreadyBack + tally.closed + tally.notReturned;
+
+    assert.equal(total, wholeCoverage.length);
+  });
+
+  it("does not count a closed thread that is already hers as closed as well", () => {
+    // The overlap that made notReturned short by one: this thread is both
+    // closed and assigned to the returning advisor, and it is already-back.
+    assert.deepEqual(coverageEndTally(dispositions), {
+      returned: 2,
+      alreadyBack: 2,
+      closed: 1,
+      notReturned: 2,
+    });
+  });
+
+  it("never reports a negative count, whatever the coverage held", () => {
+    // A covered set of nothing but that one overlapping thread is what wrote
+    // notReturned: -1.
+    assert.deepEqual(
+      coverageEndTally([coverageDisposition("return", "alyssa", "ben", wholeCoverage[3])]),
+      { returned: 0, alreadyBack: 1, closed: 0, notReturned: 0 },
+    );
+  });
+
+  it("counts nothing for a coverage with no threads", () => {
+    assert.deepEqual(coverageEndTally([]), {
+      returned: 0,
+      alreadyBack: 0,
+      closed: 0,
+      notReturned: 0,
+    });
+  });
+});
+
 describe("coverageHolder", () => {
   it("names where each disposition leaves the thread", () => {
     // The assignment the end writes, the recipient its alerts are re-addressed
@@ -519,7 +580,7 @@ describe("threads still on the account a coverage does not speak for", () => {
     assert.equal(threadsOffCoverage(alyssa, 1, [heldBy("ben"), heldBy("ben")]), 1);
     assert.equal(
       describeThreadsOffCoverage(1, true, false),
-      "1 more open conversation is still on this account, outside this coverage.",
+      "1 open conversation is still on this account, outside this coverage.",
     );
   });
 
@@ -534,25 +595,25 @@ describe("threads still on the account a coverage does not speak for", () => {
     assert.equal(threadsOffCoverage(alyssa, 3, [heldBy("ben"), heldBy(alyssa)]), 2);
     assert.equal(
       describeThreadsOffCoverage(2, true, false),
-      "2 more open conversations are still on this account, outside this coverage.",
+      "2 open conversations are still on this account, outside this coverage.",
     );
   });
 
   it("says nobody is reading them once the account is switched off", () => {
     assert.equal(
       describeThreadsOffCoverage(1, false, false),
-      "1 more open conversation is still on this account, outside this coverage, and nobody is reading it.",
+      "1 open conversation is still on this account, outside this coverage, and nobody is reading it.",
     );
     assert.equal(
       describeThreadsOffCoverage(2, false, false),
-      "2 more open conversations are still on this account, outside this coverage, and nobody is reading them.",
+      "2 open conversations are still on this account, outside this coverage, and nobody is reading them.",
     );
   });
 
   it("speaks to the advisor herself on her own card", () => {
     assert.equal(
       describeThreadsOffCoverage(1, true, true),
-      "1 more open conversation is still on your account, outside this coverage.",
+      "1 open conversation is still on your account, outside this coverage.",
     );
   });
 });
