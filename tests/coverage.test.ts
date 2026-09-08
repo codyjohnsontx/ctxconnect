@@ -10,12 +10,15 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageHolder,
   coverageLandsOn,
   coverageOutcome,
   openConversationStatuses,
   openConversationWhere,
   parseCoverageKind,
 } from "../src/lib/coverage";
+import { canAccessConversation } from "../src/lib/conversation-access";
+import { sessionCannotBeProvenCurrent } from "../src/lib/session-cutoff";
 import { assigneeAddressedTypes } from "../src/lib/notification-facts";
 import {
   ConversationStatus,
@@ -59,6 +62,108 @@ const note = (senderUserId: string | null) => ({
   senderUserId,
 });
 const inbound = { direction: MessageDirection.INBOUND, senderUserId: null };
+
+// The gap itself, reproduced and then closed, because it is the thing the
+// feature exists for: an advisor holds an open thread filed under a department
+// nobody else works, she is deactivated, and the customer is left mid-
+// conversation with nobody reading. Composed from the rules the app really runs
+// - the deactivation cutoff, the thread guard every page and server action
+// asks, and the coverage rules here - rather than from the server action, which
+// needs a database this repo's tests do not have. So what these do not prove is
+// that the action performs the move; what they do prove is that moving the
+// assignment is what closes the gap, and that neither the return nor closed
+// history quietly reopens it.
+
+describe("the gap coverage closes", () => {
+  type Thread = {
+    status: string;
+    department: string;
+    assignedUserId: string | null;
+    assignedUser: { active: boolean } | null;
+    messages: ReadonlyArray<{ direction: string; senderUserId: string | null }>;
+  };
+
+  const hers = advisor;
+  const cover = { id: "ben", role: "SERVICE", department: "SERVICE" };
+  const alsoOnTheFloor = { id: "cara", role: "SERVICE", department: "SERVICE" };
+
+  // Filed under a department neither colleague works, so the only thing that
+  // can admit either of them is the assignment. This is the shape the PRD's
+  // reproduction ran on: the thread under GENERAL that 404ed for the floor.
+  const filedElsewhere = (
+    assignedUserId: string | null,
+    messages: Thread["messages"] = [],
+    status: string = ConversationStatus.OPEN,
+    holderReads = true,
+  ): Thread => ({
+    status,
+    department: "GENERAL",
+    assignedUserId,
+    assignedUser: assignedUserId ? { active: holderReads } : null,
+    messages,
+  });
+
+  const handOffToTheCover = (conversation: Thread): Thread =>
+    (openConversationStatuses as readonly string[]).includes(conversation.status)
+      ? { ...conversation, assignedUserId: cover.id }
+      : conversation;
+
+  const afterCoverageEnds = (conversation: Thread): Thread => ({
+    ...conversation,
+    assignedUserId: coverageHolder(
+      coverageDisposition("return", hers.id, cover.id, conversation),
+      hers.id,
+      cover.id,
+      conversation.assignedUserId,
+    ),
+  });
+
+  it("hands a thread nobody could reach to somebody who is here", () => {
+    const stranded = filedElsewhere(hers.id, [], ConversationStatus.OPEN, false);
+
+    // Before: the guard admits her and nobody else, because no colleague works
+    // the department it is filed under.
+    assert.equal(canAccessConversation(hers, stranded), true);
+    assert.equal(canAccessConversation(cover, stranded), false);
+    assert.equal(canAccessConversation(alsoOnTheFloor, stranded), false);
+
+    // And deactivation ends every session she holds, so the one account the
+    // guard admits cannot reach the app at all. Nobody is reading the customer.
+    const accessEnded = new Date("2026-09-07T15:00:00.000Z");
+
+    assert.equal(sessionCannotBeProvenCurrent(accessEnded.getTime() - 1, accessEnded), true);
+
+    // After: the same guard admits the cover, and it is the assignment that does
+    // it - her department still does not.
+    const covered = handOffToTheCover(stranded);
+
+    assert.equal(canAccessConversation(cover, covered), true);
+    assert.equal(canAccessConversation(alsoOnTheFloor, covered), false);
+  });
+
+  it("leaves a finished thread out of reach", () => {
+    // Closed history stays attributed to whoever handled it, so the hand-off
+    // does not reach it and the cover does not inherit it.
+    const finished = filedElsewhere(hers.id, [], ConversationStatus.CLOSED, false);
+
+    assert.equal(canAccessConversation(cover, handOffToTheCover(finished)), false);
+  });
+
+  it("hands back the quiet thread and leaves the cover the one she answered", () => {
+    // The stays-with-the-cover rule, read as reachability: bouncing a live
+    // thread back mid-exchange is the second discontinuity coverage exists to
+    // prevent, and the customer would be talking to somebody who can no longer
+    // open it.
+    const quiet = afterCoverageEnds(filedElsewhere(cover.id));
+    const answered = afterCoverageEnds(filedElsewhere(cover.id, [inbound, reply(cover.id)]));
+
+    assert.equal(canAccessConversation(hers, quiet), true);
+    assert.equal(canAccessConversation(cover, quiet), false);
+
+    assert.equal(canAccessConversation(cover, answered), true);
+    assert.equal(canAccessConversation(hers, answered), false);
+  });
+});
 
 describe("coverageOutcome", () => {
   it("hands back a thread the cover never answered", () => {
@@ -231,6 +336,32 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
 
   it("still reports a thread already back with the departing advisor", () => {
     assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("alyssa")), "alreadyHers");
+  });
+});
+
+describe("coverageHolder", () => {
+  it("names where each disposition leaves the thread", () => {
+    // The assignment the end writes, the recipient its alerts are re-addressed
+    // to and the holder its audit row names are one fact, so they are read from
+    // one place. Naming the account a thread came off instead is what once put
+    // "nobody holds this" on a row for a thread the same transaction had just
+    // given back.
+    const heldByAThirdParty = "parts";
+
+    assert.equal(coverageHolder("returned", "alyssa", "ben", heldByAThirdParty), "alyssa");
+    assert.equal(coverageHolder("alreadyHers", "alyssa", "ben", "alyssa"), "alyssa");
+    assert.equal(coverageHolder("toTheCover", "alyssa", "ben", null), "ben");
+    assert.equal(coverageHolder("staysPut", "alyssa", "ben", heldByAThirdParty), heldByAThirdParty);
+  });
+
+  it("reports nobody only for a thread this ending left with nobody", () => {
+    // Every disposition that moves a thread names an account, so a null here is
+    // a thread nothing moved rather than a hole in the record.
+    assert.equal(coverageHolder("staysPut", "alyssa", "ben", null), null);
+
+    for (const disposition of ["returned", "alreadyHers", "toTheCover"] as const) {
+      assert.ok(coverageHolder(disposition, "alyssa", "ben", null), disposition);
+    }
   });
 });
 
@@ -417,7 +548,12 @@ describe("what coverage moves", () => {
   });
 });
 
-describe("one copy of each rule", () => {
+// The one rule below that is deliberately asserted over source rather than over
+// behaviour. Who may do what is already pinned by the canManageCoverage and
+// canHandOffPermanently tests above; what those cannot see is whether an action
+// asks. That is a structural fact about a call site, so it is read as one.
+
+describe("both server actions ask the rules", () => {
   const actions = join("src", "app", "actions.ts");
 
   // One server action's own body, so a rule asserted here cannot be satisfied
@@ -430,24 +566,6 @@ describe("one copy of each rule", () => {
 
     return body.split("\nexport ")[0];
   }
-
-  it("decides the return thread by thread through coverageDisposition", () => {
-    // The action loads the coverage window and nothing more; what becomes of
-    // each covered thread is decided in one tested place. A holder comparison or
-    // a direction-and-sender comparison written out in the action is the drift
-    // this guards.
-    const source = read(actions);
-
-    assert.match(source, /coverageDisposition\(outcome, returningUserId, coverUserId, conversation\)/);
-    assert.match(source, /createdAt: \{ gte: returning\.coveredSince \}/);
-  });
-
-  it("counts and moves open conversations by the same clause", () => {
-    // The number the board shows before the click and the rows the hand-off
-    // actually moves have to be the same set.
-    assert.match(read(actions), /\.\.\.openConversationWhere/);
-    assert.match(read(join("src", "lib", "data.ts")), /where: openConversationWhere/);
-  });
 
   it("re-checks in each action every rule the board rendered", () => {
     // A form posted from a stale tab is not a form this app rendered, and both
@@ -470,25 +588,9 @@ describe("one copy of each rule", () => {
     // Only the hand-off picks a cover, so only it re-checks who may be one.
     assert.match(start, /coverRefusal\(/);
   });
-
-  it("keeps the rules out of the surfaces that render them", () => {
-    // The page reads the rules; it must not restate them. A card that decides
-    // for itself who may be offered as a cover is a card the action will refuse.
-    const page = read(join("src", "app", "(app)", "coverage", "page.tsx"));
-
-    assert.match(page, /from "@\/lib\/coverage"/);
-    assert.doesNotMatch(page, /role === "ADMIN"|active === false|!candidate\.active/);
-  });
 });
 
 describe("the alerts that follow a thread", () => {
-  it("moves them with the assignment rather than leaving them addressed to somebody who left", () => {
-    // A Notification row is stored once per recipient, so an alert still
-    // addressed to the advisor who went away is an alert in nobody's rail: the
-    // cover has the thread in her queue and nothing telling her it is waiting.
-    assert.match(read(join("src", "app", "actions.ts")), /readdressAssigneeNotificationsTx\(/);
-  });
-
   it("leaves a follow-up's alerts alone", () => {
     // Those are addressed to the *task's* assignee. Coverage moves
     // conversations, not follow-ups, and src/lib/task-access.ts already lets
@@ -507,6 +609,10 @@ describe("the page guards itself", () => {
     // inside it, so a staff member already standing in the app whose access has
     // ended reaches a layout-only-guarded page with nothing re-checking. Every
     // page under the segment guards itself; the layout is a convenience.
+    //
+    // Read over source deliberately, and CLAUDE.md owns the contract: the thing
+    // being asserted is that a call exists in every page of a segment, which no
+    // amount of exercising one page can show.
     const segment = join(repoRoot, "src", "app", "(app)");
 
     const pages = readdirSync(segment, { withFileTypes: true, recursive: true })

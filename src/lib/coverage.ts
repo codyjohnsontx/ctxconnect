@@ -339,3 +339,30 @@ export function coverageDisposition(
     ? "returned"
     : "staysPut";
 }
+
+/**
+ * Who is holding one covered thread once coverage has ended.
+ *
+ * `coverageDisposition` says what became of the thread; this says where that
+ * leaves it, which is the fact everything afterwards depends on - the queue it
+ * appears in, the guard that decides who may open it, the rail the alert about
+ * it is addressed to, and the audit row that has to answer "who had this" a
+ * year later. The action moves the threads in groups, so without this it would
+ * be the only place that knows what those groups meant.
+ */
+export function coverageHolder(
+  disposition: CoverageDisposition,
+  returningUserId: string,
+  coverUserId: string,
+  heldNow: string | null,
+): string | null {
+  switch (disposition) {
+    case "returned":
+    case "alreadyHers":
+      return returningUserId;
+    case "toTheCover":
+      return coverUserId;
+    case "staysPut":
+      return heldNow;
+  }
+}

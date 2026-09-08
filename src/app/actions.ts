@@ -35,6 +35,7 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
+  coverageHolder,
   coverageLandsOn,
   openConversationWhere,
   parseCoverageKind,
@@ -1136,17 +1137,6 @@ export async function endConversationCoverage(formData: FormData) {
     const moved = (disposition: CoverageDisposition) =>
       disposition === "returned" || disposition === "toTheCover";
 
-    const heldAfterwards = (conversation: {
-      disposition: CoverageDisposition;
-      assignedUserId: string | null;
-    }) => {
-      if (conversation.disposition === "returned" || conversation.disposition === "alreadyHers") {
-        return returningUserId;
-      }
-
-      return conversation.disposition === "toTheCover" ? coverUserId : conversation.assignedUserId;
-    };
-
     if (decided.length > 0) {
       await tx.auditLog.createMany({
         data: decided.map((conversation) => ({
@@ -1164,7 +1154,12 @@ export async function endConversationCoverage(formData: FormData) {
             // assignment on everything they held. Where the thread did move,
             // `movedFrom` carries the account it came off, so the hop can be
             // reconstructed without either value standing in for the other.
-            heldBy: heldAfterwards(conversation),
+            heldBy: coverageHolder(
+              conversation.disposition,
+              returningUserId,
+              coverUserId,
+              conversation.assignedUserId,
+            ),
             ...(moved(conversation.disposition)
               ? { movedFrom: conversation.assignedUserId }
               : {}),
