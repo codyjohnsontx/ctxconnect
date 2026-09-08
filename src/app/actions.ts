@@ -1029,10 +1029,15 @@ export async function endConversationCoverage(formData: FormData) {
     // with the reply rule is not a set anybody re-derives correctly twice.
     const coverUserId = cover.id;
     const coverName = cover.name;
-    const decided = covered.map((conversation) => ({
-      ...conversation,
-      disposition: coverageDisposition(outcome, returningUserId, coverUserId, conversation),
-    }));
+    const decided = covered.map((conversation) => {
+      const disposition = coverageDisposition(outcome, returningUserId, coverUserId, conversation);
+
+      return {
+        ...conversation,
+        disposition,
+        goesBackTo: coverageGoesBackTo(disposition, returningUserId, cover, conversation),
+      };
+    });
 
     const withDisposition = (disposition: CoverageDisposition) =>
       decided.filter((conversation) => conversation.disposition === disposition);
@@ -1122,16 +1127,9 @@ export async function endConversationCoverage(formData: FormData) {
     // safe because the coverage that owned it is the one ending here.
     const handedOn = new Map<string, string[]>();
 
-    for (const conversation of decided) {
-      const goesBackTo = coverageGoesBackTo(
-        conversation.disposition,
-        returningUserId,
-        cover,
-        conversation,
-      );
-
+    for (const { id, goesBackTo } of decided) {
       if (goesBackTo) {
-        handedOn.set(goesBackTo, [...(handedOn.get(goesBackTo) ?? []), conversation.id]);
+        handedOn.set(goesBackTo, [...(handedOn.get(goesBackTo) ?? []), id]);
       }
     }
 
@@ -1193,6 +1191,10 @@ export async function endConversationCoverage(formData: FormData) {
             // assignment on everything they held. Where the thread did move,
             // `movedFrom` carries the account it came off, so the hop can be
             // reconstructed without either value standing in for the other.
+            // `handedOnTo` is the third name a row can carry and the only one
+            // that is not about where the thread is: it names the cover this
+            // thread's return claim passed to, which is why an advisor who was
+            // never recorded as holding it can receive it when she comes back.
             heldBy: coverageHolder(
               conversation.disposition,
               returningUserId,
@@ -1202,6 +1204,7 @@ export async function endConversationCoverage(formData: FormData) {
             ...(moved(conversation.disposition)
               ? { movedFrom: conversation.assignedUserId }
               : {}),
+            ...(conversation.goesBackTo ? { handedOnTo: conversation.goesBackTo } : {}),
           },
         })),
       });

@@ -256,7 +256,11 @@ still switched off, because that would put them back where they started.
   field that names a holder and `null` there means nobody does. `heldBy` is
   always who holds the thread once the action is done, on every row, and a row
   whose thread moved also carries `movedFrom` - the account it came off - so the
-  hop can be read back without either value standing in for the other.
+  hop can be read back without either value standing in for the other. A thread
+  that stayed with a cover who is away herself also carries `handedOnTo`, the
+  cover its return claim passed to: that is the one write in the app that
+  rewrites `coveredForUserId`, and without the row an advisor receiving a thread
+  nobody had recorded as hers has no trace of who set it or when.
   `coverage.end` counts the three as `returned`, `alreadyBack` and
   `notReturned`.
   `coverage.start` counts the advisor's own threads as `conversations` and
