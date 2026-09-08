@@ -131,8 +131,11 @@ still switched off, because that would put them back where they started.
 * The rules the board renders are re-checked by the server action, because a
   form posted from a stale tab is not a form Attend rendered.
 * The board and the hand-off count open conversations by one clause.
-* Coverage that chains - the cover goes away too - keeps each thread pointed at
-  the advisor it actually belongs to, however many hands it passes through.
+* Coverage that chains - the cover goes away too - moves the threads on and
+  re-points the account pointer at whoever is holding them now, and a thread
+  already marked for an advisor keeps that mark rather than being re-marked for
+  the cover handing it on. What one mark cannot record is a second claim on the
+  same thread; see Open Questions.
 
 ## User Stories
 
@@ -256,11 +259,7 @@ still switched off, because that would put them back where they started.
   field that names a holder and `null` there means nobody does. `heldBy` is
   always who holds the thread once the action is done, on every row, and a row
   whose thread moved also carries `movedFrom` - the account it came off - so the
-  hop can be read back without either value standing in for the other. A thread
-  that stayed with a cover who is away herself also carries `handedOnTo`, the
-  cover its return claim passed to: that is the one write in the app that
-  rewrites `coveredForUserId`, and without the row an advisor receiving a thread
-  nobody had recorded as hers has no trace of who set it or when.
+  hop can be read back without either value standing in for the other.
   `coverage.end` counts the three as `returned`, `alreadyBack` and
   `notReturned`.
   `coverage.start` counts the advisor's own threads as `conversations` and
@@ -298,6 +297,28 @@ inactive accounts, which should be zero.
 
 ## Open Questions
 
+* **A thread that passes through two coverages remembers only the first.**
+  `Conversation.coveredForUserId` records one advisor, and it is written once
+  when a coverage moves an unmarked thread. So when Ben covers Alyssa, answers a
+  thread, and then goes away himself and Cara covers him, that thread moves to
+  Cara still marked for Alyssa. Ben's claim on it is recorded nowhere. When
+  Alyssa returns it correctly stays where it is - Ben answered it - and her mark
+  is cleared; Ben's own return loads only the threads marked for him, so it is
+  not among them, in either return order. The thread stays with whoever is
+  holding and reading it.
+
+  Not fixed here. The fact needed to do it properly - which coverage put this
+  thread in this holder's hands - is not persisted, and persisting it (a
+  previous-holder column, or a per-hop coverage record) is a schema change
+  beyond this task's scope and wants agreement of its own. An attempt that
+  inferred it from who had replied was reverted: it could not tell "the cover
+  whose coverage moved this thread here" from "an away account that happened to
+  reply once", and it wrote fresh coverage marks onto closed history.
+
+  What is not harmed: no conversation is left with nobody, and no customer is
+  abandoned. The holder is active and reading, and the thread simply does not
+  move a second time. `tests/coverage.test.ts` pins this in both return orders
+  so a change that quietly alters it fails there.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.

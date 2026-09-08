@@ -10,7 +10,6 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
-  coverageGoesBackTo,
   coverageHolder,
   coverageLandsOn,
   coverageOutcome,
@@ -343,84 +342,52 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
 
 // Coverage chains, so a thread can be inside two of them at once: Ben answers
 // it while covering for Alyssa, then Ben goes away himself and Cara takes it on.
-// Whichever of them comes back first, the thread has to end up with the one it
-// actually belongs to rather than being finalised onto the account standing in
-// for both of them.
-describe("a thread that stays with a cover who is away herself", () => {
-  const cara = { id: "cara", covering: [{ id: "alyssa" }, { id: "ben" }] };
-  const benIsHere = { id: "ben", covering: [{ id: "alyssa" }] };
+// `Conversation.coveredForUserId` records one advisor, so such a thread
+// remembers only the coverage that marked it first, and these pin what that
+// costs in both return orders. Neither order strands a customer - Cara is
+// active and reading throughout - but neither hands the thread back to Ben, and
+// a change that silently alters either should fail here rather than surface
+// months later as a thread nobody expected to move. The limitation is written
+// up in content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md.
 
-  // Held by Cara, marked for Alyssa, answered by Ben during Alyssa's coverage.
-  const heldByTheSecondCover = {
+describe("a thread that passes through two coverages", () => {
+  // Marked for Alyssa when Ben's coverage moved it, and never re-marked: a
+  // coverage that starts does not overwrite the mark, so Ben's own claim on it
+  // is recorded nowhere. Held by Cara since Ben left, answered by Ben inside
+  // Alyssa's window.
+  const answeredByBenHeldByCara = {
     status: ConversationStatus.OPEN,
     assignedUserId: "cara",
     assignedUser: { active: true },
     messages: [inbound, reply("ben")],
   };
 
-  it("is handed on to that cover instead of losing its mark", () => {
-    // Alyssa returns first. Ben answered, so the thread stays where it is - and
-    // clearing its mark here is what left it Cara's for good, with nothing for
-    // Ben's own return to find.
-    const disposition = coverageDisposition("return", "alyssa", "cara", heldByTheSecondCover);
+  it("ends up with the account reading it, in either return order", () => {
+    // Alyssa's return is the only one that decides this thread at all: Ben's
+    // return loads the threads marked for him and this one carries Alyssa's, so
+    // whichever of them comes back first, Cara keeps it. Ben answered the
+    // customer and the stays-with-the-cover rule says it is his, but one mark
+    // cannot hold two claims - the limitation is written up in the PRD's Open
+    // Questions. Nobody is stranded: Cara is active and reading it.
+    const disposition = coverageDisposition("return", "alyssa", "cara", answeredByBenHeldByCara);
 
     assert.equal(disposition, "staysPut");
     assert.equal(
-      coverageGoesBackTo(disposition, "alyssa", cara, heldByTheSecondCover),
-      "ben",
+      coverageHolder(disposition, "alyssa", "cara", answeredByBenHeldByCara.assignedUserId),
+      "cara",
     );
   });
 
-  it("lands back with that cover when she returns in turn", () => {
-    // Ben's own coverage window starts when he leaves, so his reply from
-    // Alyssa's window is not in it and Cara has answered nothing.
-    const inBensWindow = { ...heldByTheSecondCover, messages: [] };
-    const disposition = coverageDisposition("return", "ben", "cara", inBensWindow);
+  it("still hands back a thread the second cover never answered", () => {
+    // The ordinary rule is untouched inside the second coverage, which is what
+    // makes the case above a gap in what the mark records rather than a gap in
+    // the return rule: a thread marked for Ben that Cara has not answered comes
+    // back to him.
+    const quiet = { ...answeredByBenHeldByCara, messages: [] };
+    const disposition = coverageDisposition("return", "ben", "cara", quiet);
 
     assert.equal(disposition, "returned");
     assert.equal(coverageHolder(disposition, "ben", "cara", "cara"), "ben");
-  });
-
-  it("leaves the ordinary coverage exactly as it was", () => {
-    // The cover who answered is here and holding it, so there is nobody waiting
-    // for it and the mark clears the way it always did.
-    const heldByTheCover = { ...heldByTheSecondCover, assignedUserId: "ben" };
-    const disposition = coverageDisposition("return", "alyssa", "ben", heldByTheCover);
-
-    assert.equal(disposition, "staysPut");
-    assert.equal(coverageGoesBackTo(disposition, "alyssa", benIsHere, heldByTheCover), null);
-  });
-
-  it("does not take a thread off somebody a manager routed it to", () => {
-    // Parts is here and holding it. That it was answered by a cover who has
-    // since gone away does not make it hers to come back to.
-    const routedOn = { ...heldByTheSecondCover, assignedUserId: "parts" };
-
-    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, routedOn), null);
-  });
-
-  it("marks nothing that came back, arrived or was given away", () => {
-    for (const disposition of ["returned", "alreadyHers", "toTheCover"] as const) {
-      assert.equal(
-        coverageGoesBackTo(disposition, "alyssa", cara, heldByTheSecondCover),
-        null,
-        disposition,
-      );
-    }
-  });
-
-  it("does not hand a thread back to the advisor whose coverage is ending", () => {
-    // She is still in the cover's covering list at this moment, and her own
-    // replies are not somebody covering for her.
-    const sheAnswered = { ...heldByTheSecondCover, messages: [reply("alyssa")] };
-
-    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, sheAnswered), null);
-  });
-
-  it("ignores an internal note, the way the return rule does", () => {
-    const onlyANote = { ...heldByTheSecondCover, messages: [note("ben")] };
-
-    assert.equal(coverageGoesBackTo("staysPut", "alyssa", cara, onlyANote), null);
   });
 });
 

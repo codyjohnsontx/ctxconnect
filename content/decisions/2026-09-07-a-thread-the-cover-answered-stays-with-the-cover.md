@@ -61,26 +61,6 @@ in front of her, and handing the thread back drops the retry along with the
 work. "The customer saw it" is the reason a note is excluded; it is not the test
 for whether the cover has taken the thread on.
 
-One consequence took a second pass to get right: **a cover can go away too.**
-Ben answers a thread while covering for Alyssa, so it stays with him. Ben then
-goes on leave and Cara covers him, so the thread moves to Cara still marked for
-Alyssa. When Alyssa comes back it correctly stays where it is - but clearing its
-mark at that point finalised it onto Cara, who had never spoken to this
-customer, and left nothing for Ben's own return to find. The thread was his by
-this very rule and he never got it back.
-
-So the mark is now handed on rather than cleared: a thread that stays with a
-cover who is away herself is re-marked for that cover, and comes back to her
-when she returns. `Conversation.coveredForUserId` is still never overwritten
-while a coverage is **starting** - the advisor named on it is still away and
-still waiting, which is the property that makes chaining work at all. The one
-moment it may be rewritten is a coverage **ending**, which has released its own
-claim on the thread and is passing it to the next coverage along. The cover it
-goes to is read from the accounts this cover is away for, and only when she both
-answered on the thread and is the advisor whose coverage put it in this holder's
-hands - so a thread a manager routed on to somebody who is here stays theirs,
-and the ordinary single coverage is untouched.
-
 Two related calls, made for the same reason:
 
 * **Deactivating an account does not arrange coverage by itself.** It would make

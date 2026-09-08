@@ -35,7 +35,6 @@ import {
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
-  coverageGoesBackTo,
   coverageHolder,
   coverageLandsOn,
   openConversationWhere,
@@ -955,17 +954,7 @@ export async function endConversationCoverage(formData: FormData) {
         name: true,
         active: true,
         coveredSince: true,
-        coveredBy: {
-          select: {
-            id: true,
-            name: true,
-            active: true,
-            // The other advisors this cover is away for, which is how a thread
-            // that stays finds the cover it belongs to when that cover has gone
-            // away herself - see coverageGoesBackTo.
-            covering: { select: { id: true } },
-          },
-        },
+        coveredBy: { select: { id: true, name: true, active: true } },
       },
     });
 
@@ -994,7 +983,6 @@ export async function endConversationCoverage(formData: FormData) {
         // in one testable place.
         messages: {
           where: { createdAt: { gte: returning.coveredSince } },
-          orderBy: { createdAt: "asc" },
           select: { direction: true, senderUserId: true },
         },
       },
@@ -1029,15 +1017,10 @@ export async function endConversationCoverage(formData: FormData) {
     // with the reply rule is not a set anybody re-derives correctly twice.
     const coverUserId = cover.id;
     const coverName = cover.name;
-    const decided = covered.map((conversation) => {
-      const disposition = coverageDisposition(outcome, returningUserId, coverUserId, conversation);
-
-      return {
-        ...conversation,
-        disposition,
-        goesBackTo: coverageGoesBackTo(disposition, returningUserId, cover, conversation),
-      };
-    });
+    const decided = covered.map((conversation) => ({
+      ...conversation,
+      disposition: coverageDisposition(outcome, returningUserId, coverUserId, conversation),
+    }));
 
     const withDisposition = (disposition: CoverageDisposition) =>
       decided.filter((conversation) => conversation.disposition === disposition);
@@ -1113,32 +1096,12 @@ export async function endConversationCoverage(formData: FormData) {
       returningUserId,
     );
 
-    // Every covered thread loses this coverage's mark, whichever way this
-    // ended: one that returned has arrived, and one that did not is now
-    // wherever it has got to.
+    // Every covered thread loses its mark, whichever way this ended: one that
+    // returned has arrived, and one that did not is now wherever it has got to.
     await tx.conversation.updateMany({
       where: { coveredForUserId: returningUserId },
       data: { coveredForUserId: null },
     });
-
-    // Except a thread that stayed with a cover who is away herself, which is
-    // handed on to her coverage rather than finalised onto the account standing
-    // in for her. This is the only write that may overwrite the mark, and it is
-    // safe because the coverage that owned it is the one ending here.
-    const handedOn = new Map<string, string[]>();
-
-    for (const { id, goesBackTo } of decided) {
-      if (goesBackTo) {
-        handedOn.set(goesBackTo, [...(handedOn.get(goesBackTo) ?? []), id]);
-      }
-    }
-
-    for (const [goesBackTo, ids] of handedOn) {
-      await tx.conversation.updateMany({
-        where: { id: { in: ids } },
-        data: { coveredForUserId: goesBackTo },
-      });
-    }
 
     await tx.user.update({
       where: { id: returningUserId },
@@ -1191,10 +1154,6 @@ export async function endConversationCoverage(formData: FormData) {
             // assignment on everything they held. Where the thread did move,
             // `movedFrom` carries the account it came off, so the hop can be
             // reconstructed without either value standing in for the other.
-            // `handedOnTo` is the third name a row can carry and the only one
-            // that is not about where the thread is: it names the cover this
-            // thread's return claim passed to, which is why an advisor who was
-            // never recorded as holding it can receive it when she comes back.
             heldBy: coverageHolder(
               conversation.disposition,
               returningUserId,
@@ -1204,7 +1163,6 @@ export async function endConversationCoverage(formData: FormData) {
             ...(moved(conversation.disposition)
               ? { movedFrom: conversation.assignedUserId }
               : {}),
-            ...(conversation.goesBackTo ? { handedOnTo: conversation.goesBackTo } : {}),
           },
         })),
       });
