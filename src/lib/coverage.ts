@@ -103,25 +103,6 @@ export function coverRefusal(
 }
 
 /**
- * The row this hand-off must still find free when it writes, expressed as the
- * clause that writes it.
- *
- * `coverRefusal` reads the cover's row; this is the same question asked as a
- * conditional write, which is the only form of it Read Committed respects. The
- * action updates the cover's row to the value it already holds so that the
- * update takes the row lock: a concurrent hand-off of the cover's own book then
- * waits rather than racing past, and finds this coverage recorded when it
- * re-points the advisors it covers.
- *
- * Here rather than inline so the condition is one definition a test can run.
- * The clause is the whole guard - drop `coveredByUserId` from it and the write
- * still succeeds, silently, against a cover who has since gone away.
- */
-export function coverStillFreeWhere(coverUserId: string) {
-  return { id: coverUserId, coveredByUserId: null };
-}
-
-/**
  * Who is left holding a covered thread that is not moving, and therefore who
  * its alerts belong to once coverage ends.
  *

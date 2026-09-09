@@ -34,7 +34,6 @@ import {
   canManageCoverage,
   alertsStayWith,
   coverRefusal,
-  coverStillFreeWhere,
   coverageDisposition,
   coverageEndRefusal,
   coverageEndTally,
@@ -745,12 +744,31 @@ export async function startConversationCoverage(formData: FormData) {
     // advisor already covered when it re-points. It costs the cover's
     // `updatedAt`, which is the price of the lock.
     const coverStillFree = await tx.user.updateMany({
-      where: coverStillFreeWhere(cover.id),
+      where: { id: cover.id, coveredByUserId: null },
       data: { coveredByUserId: null },
     });
 
     if (coverStillFree.count === 0) {
       throw new Error("That staff member is away and covered by somebody else.");
+    }
+
+    // That clause can only ask one of the three questions `coverRefusal` asks,
+    // and going away is not the only way a cover stops being one: an admin's
+    // Deactivate is a single autocommit update that takes and releases her row
+    // lock, so it can commit between the read at the top of this transaction and
+    // the lock taken just above. Under that lock her row can no longer change,
+    // so re-read it and ask the whole question again - otherwise a book moves to
+    // an account nobody can sign in as, and the refusal only ever arrives when
+    // somebody tries to end the coverage.
+    const heldCover = await tx.user.findUnique({
+      where: { id: cover.id },
+      select: { id: true, active: true, coveredByUserId: true },
+    });
+
+    const heldRefusal = coverRefusal(away, heldCover);
+
+    if (heldRefusal) {
+      throw new Error(heldRefusal);
     }
 
     const moving = await tx.conversation.findMany({

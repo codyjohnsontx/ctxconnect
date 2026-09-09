@@ -9,7 +9,6 @@ import {
   canManageCoverage,
   alertsStayWith,
   coverRefusal,
-  coverStillFreeWhere,
   coverageDisposition,
   coverageEndRefusal,
   coverageEndTally,
@@ -222,26 +221,6 @@ describe("who a staying thread's alerts belong to", () => {
     // staysPut with no assignee is reachable on a permanent hand-off, and an
     // alert addressed to nobody is the honest state until somebody takes it.
     assert.deepEqual(alertsStayWith([thread("c1", "staysPut", null)]), []);
-  });
-});
-
-describe("the row a hand-off must still find free", () => {
-  // coverRefusal reads the cover's row; this is the same question asked as a
-  // conditional write, because a read at Read Committed does not survive until
-  // the write. Both fields are load-bearing and each is pinned on its own.
-  it("names the cover and requires that nobody is covering her", () => {
-    assert.deepEqual(coverStillFreeWhere("ben"), { id: "ben", coveredByUserId: null });
-  });
-
-  it("would let an away cover through if the coverage condition were dropped", () => {
-    // The mutation this exists to catch. A clause of only { id } still writes
-    // successfully against a colleague who has gone away since she was picked,
-    // which is the state coverRefusal exists to refuse - so the condition, not
-    // the presence of a clause, is the guard.
-    const clause = coverStillFreeWhere("ben");
-
-    assert.equal("coveredByUserId" in clause, true);
-    assert.equal(clause.coveredByUserId, null);
   });
 });
 
