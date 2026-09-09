@@ -869,7 +869,7 @@ export async function startConversationCoverage(formData: FormData) {
       // re-addressed alerts, the audit rows - describes this move, so it may
       // only be written for the threads this move actually took.
       const moved = await tx.conversation.updateMany({
-        where: { id: { in: movingIds }, assignedUserId: awayUserId },
+        where: { id: { in: movingIds }, assignedUserId: awayUserId, ...openConversationWhere },
         data: { assignedUserId: cover.id },
       });
 
@@ -1056,12 +1056,23 @@ export async function startConversationCoverage(formData: FormData) {
  * second change of voice on the same conversation - see coverageOutcome in
  * src/lib/coverage.ts, which is where that rule lives and is tested.
  *
- * `keep` is the trip that turned into a departure. Nothing moves; the marks
- * that said these threads would go back are cleared, because now they will not.
+ * `keep` is the trip that turned into a departure. The marks that said these
+ * threads would go back are cleared, because now they will not, and nearly
+ * everything stays where it is - but two kinds move to the cover: a thread
+ * nobody is holding, and one sitting on the returning advisor's own account
+ * after that account has been switched off. Both would otherwise be finalised
+ * onto somebody who is not reading, which is what this ending must not do.
  *
- * Handing threads back to an account that is switched off would recreate the
- * exact state coverage exists to end, so that half is refused until the account
- * is active again. Leaving them with the cover never is.
+ * Either ending can be refused, and for the same reason: no open thread may be
+ * left with an account nobody can sign in as, because that recreates the exact
+ * state coverage exists to end. The hand-back is refused while the returning
+ * advisor's own account is switched off. Leaving them with the cover is refused
+ * when any OTHER account a thread would be left with is - the cover herself, or
+ * a colleague a manager routed a covered thread to, who was given it
+ * deliberately and whose thread is not the cover's to inherit silently.
+ * `coverageEndRefusal` and `coverageLandsOn` in src/lib/coverage.ts own both
+ * halves, and the board asks them the same question this does, so a button it
+ * offers is never one this turns into an error page.
  */
 export async function endConversationCoverage(formData: FormData) {
   const user = await requireUser();
@@ -1133,9 +1144,10 @@ export async function endConversationCoverage(formData: FormData) {
 
     // Every account that would actually be left holding one of these threads if
     // the coverage were left with the cover: each open thread's current holder,
-    // or the cover for one nobody holds, which is the only case she is left with
-    // anything. Closed threads are left out because nothing is finalised onto
-    // anybody by leaving history where it is.
+    // and the cover for the two kinds that move to her - one nobody holds, and
+    // one on the returning advisor's own switched-off account. Closed threads
+    // are left out because nothing is finalised onto anybody by leaving history
+    // where it is.
     const landsOn = coverageLandsOn(
       cover,
       covered.map((conversation) => ({
@@ -1199,7 +1211,7 @@ export async function endConversationCoverage(formData: FormData) {
 
       for (const [assignedUserId, ids] of byHolder) {
         const { count } = await tx.conversation.updateMany({
-          where: { id: { in: ids }, assignedUserId },
+          where: { id: { in: ids }, assignedUserId, ...openConversationWhere },
           data: { assignedUserId: to },
         });
 

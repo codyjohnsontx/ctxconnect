@@ -80,7 +80,10 @@ the case that prompted it.
 * Coverage ends one of two ways. **She is back**: everything the cover never
   answered returns to her, and anything the cover has replied to since coverage
   began stays with the cover until it closes. **Leave them with the cover**: the
-  trip became a departure and nothing moves.
+  trip became a departure and nearly everything stays where it is - except a
+  thread nobody is holding, and one back on the departing advisor's own account
+  after it has been switched off, which both go to the cover rather than being
+  finalised onto somebody who is not reading.
 * A permanent hand-off - no return, no mark - is available to an admin at the
   start too.
 * Every move is written to the existing audit log, on the account and on each
@@ -404,6 +407,43 @@ inactive accounts, which should be zero.
   `onDelete: SetNull` when a staff account is deleted.
 
 ## Implementation Notes
+
+### Every conditional write in the two coverage actions
+
+Read-then-write gaps were found here five separate times, one at a time, so this
+is the map rather than a sixth bug. Prisma runs interactive transactions at Read
+Committed: a row read at the top of a transaction can change before the write
+that acts on it, and the only checks that survive are the ones in a `where`
+clause. Every write below carries a `where`; the unconditional `create` /
+`createMany` calls (the in-thread notes and the audit rows) are omitted because
+they insert new rows and have nothing to race with, and they are covered by the
+row locks the writes above them take.
+
+**`startConversationCoverage`**
+
+| Write | Rule it enforces | Conditions the rule needs | Conditions the clause carries | Verdict |
+|---|---|---|---|---|
+| `actions.ts:704` (`lockCoverageAccounts`) | Neither the away advisor nor the cover may already be covered when this takes their row locks. | Both rows exist; neither is covered; the cover is active. | `id`, `coveredByUserId: null`, one row at a time in sorted id order. | Complete. `active` is deliberately not here: the re-read plus `coverRefusal` immediately after runs **under** this lock, where a deactivation can no longer land. |
+| `actions.ts:871` (assignment move) | Only OPEN threads still on her account move to the cover. | The ids read; still hers; still open. | `id in`, `assignedUserId`, `openConversationWhere`. | Complete. The status clause was added 2026-09-10 - without it a thread closed between the read and this write was reassigned and marked, against the brief. |
+| `actions.ts:885` (`coveredForUserId` mark) | Mark only threads this move took, and only ones carrying no earlier mark. | The ids moved; unmarked; still open. | `id in`, `coveredForUserId: null`. | Complete. The status is not repeated because the write above holds the row lock on every one of these ids until commit, so nothing can close them in between. |
+| `actions.ts:914` (`rechained` pointers) | Re-point only the advisors this cover genuinely covers. | The ids read; each still covered by *this* away advisor. | `id in`, `coveredByUserId: awayUserId`, count checked. | Complete. |
+| `actions.ts:965` (pointer + `coveredSince`) | Record the coverage on an account that is not already covered. | The row; still uncovered. | `id` only. | Complete. The uncovered condition is held by the lock at 704, which refused if it was not; re-asserting it here would be a second copy of the same guard. |
+| `notifications.ts:303` (re-address) | Every assignee-addressed alert on the moved threads is addressed to the new holder. | Those threads; those types; any status. | `conversationId in`, `type in`, `recipientUserId: { not: to }`. | Complete. Status is deliberately absent - see the docstring; a resolved row that revives must not revive addressed to somebody who left. |
+| `notifications.ts:326` (supersede copies) | Leave one outstanding row per fact per recipient. | The ids chosen from the rows read a statement earlier. | `id in`. | Known gap, recorded not fixed: a row resolved by another transaction between the read and this write is re-resolved, moving its `resolvedAt` later. No surface reads `resolvedAt`, and the row's status is already what this write sets. |
+
+**`endConversationCoverage`**
+
+| Write | Rule it enforces | Conditions the rule needs | Conditions the clause carries | Verdict |
+|---|---|---|---|---|
+| `actions.ts:1213` (`moveFromHolderRead`) | Move only threads still with the holder the disposition was computed from, and only open ones - both dispositions that move (`returned`, `toTheCover`) require an open thread. | The ids; same holder; still open. | `id in`, `assignedUserId`, `openConversationWhere`, count checked. | Complete. The status clause was added 2026-09-10, same defect as 871. |
+| `notifications.ts:159` (`resolveConversationNotificationsTx`) | Withdraw "nobody is holding this" for exactly the threads this ending gave an owner. | Those ids; that one type; only rows not already resolved. | `conversationId in`, `type in`, `status: { not: RESOLVED }`. | Complete. |
+| `notifications.ts:303` / `:326` (re-address) | As above, once per recipient in `coverageAlertPlan`'s plan. | As above. | As above. | As above. |
+| `actions.ts:1289` (clear the marks) | Every covered thread loses its mark, whichever way this ended. | Exactly the threads carrying this advisor's mark. | `coveredForUserId: returningUserId`. | Complete, and deliberately not scoped to the ids read: it must match the same set the read at the top matched. A thread cannot gain this mark mid-transaction, because writing it needs a hand-off, and a hand-off refuses while this advisor is already covered. |
+| `actions.ts:1299` (end the coverage) | End only the coverage this transaction actually read. | The row; still covered by *this* cover. | `id`, `coveredByUserId: cover.id`, count checked. | Complete. |
+
+One gap found beyond the two reported, and it is the `resolvedAt` one above:
+recorded rather than fixed, because it moves a timestamp nothing displays.
+Every other guard carries its rule's conditions.
 
 * `src/lib/coverage.ts` holds every rule several surfaces must agree about, free
   of the database client, alongside `conversation-access.ts` and
