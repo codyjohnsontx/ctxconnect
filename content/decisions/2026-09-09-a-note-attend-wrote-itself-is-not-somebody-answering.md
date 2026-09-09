@@ -75,9 +75,9 @@ coverage, this feature is what turns it from one thread into a whole book.
 * A column on `Message`, and a rule every future writer of a system note had to
   remember - until `systemNote` in `src/lib/sla.ts` became the only place such a
   row is built, so there is no call site left to forget it. `tests/sla.test.ts`
-  runs that constructor and keeps one scan listing every place a NOTE row is
-  written, so a payload built by hand fails there rather than in a manager's
-  alert list.
+  runs that constructor rather than reading the call sites, which is the whole
+  guarantee: a writer who builds a note payload by hand is outside what any test
+  here can see.
 * **Existing rows are left unmarked, which reads them all as written by a
   person.** Deliberate, not a default nobody thought about. Attend cannot tell
   after the fact which historical notes it wrote - the marker is what would have

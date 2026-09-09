@@ -325,14 +325,16 @@ export async function readdressAssigneeNotificationsTx(
     held.add(fact);
   }
 
-  // Every outstanding row follows the thread, the duplicates included. A row
-  // left addressed to the previous holder is still on her rail the moment
-  // anything reopens it - `reopenConversationNotifications` matches the thread
-  // and the type, never the recipient - and she would be told about a customer
-  // message on a thread she no longer holds.
+  // Every row read above follows the thread, the duplicates included, and by id
+  // alone - a row somebody resolved while this transaction was running is one
+  // more row to re-address, not one to leave behind. A row left addressed to the
+  // previous holder is still on her rail the moment anything reopens it -
+  // `reopenConversationNotifications` matches the thread and the type, never the
+  // recipient - and she would be told about a customer message on a thread she
+  // no longer holds.
   if (moving.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: moving.map((row) => row.id) }, status: { not: NotificationStatus.RESOLVED } },
+      where: { id: { in: moving.map((row) => row.id) } },
       data: { recipientUserId: to },
     });
   }

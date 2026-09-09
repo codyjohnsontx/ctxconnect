@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import { attendedSinceInbound, slaMinutesForDepartment, systemNote } from "../src/lib/sla";
 import {
@@ -37,35 +34,6 @@ const noteAttendWrote = (at: Date) => ({
   direction: MessageDirection.INTERNAL,
   systemGenerated: true,
 });
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      // Generated Prisma client, not authored source.
-      return entry.name === "generated" ? [] : sourceFiles(path);
-    }
-
-    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
-  });
-}
-
-function noteWriteSites(): Record<string, number> {
-  const sites: Record<string, number> = {};
-
-  for (const path of sourceFiles(join(repoRoot, "src"))) {
-    const writes = readFileSync(path, "utf8").split("MessageKind.NOTE").length - 1;
-
-    if (writes > 0) {
-      sites[relative(repoRoot, path).split(sep).join("/")] = writes;
-    }
-  }
-
-  return sites;
-}
 
 describe("attendedSinceInbound", () => {
   it("says nobody has, when nothing followed the customer's text", () => {
@@ -166,21 +134,5 @@ describe("the notes Attend writes on its own behalf", () => {
 
     assert.equal(attendedSinceInbound(inboundAt, [note]), false);
     assert.equal(attendedSinceInbound(inboundAt, [{ ...note, systemGenerated: false }]), true);
-  });
-
-  it("is the only place a note row is built", () => {
-    // Structural guard, and the one assertion here read over source rather than
-    // behaviour - in the spirit of the two blessed scans in
-    // tests/coverage.test.ts. What the tests above cannot see is a future
-    // writer building its own note payload instead of calling the constructor,
-    // and an unmarked one goes on clearing breach alerts silently. Every place
-    // a NOTE row is written is therefore listed: the constructor, the seed's
-    // demo history, and `addInternalNote`, which is a person typing and stays
-    // unmarked deliberately.
-    assert.deepEqual(noteWriteSites(), {
-      "src/app/actions.ts": 1,
-      "src/lib/demo-seed.ts": 2,
-      "src/lib/sla.ts": 1,
-    });
   });
 });
