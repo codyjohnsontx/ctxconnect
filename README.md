@@ -17,6 +17,7 @@ simply by which message arrived last.
 - Prioritized inbox for service advisors
 - Search over customer names, phone numbers in any format, and message text
 - Follow-up tasks and team assignments
+- Coverage, so an advisor who is away hands her open conversations to a colleague who reads them
 - Built-in SMS compliance and opt-out handling
 
 ## Screenshots
@@ -312,6 +313,8 @@ Local and preview webhook setup:
 - Deactivating records a cutoff on the account (`User.accessEndedAt`). Existing sign-in cookies are not destroyed - they stay in the browser and stop resolving, so every session minted at or before that moment is refused from its next request on, on every device. A session that carries no sign-in timestamp is refused too, whether or not its account has a cutoff, because it cannot show when it began - so the deploy that ships this signs everyone out once, on purpose. The cutoff is never cleared, so a reactivated staff member signs in again. A deactivated account's row on `/settings` shows when access ended and when the account was last granted a request; refused requests are not recorded.
 - Resetting a password stamps the same cutoff without deactivating the account, so every session that existed before the reset is refused on every device while the account stays usable - the person signs in once with the new password. Every reset of an active account moves the cutoff, including a repeat one. Resetting the password of an already-deactivated account writes the new hash but leaves the cutoff where deactivation put it, so the "Access ended" time on that row stays the moment access actually ended. An admin may reset their own password and is signed out by it; that request lands on the login page with a notice saying so, while their other devices, and everyone else, get the plain login page.
 - Integration health on `/settings` reports database, auth, app URL, and Twilio readiness plus recent outbound delivery failures.
+- `/coverage` hands an advisor's open conversations to somebody who will read them. Every signed-in staff member reaches it and arranges their own coverage; a `MANAGER` also reads the floor, and an `ADMIN` arranges anyone's - the case where somebody has already gone and cannot act at all. The picker offers only active staff who are not away themselves, and only open conversations move; closed history stays attributed to whoever handled it. The customer is never told, and every move is written to the existing audit log.
+- Coverage ends two ways. `I'm back` returns everything the cover never answered; anything the cover has replied to since the coverage began stays with the cover until it closes, because handing a live exchange back is a second change of voice for the customer. `Leave them with <cover>` is the admin's, for a trip that became a departure, as is a hand-off that is permanent from the start. Deactivation never arranges coverage by itself: a staff member's row on `/settings` names the open conversations still on the account, says nobody is reading them once it is switched off, and links to `/coverage`. The rules in full are in [content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md](content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md).
 
 ## Out Of Scope In This Slice
 
