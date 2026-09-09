@@ -181,7 +181,14 @@ still switched off, because that would put them back where they started.
   off during the coverage, when somebody tries to leave the conversations with
   the cover, then it is refused and nothing moves - the board disables the button
   and names the account, and the action refuses a stale post with the same
-  sentence.
+  sentence. The one exception is the advisor this coverage is *for*: a thread a
+  manager routed back to her by hand goes to the cover, because "leave them with
+  the cover" plainly means her threads, and refusing it left a coverage whose two
+  endings were both disabled - the hand-back because she cannot read, and this
+  one because she was a holder who cannot read. Every other switched-off holder
+  still refuses: a thread given to a colleague deliberately is not the cover's to
+  inherit, and reactivating that colleague or arranging cover for her are both
+  reachable, because her own card shows the start form.
 * Given a covered conversation whose holder has been switched off, when the
   advisor returns, then it comes back to her rather than staying put - whether
   the holder was the cover or somebody a manager routed it to.

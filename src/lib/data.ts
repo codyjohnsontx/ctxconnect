@@ -1187,7 +1187,7 @@ export async function getCoverageBoard(): Promise<CoverageRow[]> {
     openConversations: assigned.get(user.id) ?? 0,
     coveredThreads: holders.get(user.id) ?? [],
     landsOn: user.coveredBy
-      ? coverageLandsOn(user.coveredBy, holders.get(user.id) ?? [])
+      ? coverageLandsOn(user.coveredBy, holders.get(user.id) ?? [], user.id)
       : [],
   }));
 }

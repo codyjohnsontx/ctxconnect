@@ -1116,7 +1116,7 @@ export async function endConversationCoverage(formData: FormData) {
         id: true,
         status: true,
         assignedUserId: true,
-        assignedUser: { select: { name: true, active: true } },
+        assignedUser: { select: { id: true, name: true, active: true } },
         // The coverage window only, anchored on `coveredSince`, which is why
         // nothing may advance it once coverage has begun: only the cover now
         // holding a thread has her replies counted, and a later instant would
@@ -1142,6 +1142,7 @@ export async function endConversationCoverage(formData: FormData) {
         status: conversation.status,
         heldBy: conversation.assignedUser,
       })),
+      returningUserId,
     );
 
     // The board renders this rule to decide whether either button is pressable,
@@ -1242,7 +1243,7 @@ export async function endConversationCoverage(formData: FormData) {
             conversationId: conversation.id,
             senderUserId: user.id,
             body: conversation.assignedUser
-              ? `System: ${returning.name}'s conversations were left with ${coverName}, and ${conversation.assignedUser.name}'s account is switched off, so this one went to ${coverName} too.`
+              ? `System: ${returning.name}'s conversations were left with ${coverName}, and this one was back on that switched-off account, so it went to ${coverName} too.`
               : `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
           }),
         ),

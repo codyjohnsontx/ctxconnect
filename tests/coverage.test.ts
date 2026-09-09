@@ -459,12 +459,12 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
     assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("alyssa")), "alreadyHers");
   });
 
-  it("gives the cover a thread whose holder cannot read it", () => {
-    // Leaving it where it is finalises a waiting customer onto an account
-    // nobody can sign in as, and the mark that could have brought it back is
-    // cleared as coverage ends. The cover is who the admin just said to leave
-    // the book with, so she is where it goes.
-    assert.equal(coverageDisposition("keep", "alyssa", "ben", heldByAnOffAccount("parts")), "toTheCover");
+  it("does not move a switched-off colleague's thread to the cover", () => {
+    // A manager gave Priya this thread deliberately. Her account being switched
+    // off does not make it the cover's to inherit: it stays where it is, and
+    // coverageLandsOn reports her so the ending is refused and names her. The
+    // PRD criterion depends on this pair agreeing.
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", heldByAnOffAccount("parts")), "staysPut");
   });
 
   it("gives the cover one routed back to a departing advisor who is switched off", () => {
@@ -647,43 +647,59 @@ describe("coverageHolder", () => {
 });
 
 describe("coverageLandsOn", () => {
-  const ben = { name: "Ben", active: true };
-  const parts = { name: "Parts", active: true };
+  const ben = { id: "ben", name: "Ben", active: true };
+  const parts = { id: "parts", name: "Parts", active: true };
   const open = (heldBy: typeof ben | null) => ({ status: ConversationStatus.OPEN, heldBy });
   const closed = (heldBy: typeof ben | null) => ({ status: ConversationStatus.CLOSED, heldBy });
+  const landsOn = (threads: Array<{ status: string; heldBy: typeof ben | null }>) =>
+    coverageLandsOn(ben, threads, "alyssa");
 
   it("lands each open thread on whoever holds it now", () => {
     // Not on the cover: coverage chains, and a thread can be routed on by hand,
     // so the account a thread is finalised onto is its own holder.
-    assert.deepEqual(coverageLandsOn(ben, [open(parts)]), [parts]);
+    assert.deepEqual(landsOn([open(parts)]), [parts]);
   });
 
   it("lands a thread nobody holds on the cover", () => {
-    assert.deepEqual(coverageLandsOn(ben, [open(null)]), [ben]);
+    assert.deepEqual(landsOn([open(null)]), [ben]);
   });
 
-  it("lands one held by a switched-off account on the cover", () => {
-    // Because that is where coverageDisposition puts it. Reporting the
-    // switched-off holder here instead is what refused BOTH endings of one
-    // coverage - the hand-back because the advisor was switched off, and
-    // leaving them with the cover because a thread routed back to her by hand
-    // would supposedly be finalised onto her - so an admin was told to do
-    // something the screen would not let them do.
-    const departed = { name: "Alyssa", active: false };
+  it("still names a switched-off colleague a manager routed a thread to", () => {
+    // The load-bearing half, and the PRD criterion: nothing may be finalised
+    // onto an account nobody reads. Priya was given this thread deliberately
+    // and has since been switched off, so the ending is refused and names her
+    // rather than moving her thread to the cover with nothing said. Reactivate
+    // her, or arrange cover for her - both reachable, because her own card
+    // shows the start form.
+    const departedColleague = { id: "priya", name: "Priya", active: false };
 
-    assert.deepEqual(coverageLandsOn(ben, [open(departed)]), [ben]);
-    assert.equal(coverageEndRefusal("keep", { active: false }, coverageLandsOn(ben, [open(departed)])), null);
+    assert.deepEqual(landsOn([open(departedColleague)]), [departedColleague]);
+    assert.match(
+      coverageEndRefusal("keep", { active: true }, landsOn([open(departedColleague)])) ?? "",
+      /Priya's account is switched off/,
+    );
+  });
+
+  it("lands one back on the departing advisor's own switched-off account on the cover", () => {
+    // The one account excused, and the only state that deadlocked: a manager
+    // routes one of her covered threads back to her, she is then switched off,
+    // and reporting her here refused BOTH endings - the hand-back because she
+    // cannot read, and leaving them with the cover because this thread would be
+    // finalised onto her. "Leave them with the cover" plainly means her threads.
+    const departed = { id: "alyssa", name: "Alyssa", active: false };
+
+    assert.deepEqual(landsOn([open(departed)]), [ben]);
+    assert.equal(coverageEndRefusal("keep", { active: false }, landsOn([open(departed)])), null);
   });
 
   it("still refuses leaving the book with a cover who is switched off", () => {
-    // The load-bearing half. Nothing may be finalised onto an account nobody
-    // reads, and once every thread lands on the cover she is the account that
-    // has to be able to read them.
-    const offCover = { name: "Ben", active: false };
+    // Once a thread nobody holds lands on the cover, she is the account that
+    // has to be able to read it.
+    const offCover = { id: "ben", name: "Ben", active: false };
 
-    assert.deepEqual(coverageLandsOn(offCover, [open(null), open(parts)]), [offCover, parts]);
+    assert.deepEqual(coverageLandsOn(offCover, [open(null), open(parts)], "alyssa"), [offCover, parts]);
     assert.match(
-      coverageEndRefusal("keep", { active: true }, coverageLandsOn(offCover, [open(null)])) ?? "",
+      coverageEndRefusal("keep", { active: true }, coverageLandsOn(offCover, [open(null)], "alyssa")) ?? "",
       /Ben's account is switched off/,
     );
   });
@@ -693,8 +709,8 @@ describe("coverageLandsOn", () => {
     // cover regardless refused an ending that would have put nothing with her,
     // which left a coverage whose two endings were both disabled and could not
     // be cleared at all.
-    assert.deepEqual(coverageLandsOn(ben, [closed(ben), closed(null), closed(parts)]), []);
-    assert.deepEqual(coverageLandsOn(ben, []), []);
+    assert.deepEqual(landsOn([closed(ben), closed(null), closed(parts)]), []);
+    assert.deepEqual(landsOn([]), []);
   });
 });
 

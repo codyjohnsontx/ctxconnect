@@ -267,26 +267,45 @@ export type CoverageEnd = "return" | "keep";
  * finalising a customer onto somebody who is not there. Closed threads land on
  * nobody: leaving history where it is finalises nothing onto anyone.
  *
- * The two must agree exactly, or the refusal judges an ending by a holder the
- * ending would not have left it with. Reporting a switched-off holder here is
- * what once refused *both* endings of one coverage: the hand-back because the
- * advisor was switched off, and leaving them with the cover because a thread
- * routed back to her by hand would supposedly be finalised onto her. Naming the
- * cover regardless was wrong the other way - it refused an ending that would
- * have put nothing with her.
+ * A switched-off holder is still reported, and must be: `coverageEndRefusal`
+ * names that account and stops the ending, because a thread a manager routed to
+ * a colleague who has since been switched off is not the cover's to inherit
+ * silently. The one account excused is the advisor this coverage is FOR - a
+ * thread routed back to her by hand goes to the cover, so she is not reported
+ * as a holder who would be left with something. Reporting her was what refused
+ * *both* endings of one coverage: the hand-back because she cannot read, and
+ * leaving them with the cover because that thread would supposedly be finalised
+ * onto her. Naming the cover regardless was wrong the other way, in both
+ * directions at once - it refused an ending that would have put nothing with
+ * her, and it let a departed colleague's thread move with nothing said.
+ *
+ * The three must agree exactly - this, `coverageDisposition` and the criterion
+ * in the PRD - or the refusal judges an ending by a holder the ending would not
+ * have left it with.
  *
  * Here rather than at each caller because the board and the action both build
  * it, from different queries, and they have to agree.
  */
-export function coverageLandsOn<Account extends { active: boolean }>(
+export function coverageLandsOn<Account extends { id: string; active: boolean }>(
   cover: Account,
   covered: ReadonlyArray<{ status: string; heldBy: Account | null }>,
+  returningUserId: string,
 ): Account[] {
-  return covered.flatMap((thread) =>
-    isOpenConversation(thread.status)
-      ? [thread.heldBy?.active ? thread.heldBy : cover]
-      : [],
-  );
+  return covered.flatMap((thread) => {
+    if (!isOpenConversation(thread.status)) {
+      return [];
+    }
+
+    if (!thread.heldBy) {
+      return [cover];
+    }
+
+    if (thread.heldBy.id === returningUserId && !thread.heldBy.active) {
+      return [cover];
+    }
+
+    return [thread.heldBy];
+  });
 }
 
 /**
@@ -561,16 +580,23 @@ export type CoverageDisposition =
  *   which is what the admin pressed. A null assignee is reachable both from the
  *   assignee picker's explicit unassigned option and from deleting a staff
  *   account, whose threads the foreign key nulls.
- * - **Whoever holds it cannot read it.** It goes to somebody who does: to her
- *   on the hand-back, to the cover on "leave them with the cover". Staying put
- *   exists because the holder is mid-exchange with the customer; a switched-off
- *   account is mid-nothing, so the reason to leave it there is gone and
- *   honouring it would strand the thread for good - the mark that could have
+ * - **Whoever holds it cannot read it.** On the hand-back it goes to her.
+ *   Staying put exists because the holder is mid-exchange with the customer; a
+ *   switched-off account is mid-nothing, so the reason to leave it there is gone
+ *   and honouring it would strand the thread for good - the mark that could have
  *   brought it back is cleared as coverage ends. This deliberately overrides the
  *   rule below: a routing decision to an account nobody can sign in as is not a
  *   live decision, and it is not worth orphaning a customer's thread to honour.
  *   The advisor returning is necessarily active, because coverageEndRefusal
  *   refuses the hand-back otherwise.
+ *
+ *   On "leave them with the cover" it stays put instead, and the ending is
+ *   refused: nothing may be finalised onto an account nobody reads, and a thread
+ *   a manager routed to a colleague who has since been switched off is that
+ *   colleague's, not the cover's to inherit silently. The single exception is
+ *   the advisor this coverage is FOR - a thread routed back to her by hand goes
+ *   to the cover, because "leave them with the cover" plainly means her threads,
+ *   and refusing it was what left a coverage with no reachable ending at all.
  * - **Somebody else holds it.** A manager routing a covered thread to a parts
  *   specialist made a decision, and an advisor walking back in must not silently
  *   undo it. It stays with them whether or not anyone has replied.
@@ -605,7 +631,11 @@ export function coverageDisposition(
   }
 
   if (conversation.assignedUser && !conversation.assignedUser.active) {
-    return end === "return" ? "returned" : "toTheCover";
+    if (end === "return") {
+      return "returned";
+    }
+
+    return conversation.assignedUserId === returningUserId ? "toTheCover" : "staysPut";
   }
 
   if (conversation.assignedUserId !== coverUserId) {
