@@ -245,7 +245,10 @@ still switched off, because that would put them back where they started.
   Both pointer writes are conditional on the state the transaction read, so a
   double click or two admins on the board cannot leave her pointed at one cover
   while her threads sit with another, and cannot write a `coverage.end` row
-  claiming nothing moved.
+  claiming nothing moved. The conversation moves are guarded the same way and
+  counted - scoped to the threads still on the account they were read from, and
+  refused outright if any of them moved in between - which is what covers the
+  permanent hand-off, since it writes no pointer to guard on.
 
 ## Data Requirements
 

@@ -254,10 +254,10 @@ export async function resolveConversationNotificationsTx(
  * would restart the clock the alert is a record of. Only the person answerable
  * for it changed.
  *
- * Takes only the thread's new holder, never the old one. Every outstanding row
- * of these three types belongs to whoever was holding the conversation - they
- * are written by `notifyAssignee` to `Conversation.assignedUserId` and nowhere
- * else, and the alerts addressed to managers (`SLA_MISSED`, `MESSAGE_FAILED`,
+ * Takes only the thread's new holder, never the old one. Every row of these
+ * three types belongs to whoever was holding the conversation - they are
+ * written by `notifyAssignee` to `Conversation.assignedUserId` and nowhere else,
+ * and the alerts addressed to managers (`SLA_MISSED`, `MESSAGE_FAILED`,
  * `UNASSIGNED_CONVERSATION`) are other types that `assigneeAddressedTypes`
  * already excludes. So there is no manager's copy for a `from` filter to
  * protect, and asking who held a row is what used to strand one: a thread left
