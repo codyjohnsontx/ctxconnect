@@ -1143,11 +1143,10 @@ export async function endConversationCoverage(formData: FormData) {
     });
 
     // Every account that would actually be left holding one of these threads if
-    // the coverage were left with the cover: each open thread's current holder,
-    // and the cover for the two kinds that move to her - one nobody holds, and
-    // one on the returning advisor's own switched-off account. Closed threads
-    // are left out because nothing is finalised onto anybody by leaving history
-    // where it is.
+    // the coverage were left with the cover, which `coverageEndRefusal` below
+    // judges the ending by. Which account each thread lands on is
+    // `coverageLandsOn`'s rule, written there and deliberately not restated
+    // here.
     const landsOn = coverageLandsOn(
       cover,
       covered.map((conversation) => ({
