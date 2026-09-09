@@ -309,13 +309,12 @@ export async function readdressAssigneeNotificationsTx(
   });
 
   const redundant: string[] = [];
-  const toMove: string[] = [];
 
   for (const row of moving) {
     const fact = `${row.conversationId}:${row.type}`;
 
-    // The first row for a fact she does not hold becomes hers; anything after
-    // it - a second cover's copy, or one raised for a third holder - would be
+    // The first row for a fact she does not hold is the one she keeps; anything
+    // after it - a second cover's copy, or one raised for a third holder - is
     // the same fact a second time.
     if (held.has(fact)) {
       redundant.push(row.id);
@@ -323,12 +322,16 @@ export async function readdressAssigneeNotificationsTx(
     }
 
     held.add(fact);
-    toMove.push(row.id);
   }
 
-  if (toMove.length > 0) {
+  // Every outstanding row follows the thread, the duplicates included. A row
+  // left addressed to the previous holder is still on her rail the moment
+  // anything reopens it - `reopenConversationNotifications` matches the thread
+  // and the type, never the recipient - and she would be told about a customer
+  // message on a thread she no longer holds.
+  if (moving.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: toMove } },
+      where: { id: { in: moving.map((row) => row.id) } },
       data: { recipientUserId: to },
     });
   }
