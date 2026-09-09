@@ -103,36 +103,56 @@ export function coverRefusal(
 }
 
 /**
- * Who is left holding a covered thread that is not moving, and therefore who
- * its alerts belong to once coverage ends.
+ * When this coverage ends, which conversations are re-addressed to whom.
  *
- * Only `staysPut` threads are here: every other disposition is a move, and the
- * action already re-addresses those to wherever it put them. A thread stays for
- * two very different reasons, and the second is the one this exists for - the
- * cover answered the customer and keeps it, or a manager routed it on to
- * somebody else entirely. In that second case coverage addressed the thread's
- * alerts to the cover on the way in, and nothing since has moved them, so
- * without this the cover keeps an actionable alert for a customer she no longer
- * holds while the advisor who does hold them has nothing telling her.
+ * The whole decision, for every disposition, in one place. An alert is
+ * addressed to whoever is holding the thread once the ending has run, which is
+ * what `coverageHolder` already answers - so there is one rule here rather than
+ * a recipient worked out again at each call site. The action used to make three
+ * separate re-addressing calls, each with its own idea of which threads it
+ * covered, and the disposition that fell between them was the one a manager had
+ * routed on to a third person: coverage addressed its alerts to the cover on
+ * the way in, nothing moved them afterwards, and the cover kept an actionable
+ * alert for a customer she no longer held while the advisor who did hold them
+ * had nothing telling her.
  *
- * A thread nobody holds is skipped rather than defaulted to anyone: `staysPut`
- * with no assignee only happens on a permanent hand-off, where an alert
+ * Each disposition, and why its recipient is what it is:
+ *
+ * - `returned` and `alreadyHers` - the advisor coming back, whether this ending
+ *   moved the thread to her or somebody had already routed it back by hand.
+ * - `toTheCover` - the cover, who is being left holding a thread nobody else
+ *   can read.
+ * - `staysPut` and `closed` - whoever holds it now, which is not the cover as
+ *   soon as a thread has been routed on.
+ *
+ * A thread nobody holds is skipped rather than defaulted to anyone: an alert
  * addressed to nobody is the honest state until somebody takes the thread.
  *
  * Grouped, because these threads do not share a holder - which is the whole
- * reason this cannot be one call at the end of the action.
+ * reason this cannot be one call with one recipient at the end of the action.
  */
-export function alertsStayWith<
+export function coverageAlertPlan<
   Thread extends { id: string; disposition: CoverageDisposition; assignedUserId: string | null },
->(threads: ReadonlyArray<Thread>): Array<{ holderId: string; conversationIds: string[] }> {
+>(
+  threads: ReadonlyArray<Thread>,
+  returningUserId: string,
+  coverUserId: string,
+): Array<{ holderId: string; conversationIds: string[] }> {
   const byHolder = new Map<string, string[]>();
 
   for (const thread of threads) {
-    if (thread.disposition !== "staysPut" || !thread.assignedUserId) {
+    const holderId = coverageHolder(
+      thread.disposition,
+      returningUserId,
+      coverUserId,
+      thread.assignedUserId,
+    );
+
+    if (!holderId) {
       continue;
     }
 
-    byHolder.set(thread.assignedUserId, [...(byHolder.get(thread.assignedUserId) ?? []), thread.id]);
+    byHolder.set(holderId, [...(byHolder.get(holderId) ?? []), thread.id]);
   }
 
   return [...byHolder].map(([holderId, conversationIds]) => ({ holderId, conversationIds }));
@@ -241,23 +261,30 @@ export type CoverageEnd = "return" | "keep";
  * The accounts a coverage would leave holding something, which is what
  * coverageEndRefusal has to judge an ending by.
  *
- * One open thread lands on whoever holds it now, and one nobody holds lands on
- * the cover, because that is the only case the cover is left with anything -
- * every other thread is finalised onto its current holder. Closed threads land
- * on nobody: leaving history where it is finalises nothing onto anyone.
+ * One open thread lands on whoever holds it now, unless that account cannot read
+ * it - a thread nobody holds, and one held by a switched-off account, both land
+ * on the cover, because `coverageDisposition` moves both to her rather than
+ * finalising a customer onto somebody who is not there. Closed threads land on
+ * nobody: leaving history where it is finalises nothing onto anyone.
+ *
+ * The two must agree exactly, or the refusal judges an ending by a holder the
+ * ending would not have left it with. Reporting a switched-off holder here is
+ * what once refused *both* endings of one coverage: the hand-back because the
+ * advisor was switched off, and leaving them with the cover because a thread
+ * routed back to her by hand would supposedly be finalised onto her. Naming the
+ * cover regardless was wrong the other way - it refused an ending that would
+ * have put nothing with her.
  *
  * Here rather than at each caller because the board and the action both build
- * it, from different queries, and they have to agree - naming the cover
- * regardless once refused an ending that would have put nothing with her, which
- * left a coverage whose only two endings were both disabled.
+ * it, from different queries, and they have to agree.
  */
-export function coverageLandsOn<Account>(
+export function coverageLandsOn<Account extends { active: boolean }>(
   cover: Account,
   covered: ReadonlyArray<{ status: string; heldBy: Account | null }>,
 ): Account[] {
   return covered.flatMap((thread) =>
     isOpenConversation(thread.status)
-      ? [thread.heldBy ?? cover]
+      ? [thread.heldBy?.active ? thread.heldBy : cover]
       : [],
   );
 }
@@ -515,8 +542,16 @@ export type CoverageDisposition =
  *
  * In order, and each one is load-bearing:
  *
- * - **She already holds it.** Somebody reassigned it back to her by hand during
- *   coverage. There is nothing for the return to move, whatever else is true.
+ * - **She already holds it, and can read it.** Somebody reassigned it back to
+ *   her by hand during coverage. There is nothing for the return to move,
+ *   whatever else is true. The reading half is load-bearing on an open thread:
+ *   she can be switched off after a manager routes one back to her, and calling
+ *   that "already hers" left it on a dead account while `coverageEndRefusal`
+ *   read the same thread and refused *both* endings - the hand-back because she
+ *   cannot read, and leaving it with the cover because this thread would be
+ *   finalised onto her. A book with no way out through the screen, over one
+ *   thread. So an open thread she cannot read falls through to the rule below,
+ *   and closed history is untouched by this either way.
  * - **It is finished.** Closed history is not re-attributed - the same rule that
  *   kept closed threads out of the hand-off in the first place.
  * - **Nobody holds it.** It goes to somebody, always, because a thread
@@ -526,15 +561,16 @@ export type CoverageDisposition =
  *   which is what the admin pressed. A null assignee is reachable both from the
  *   assignee picker's explicit unassigned option and from deleting a staff
  *   account, whose threads the foreign key nulls.
- * - **Whoever holds it cannot read it.** On the hand-back it goes to her
- *   instead. Staying put exists because the holder is mid-exchange with the
- *   customer; a switched-off account is mid-nothing, so the reason to leave it
- *   there is gone and honouring it would strand the thread for good - the mark
- *   that could have brought it back is cleared as coverage ends. This
- *   deliberately overrides the rule below: a routing decision to an account
- *   nobody can sign in as is not a live decision, and it is not worth orphaning
- *   a customer's thread to honour. The advisor returning is necessarily active,
- *   because coverageEndRefusal refuses the hand-back otherwise.
+ * - **Whoever holds it cannot read it.** It goes to somebody who does: to her
+ *   on the hand-back, to the cover on "leave them with the cover". Staying put
+ *   exists because the holder is mid-exchange with the customer; a switched-off
+ *   account is mid-nothing, so the reason to leave it there is gone and
+ *   honouring it would strand the thread for good - the mark that could have
+ *   brought it back is cleared as coverage ends. This deliberately overrides the
+ *   rule below: a routing decision to an account nobody can sign in as is not a
+ *   live decision, and it is not worth orphaning a customer's thread to honour.
+ *   The advisor returning is necessarily active, because coverageEndRefusal
+ *   refuses the hand-back otherwise.
  * - **Somebody else holds it.** A manager routing a covered thread to a parts
  *   specialist made a decision, and an advisor walking back in must not silently
  *   undo it. It stays with them whether or not anyone has replied.
@@ -555,7 +591,9 @@ export function coverageDisposition(
   },
 ): CoverageDisposition {
   if (conversation.assignedUserId === returningUserId) {
-    return "alreadyHers";
+    if (!isOpenConversation(conversation.status) || conversation.assignedUser?.active !== false) {
+      return "alreadyHers";
+    }
   }
 
   if (!isOpenConversation(conversation.status)) {
@@ -567,7 +605,7 @@ export function coverageDisposition(
   }
 
   if (conversation.assignedUser && !conversation.assignedUser.active) {
-    return end === "return" ? "returned" : "staysPut";
+    return end === "return" ? "returned" : "toTheCover";
   }
 
   if (conversation.assignedUserId !== coverUserId) {

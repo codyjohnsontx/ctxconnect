@@ -10,6 +10,7 @@ import {
   ConversationStatus,
   DeliveryStatus,
   Department,
+  Prisma,
   MessageDirection,
   MessageKind,
   Priority,
@@ -32,7 +33,7 @@ import { handOffReason } from "@/lib/conversation-controls-state";
 import {
   canHandOffPermanently,
   canManageCoverage,
-  alertsStayWith,
+  coverageAlertPlan,
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
@@ -655,6 +656,63 @@ export async function createStaffUser(formData: FormData) {
 }
 
 /**
+ * Holds both accounts a hand-off is about, so nothing can change either while
+ * it runs, and refuses if either is already covered.
+ *
+ * The checks the action makes before this are reads, and Prisma runs
+ * interactive transactions at Read Committed, so neither survives until the
+ * writes made on the strength of it. This re-asserts them as writes, which is
+ * the only form of the check this isolation level respects: an update of each
+ * row to the value it already holds takes that row's lock, where a select does
+ * not. It costs both accounts their `updatedAt`, which is the price of the lock.
+ *
+ * BOTH rows, and the caller must do this before it reads the away advisor's
+ * threads. The cover's row alone closes only half of it. The half it does
+ * close: an admin switches the cover off, or somebody hands the cover's own
+ * book on, while the hand-off is mid-flight. The half it does not: the away
+ * advisor's book is moving ONTO the cover, so a hand-off of the cover's own
+ * book that reads her threads before this one commits misses every thread this
+ * one is about to put there. It re-points the away advisor's pointer and never
+ * those threads' assignment, so they end up on an account that is itself away -
+ * nobody reading, which is the state this whole feature exists to end. Locking
+ * the away advisor's row is what stops that read from happening mid-move:
+ * whichever transaction locks first, the other waits and then sees a true
+ * picture - it either takes the threads on with the rest, or finds that advisor
+ * claimed and refuses.
+ *
+ * Taken in a deterministic order, sorted by id, and NOT in the order the form
+ * names them. Two hand-offs that name each other - she picks him while he picks
+ * her - would otherwise take the same two rows in opposite orders, and Postgres
+ * would break the cycle by aborting one with an error rather than by refusing
+ * it with a sentence. Sorting is free; do not tidy it away.
+ *
+ * What no test here can see is that this runs at all: two transactions
+ * interleaving needs a database, and this repo's suite does not have one. So
+ * `tests/coverage.test.ts` asserts only that the hand-off invokes it.
+ */
+async function lockCoverageAccounts(
+  tx: Prisma.TransactionClient,
+  awayUserId: string,
+  coverUserId: string,
+) {
+  const rows = [
+    { id: awayUserId, refusal: "Those conversations are already covered. End that coverage first." },
+    { id: coverUserId, refusal: "That staff member is away and covered by somebody else." },
+  ].sort((first, second) => (first.id < second.id ? -1 : 1));
+
+  for (const row of rows) {
+    const locked = await tx.user.updateMany({
+      where: { id: row.id, coveredByUserId: null },
+      data: { coveredByUserId: null },
+    });
+
+    if (locked.count === 0) {
+      throw new Error(row.refusal);
+    }
+  }
+}
+
+/**
  * Hands an advisor's open conversations to somebody who is here.
  *
  * The gap this closes: an advisor goes on holiday, or leaves, or is switched
@@ -726,47 +784,7 @@ export async function startConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are already covered. End that coverage first.");
     }
 
-    // Both checks above are reads, and Prisma runs interactive transactions at
-    // Read Committed, so neither survives until the writes below are made on
-    // the strength of it. Re-assert them as writes, which is the only form of
-    // the check this isolation level respects: an update of each row to the
-    // value it already holds takes that row's lock, where a select does not. It
-    // costs both accounts their `updatedAt`, which is the price of the lock.
-    //
-    // BOTH rows, and before this advisor's threads are read below. The cover's
-    // row alone closes only half of it. The half it does close: an admin
-    // switches the cover off, or somebody hands the cover's own book on, while
-    // this transaction is mid-flight. The half it does not: this advisor's book
-    // is moving ONTO the cover, so a hand-off of the cover's own book that reads
-    // her threads before this one commits misses every thread this one is about
-    // to put there. It re-points this advisor's pointer and never those threads'
-    // assignment, so they end up on an account that is itself away - nobody
-    // reading, which is the state this whole feature exists to end. Locking this
-    // advisor's row here is what stops that read from happening mid-move:
-    // whichever transaction locks first, the other waits and then sees a true
-    // picture - it either takes the threads on with the rest, or finds this
-    // advisor claimed and refuses.
-    //
-    // Taken in a deterministic order, sorted by id, and NOT in the order the
-    // form names them. Two hand-offs that name each other - she picks him while
-    // he picks her - would otherwise take the same two rows in opposite orders,
-    // and Postgres would break the cycle by aborting one with an error rather
-    // than by refusing it with a sentence. Sorting is free; do not tidy it away.
-    const rowsToLock = [
-      { id: awayUserId, refusal: "Those conversations are already covered. End that coverage first." },
-      { id: cover.id, refusal: "That staff member is away and covered by somebody else." },
-    ].sort((first, second) => (first.id < second.id ? -1 : 1));
-
-    for (const row of rowsToLock) {
-      const locked = await tx.user.updateMany({
-        where: { id: row.id, coveredByUserId: null },
-        data: { coveredByUserId: null },
-      });
-
-      if (locked.count === 0) {
-        throw new Error(row.refusal);
-      }
-    }
+    await lockCoverageAccounts(tx, awayUserId, cover.id);
 
     // Those clauses can only ask about `coveredByUserId`, and going away is not
     // the only way a cover stops being one: an admin's Deactivate is a single
@@ -1154,7 +1172,6 @@ export async function endConversationCoverage(formData: FormData) {
 
     const returned = withDisposition("returned");
     const returningIds = returned.map((conversation) => conversation.id);
-    const alreadyBackIds = withDisposition("alreadyHers").map((conversation) => conversation.id);
     const toCover = withDisposition("toTheCover");
     const toCoverIds = toCover.map((conversation) => conversation.id);
 
@@ -1220,16 +1237,16 @@ export async function endConversationCoverage(formData: FormData) {
       await moveFromHolderRead(toCover, coverUserId);
 
       await tx.message.createMany({
-        data: toCoverIds.map((conversationId) =>
+        data: toCover.map((conversation) =>
           systemNote({
-            conversationId,
+            conversationId: conversation.id,
             senderUserId: user.id,
-            body: `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
+            body: conversation.assignedUser
+              ? `System: ${returning.name}'s conversations were left with ${coverName}, and ${conversation.assignedUser.name}'s account is switched off, so this one went to ${coverName} too.`
+              : `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
           }),
         ),
       });
-
-      await readdressAssigneeNotificationsTx(tx, toCoverIds, coverUserId);
     }
 
     // Exactly the threads this action gave an owner. "Nobody is holding this"
@@ -1240,24 +1257,17 @@ export async function endConversationCoverage(formData: FormData) {
       NotificationType.UNASSIGNED_CONVERSATION,
     ]);
 
-    // Every covered thread that is now hers gets its alerts, whichever way it
-    // got back to her: the ones this run moved and the ones somebody had already
-    // routed back by hand. Addressed by where the thread is rather than by where
-    // it came from, because a thread left unassigned mid-coverage has no
-    // previous holder to name and is exactly the one that used to be skipped.
-    await readdressAssigneeNotificationsTx(
-      tx,
-      [...returningIds, ...alreadyBackIds],
+    // Every covered thread's alerts, addressed to whoever holds it now this
+    // ending has run. Which threads go to whom is `coverageAlertPlan`'s decision
+    // and nothing here re-derives any part of it: three separate calls, each
+    // with its own idea of which threads it covered, is how a thread routed on
+    // to a third person came to fall between them and keep its alerts addressed
+    // to the cover. Grouped because these threads do not share a holder.
+    for (const { holderId, conversationIds } of coverageAlertPlan(
+      decided,
       returningUserId,
-    );
-
-    // And a thread that stays where it is still needs its alerts to say so.
-    // Coverage addressed them to the cover on the way in; if a manager then
-    // routed the thread on to somebody else, it stays with that person - and
-    // without this the cover keeps an actionable alert for a customer she no
-    // longer holds, while the advisor who does holds nothing telling her.
-    // Grouped because these threads do not share a holder.
-    for (const { holderId, conversationIds } of alertsStayWith(decided)) {
+      coverUserId,
+    )) {
       await readdressAssigneeNotificationsTx(tx, conversationIds, holderId);
     }
 

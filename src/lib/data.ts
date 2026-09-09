@@ -202,10 +202,17 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         tags: { include: { tag: true } },
         tasks: { where: activeTaskWhere, orderBy: { dueDate: "asc" } },
         messages: {
-          // `previewedMessage` owns which of a thread's messages a row previews
-          // - the newest one somebody's voice is in. Pushed down here so one row
-          // per conversation is still enough to answer it: the clause can only
-          // drop rows that rule would skip anyway.
+          // Which message a row previews, and the only place that decides it:
+          // the newest one somebody's voice is in. A hand-off writes a note on
+          // every thread it moves, so without this an advisor handed a book of
+          // forty opens the queue to forty rows all previewing the same
+          // sentence about the hand-off instead of what each customer last
+          // said. A note a PERSON typed is not marked and still previews.
+          //
+          // Asked of the query rather than of the loaded row because the row is
+          // capped at one message: skipping in memory would need the whole
+          // thread loaded for every row in the queue, and a run of Attend's own
+          // notes has no bound to cap it at.
           where: { systemGenerated: false },
           orderBy: { createdAt: "desc" },
           take: 1,

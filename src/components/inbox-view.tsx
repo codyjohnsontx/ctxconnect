@@ -30,7 +30,7 @@ import {
   lastUndeliveredOutbound,
   undeliveredDetail,
 } from "@/lib/message-delivery";
-import { type PreviewAuthor, previewAttribution, previewedMessage } from "@/lib/message-preview";
+import { type PreviewAuthor, previewAttribution } from "@/lib/message-preview";
 import { CONVERSATION_PANEL_ATTRIBUTE } from "@/lib/thread-scroll";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
@@ -378,11 +378,11 @@ export function InboxView({
           ) : (
             <div className="divide-y divide-zinc-100">
               {conversations.map((conversation) => {
-                // The newest message somebody's voice is in, not simply the
-                // newest: a hand-off writes a note on every thread it moves,
-                // and a queue of rows all previewing that note says nothing
-                // about any customer.
-                const lastMessage = previewedMessage(conversation.messages);
+                // The newest message somebody's voice is in: the query loads
+                // one message and leaves out the notes Attend wrote itself, so
+                // a book just handed over does not arrive as rows all
+                // previewing the same sentence about the hand-off.
+                const lastMessage = conversation.messages[0] ?? null;
                 // Asked of the last reply staff sent, not of the message being
                 // previewed. A note or a customer message written afterwards
                 // takes over the preview without undoing the failure, and a row

@@ -7,7 +7,7 @@ import {
   canCover,
   canHandOffPermanently,
   canManageCoverage,
-  alertsStayWith,
+  coverageAlertPlan,
   coverRefusal,
   coverageDisposition,
   coverageEndRefusal,
@@ -178,49 +178,83 @@ describe("the gap coverage closes", () => {
   });
 });
 
-describe("who a staying thread's alerts belong to", () => {
+describe("when a coverage ends, which conversations are re-addressed to whom", () => {
+  // One decision for every disposition, because three separate re-addressing
+  // calls in the action - each with its own idea of which threads it covered -
+  // is how a thread routed on to a third person fell between them and kept its
+  // alerts addressed to the cover. Each disposition is pinned on its own, so a
+  // branch that answers wrongly fails by name rather than as one plan-shaped
+  // diff.
   const thread = (
     id: string,
-    disposition: Parameters<typeof alertsStayWith>[0][number]["disposition"],
+    disposition: Parameters<typeof coverageAlertPlan>[0][number]["disposition"],
     assignedUserId: string | null,
   ) => ({ id, disposition, assignedUserId });
 
-  it("leaves the cover's own kept threads with the cover", () => {
-    assert.deepEqual(alertsStayWith([thread("c1", "staysPut", "ben")]), [
+  const plan = (threads: ReturnType<typeof thread>[]) =>
+    coverageAlertPlan(threads, "alyssa", "ben");
+
+  it("addresses a returned thread to the advisor coming back", () => {
+    // She holds it now, so the alert about it has to be on her rail rather than
+    // on the rail of whoever was covering.
+    assert.deepEqual(plan([thread("c1", "returned", "ben")]), [
+      { holderId: "alyssa", conversationIds: ["c1"] },
+    ]);
+  });
+
+  it("addresses one already routed back to her by hand to her too", () => {
+    // Nothing moved it, so nothing else would have re-addressed it - and it is
+    // hers, so the cover must not keep its alerts.
+    assert.deepEqual(plan([thread("c1", "alreadyHers", "alyssa")]), [
+      { holderId: "alyssa", conversationIds: ["c1"] },
+    ]);
+  });
+
+  it("addresses one left with the cover to the cover", () => {
+    // Reachable when nobody held it, or when the account that did cannot read
+    // it: either way she is the one now holding the customer.
+    assert.deepEqual(plan([thread("c1", "toTheCover", null)]), [
       { holderId: "ben", conversationIds: ["c1"] },
     ]);
   });
 
-  it("moves them to the third person a manager routed the thread to", () => {
-    // The case this exists for. Coverage addressed these alerts to the cover on
-    // the way in; the thread is now Priya's, so an alert still sitting on Ben's
-    // rail is one nobody who holds the customer can see.
-    assert.deepEqual(
-      alertsStayWith([thread("c1", "staysPut", "priya"), thread("c2", "staysPut", "ben")]),
-      [
-        { holderId: "priya", conversationIds: ["c1"] },
-        { holderId: "ben", conversationIds: ["c2"] },
-      ],
-    );
+  it("addresses one that stays put to whoever is actually holding it", () => {
+    // The case the three separate calls missed. A manager routed this thread on
+    // to Priya; an alert still sitting on Ben's rail is one nobody who holds
+    // the customer can see.
+    assert.deepEqual(plan([thread("c1", "staysPut", "priya")]), [
+      { holderId: "priya", conversationIds: ["c1"] },
+    ]);
   });
 
-  it("leaves every thread this ending moved alone", () => {
-    // Those are re-addressed by the action to wherever it put them, so naming
-    // them here would fight it.
-    assert.deepEqual(
-      alertsStayWith([
-        thread("c1", "returned", "alyssa"),
-        thread("c2", "toTheCover", "ben"),
-        thread("c3", "alreadyHers", "alyssa"),
-      ]),
-      [],
-    );
+  it("addresses closed history to whoever finished it", () => {
+    // Closed history is not re-attributed, so its alerts follow the thread
+    // rather than the coverage that has just ended.
+    assert.deepEqual(plan([thread("c1", "closed", "priya")]), [
+      { holderId: "priya", conversationIds: ["c1"] },
+    ]);
   });
 
   it("addresses nothing to nobody", () => {
-    // staysPut with no assignee is reachable on a permanent hand-off, and an
-    // alert addressed to nobody is the honest state until somebody takes it.
-    assert.deepEqual(alertsStayWith([thread("c1", "staysPut", null)]), []);
+    // Reachable on a permanent hand-off, and an alert addressed to nobody is
+    // the honest state until somebody takes the thread.
+    assert.deepEqual(plan([thread("c1", "staysPut", null)]), []);
+  });
+
+  it("groups the threads that share a holder", () => {
+    // The action makes one call per recipient, so two threads landing on the
+    // same rail must not be two round trips.
+    assert.deepEqual(
+      plan([
+        thread("c1", "returned", "ben"),
+        thread("c2", "staysPut", "priya"),
+        thread("c3", "alreadyHers", "alyssa"),
+      ]),
+      [
+        { holderId: "alyssa", conversationIds: ["c1", "c3"] },
+        { holderId: "priya", conversationIds: ["c2"] },
+      ],
+    );
   });
 });
 
@@ -424,6 +458,36 @@ describe("coverageDisposition when the coverage is left with the cover", () => {
   it("still reports a thread already back with the departing advisor", () => {
     assert.equal(coverageDisposition("keep", "alyssa", "ben", thread("alyssa")), "alreadyHers");
   });
+
+  it("gives the cover a thread whose holder cannot read it", () => {
+    // Leaving it where it is finalises a waiting customer onto an account
+    // nobody can sign in as, and the mark that could have brought it back is
+    // cleared as coverage ends. The cover is who the admin just said to leave
+    // the book with, so she is where it goes.
+    assert.equal(coverageDisposition("keep", "alyssa", "ben", heldByAnOffAccount("parts")), "toTheCover");
+  });
+
+  it("gives the cover one routed back to a departing advisor who is switched off", () => {
+    // The state that had no way out. A manager routes a covered thread back to
+    // her while she is still active, she is then deactivated, and calling that
+    // "already hers" left it on a dead account - while the board, reading the
+    // same thread, refused the hand-back because she cannot read and refused
+    // leaving them with the cover because this thread would be finalised onto
+    // her. Both buttons disabled over one thread.
+    assert.equal(
+      coverageDisposition("keep", "alyssa", "ben", heldByAnOffAccount("alyssa")),
+      "toTheCover",
+    );
+  });
+
+  it("leaves her closed history alone whether or not she can still read it", () => {
+    // Closed history is not re-attributed, and a switched-off account does not
+    // change that: nothing is being finalised onto anybody.
+    assert.equal(
+      coverageDisposition("keep", "alyssa", "ben", thread("alyssa", [], ConversationStatus.CLOSED, false)),
+      "alreadyHers",
+    );
+  });
 });
 
 // Coverage chains, so a thread can be inside two of them at once: Ben answers
@@ -595,8 +659,33 @@ describe("coverageLandsOn", () => {
   });
 
   it("lands a thread nobody holds on the cover", () => {
-    // The only case the cover is left with anything.
     assert.deepEqual(coverageLandsOn(ben, [open(null)]), [ben]);
+  });
+
+  it("lands one held by a switched-off account on the cover", () => {
+    // Because that is where coverageDisposition puts it. Reporting the
+    // switched-off holder here instead is what refused BOTH endings of one
+    // coverage - the hand-back because the advisor was switched off, and
+    // leaving them with the cover because a thread routed back to her by hand
+    // would supposedly be finalised onto her - so an admin was told to do
+    // something the screen would not let them do.
+    const departed = { name: "Alyssa", active: false };
+
+    assert.deepEqual(coverageLandsOn(ben, [open(departed)]), [ben]);
+    assert.equal(coverageEndRefusal("keep", { active: false }, coverageLandsOn(ben, [open(departed)])), null);
+  });
+
+  it("still refuses leaving the book with a cover who is switched off", () => {
+    // The load-bearing half. Nothing may be finalised onto an account nobody
+    // reads, and once every thread lands on the cover she is the account that
+    // has to be able to read them.
+    const offCover = { name: "Ben", active: false };
+
+    assert.deepEqual(coverageLandsOn(offCover, [open(null), open(parts)]), [offCover, parts]);
+    assert.match(
+      coverageEndRefusal("keep", { active: true }, coverageLandsOn(offCover, [open(null)])) ?? "",
+      /Ben's account is switched off/,
+    );
   });
 
   it("names nobody when every covered thread is closed", () => {
@@ -991,10 +1080,12 @@ describe("what coverage moves", () => {
   });
 });
 
-// The one rule below that is deliberately asserted over source rather than over
-// behaviour. Who may do what is already pinned by the canManageCoverage and
-// canHandOffPermanently tests above; what those cannot see is whether an action
-// asks. That is a structural fact about a call site, so it is read as one.
+// The rules below are deliberately asserted over source rather than over
+// behaviour, and only ever as an INVOCATION - that this action calls that
+// helper. What each helper decides is pinned by the behavioural tests above;
+// what those cannot see is whether an action asks it at all, which is a
+// structural fact about a call site and is read as one. Nothing here asserts
+// how a call is spelled.
 
 describe("both server actions ask the rules", () => {
   const actions = join("src", "app", "actions.ts");
@@ -1032,47 +1123,30 @@ describe("both server actions ask the rules", () => {
     assert.match(start, /coverRefusal\(/);
   });
 
-  it("locks both accounts before the hand-off reads a thread", () => {
-    // Where the lock is taken is the whole of it, and no database-free test can
-    // watch two transactions interleave. Locking only the cover leaves the
-    // mirror case open: a hand-off of the cover's own book that reads her
-    // threads before this one commits misses every thread this one is about to
-    // move onto her, and they end up on an account that is itself away.
+  it("invokes the guards this suite cannot watch run", () => {
+    // Both of these are transaction behaviour, and this suite is database-free:
+    // it cannot watch two hand-offs interleave, and it cannot see which rows a
+    // re-addressing write touched. What it can see is whether the action calls
+    // the rule at all, which is the failure this repo has actually had - an
+    // ungated action passing a whole-file grep because a different action
+    // mentioned the helper.
     //
-    // So three structural facts, none of which running one transaction can
-    // show: both rows are locked, they are sorted first so two hand-offs naming
-    // each other cannot deadlock, and the whole block precedes the read of the
-    // away advisor's conversations.
+    // So this asserts the invocation and nothing else. No variable names, no
+    // statement order, no matching on a declaration's text: those break when
+    // somebody renames a local that changed no behaviour, and pass when
+    // somebody keeps the name and guts the call.
     const start = serverAction("startConversationCoverage");
-
-    const locks = start.indexOf("rowsToLock");
-    const loop = start.indexOf("for (const row of rowsToLock)");
-    const readsThreads = start.indexOf("assignedUserId: awayUserId");
-
-    assert.ok(locks > -1 && loop > locks, "expected the hand-off to lock both accounts");
-    assert.ok(readsThreads > -1, "expected the hand-off to read the away advisor's threads");
-    assert.ok(loop < readsThreads, "the locks must be taken before the threads are read");
-
-    const declaration = start.slice(locks, loop);
-
-    assert.match(declaration, /awayUserId/);
-    assert.match(declaration, /cover\.id/);
-    assert.match(declaration, /\.sort\(/);
-  });
-
-  it("re-addresses the alerts of every thread a return leaves where it is", () => {
-    // `alertsStayWith` is pinned by the tests above; what those cannot see is
-    // whether the ending calls it, and a thread routed on to a third person
-    // keeps its alerts on the cover's rail until it does.
     const end = serverAction("endConversationCoverage");
 
-    const stay = end.indexOf("alertsStayWith(");
+    // Holds both accounts before the hand-off reads a thread. What it closes,
+    // and why the away advisor's row and not only the cover's, is written at
+    // the helper.
+    assert.match(start, /lockCoverageAccounts\(/);
 
-    assert.ok(stay > -1, "expected the ending to ask who a staying thread's alerts belong to");
-    assert.match(
-      end.slice(stay),
-      /^alertsStayWith\([^]{0,200}?readdressAssigneeNotificationsTx\(/,
-    );
+    // Every covered thread's alerts follow whoever holds it once the ending has
+    // run. The decisions are pinned behaviourally above, one test per
+    // disposition; this is only that the ending asks.
+    assert.match(end, /coverageAlertPlan\(/);
   });
 });
 
