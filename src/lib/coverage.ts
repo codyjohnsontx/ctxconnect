@@ -261,11 +261,17 @@ export type CoverageEnd = "return" | "keep";
  * The accounts a coverage would leave holding something, which is what
  * coverageEndRefusal has to judge an ending by.
  *
- * One open thread lands on whoever holds it now, unless that account cannot read
- * it - a thread nobody holds, and one held by a switched-off account, both land
- * on the cover, because `coverageDisposition` moves both to her rather than
- * finalising a customer onto somebody who is not there. Closed threads land on
- * nobody: leaving history where it is finalises nothing onto anyone.
+ * This is where that rule lives, and the only place it is written: three cases,
+ * and every other doc about `landsOn` points here rather than restating them,
+ * because a second copy is how the refusal came to be described by a rule the
+ * code had stopped following.
+ *
+ * One open thread lands on whoever holds it now. Two land on the cover instead:
+ * one nobody holds, and one on the returning advisor's OWN account once that
+ * account is switched off - `coverageDisposition` moves both to the cover
+ * rather than finalising a customer onto somebody who is not there. Closed
+ * threads land on nobody: leaving history where it is finalises nothing onto
+ * anyone.
  *
  * A switched-off holder is still reported, and must be: `coverageEndRefusal`
  * names that account and stops the ending, because a thread a manager routed to
@@ -504,15 +510,18 @@ export function describeThreadsOffCoverage(
  * brought them back. Starting coverage already refuses an inactive cover; this
  * is the same rule at the other end.
  *
- * `landsOn` is every account that would actually be left holding one of these
- * threads if the coverage were left with the cover - each open thread's current
- * holder, or the cover for one nobody holds. Coverage can chain and a thread can
- * be routed on by hand, so the cover is not always the account a thread would be
- * finalised onto, and judging the ending by the named cover alone let a
- * switched-off third party keep one. Naming the cover regardless was wrong the
- * other way: it refused an ending that would have put nothing with her. The
- * hand-back reads the same set, but only to know whether the other ending is
- * still worth suggesting.
+ * `landsOn` is what `coverageLandsOn` returns, and which account each thread
+ * lands on is that function's rule, written there and nowhere else. Do not
+ * restate it here: this docstring described it by a rule the code had stopped
+ * following, and a stale sentence is what the next reader trusts instead of
+ * reading the code.
+ *
+ * What this refusal needs of that set is only that it names the accounts an
+ * ending would genuinely be left with, so the ending is judged by where threads
+ * actually go rather than by the named cover: judging by the cover alone let a
+ * switched-off third party keep one, and naming the cover regardless refused an
+ * ending that would have put nothing with her. The hand-back reads the same set,
+ * but only to know whether the other ending is still worth suggesting.
  *
  * A sentence rather than a boolean because both the board and the action need
  * it: the board disables the button and prints the reason, and the action

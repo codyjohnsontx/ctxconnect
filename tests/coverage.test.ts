@@ -1096,25 +1096,63 @@ describe("what coverage moves", () => {
   });
 });
 
-// The rules below are deliberately asserted over source rather than over
-// behaviour, and only ever as an INVOCATION - that this action calls that
-// helper. What each helper decides is pinned by the behavioural tests above;
-// what those cannot see is whether an action asks it at all, which is a
-// structural fact about a call site and is read as one. Nothing here asserts
-// how a call is spelled.
+// WHY THE BLOCK BELOW READS SOURCE, AND WHY THAT IS NOT THE ANTI-PATTERN IT
+// LOOKS LIKE. This has been reported three separate times, so the argument is
+// written here rather than left in a review thread. Disagree with the reasoning
+// if you think it is wrong - but argue with it, rather than re-reporting the
+// shape.
+//
+// WHAT THESE PIN: that each action INVOKES a named rule. Nothing about what the
+// rule decides, and nothing about how the call is spelled. Every rule named
+// below has its own behavioural test above, run against real inputs, and those
+// are what fail when a decision changes.
+//
+// WHY NOTHING IN THIS SUITE CAN PIN IT AT RUNTIME: both guards are transaction
+// behaviour. `lockCoverageAccounts` does its work only when two hand-offs
+// interleave, and the `coverageAlertPlan` loop only in the rows a write touches.
+// Both need a database and this suite has none - it is a pure-function suite by
+// design, which is what lets the coverage rules be executed at all. Delete
+// either call from its action and every behavioural test in this file stays
+// green; that was checked by deleting each one and confirming that only these
+// assertions failed.
+//
+// WHY THE RISK IS REAL RATHER THAN THEORETICAL: this repo has already shipped an
+// action with a missing gate that a whole-file grep passed, because a different
+// action in the same file mentioned the helper. That is why the slicing below is
+// per-action-body, and why the body ends at the function's own closing brace
+// rather than at the next `export` - the latter ran on into the following
+// function's docstring, so a sentence in a comment could have satisfied any of
+// these.
+//
+// WHAT WOULD REPLACE IT: a database-backed test that runs the action and asserts
+// the rows it wrote. That is a new test CATEGORY for this repo rather than one
+// more case, it is filed separately, and it is deliberately not arriving through
+// this branch - see the PRD's Open Questions.
+//
+// THE LIMITS, PLAINLY: renaming a helper fails this while nothing about
+// behaviour changed, and a call left in place but gutted passes it. Both are
+// real. It earns its place because the failure it does catch - a guard deleted
+// outright, which is exactly what a later cleanup does to code no test covers -
+// is the one that has actually happened here.
 
 describe("both server actions ask the rules", () => {
   const actions = join("src", "app", "actions.ts");
 
-  // One server action's own body, so a rule asserted here cannot be satisfied
-  // by a different action further down the file. Same slicing as
-  // tests/session-revocation.test.ts.
+  // One server action's own body, ending at its own closing brace - the only
+  // `\n}` at column 0 after it starts, because everything inside is indented.
+  // Splitting on the next `\nexport ` instead, as this did, kept reading past
+  // the end of the function and through the NEXT function's docstring, so a
+  // rule asserted here could have been satisfied by a sentence in a comment.
   function serverAction(name: string) {
     const [, body] = read(actions).split(`export async function ${name}(`);
 
     assert.ok(body, `expected a ${name} server action`);
 
-    return body.split("\nexport ")[0];
+    const [ownBody] = body.split("\n}\n");
+
+    assert.ok(ownBody.length < body.length, `expected ${name} to end in a closing brace`);
+
+    return ownBody;
   }
 
   it("re-checks in each action every rule the board rendered", () => {

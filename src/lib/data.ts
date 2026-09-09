@@ -1139,14 +1139,16 @@ export type CoverageRow = {
   /**
    * Her open covered threads and who is actually reading each one, `heldBy`
    * null for one nobody holds. `landsOn` below cannot answer that question: it
-   * reports a thread nobody holds as the cover's, because that is where leaving
-   * the coverage with her would put it.
+   * reports some of these threads as the cover's, because that is where leaving
+   * the coverage with her would put them.
    */
   coveredThreads: Array<{ heldBy: { id: string; name: string; active: boolean } | null }>;
   /**
    * The accounts that would actually be left holding those if this coverage were
-   * left with the cover - each thread's current holder, or the cover for one
-   * nobody holds. Not always the cover, and empty when nothing is still open.
+   * left with the cover, which is not always their current holder and not always
+   * the cover either. Which account each thread lands on is `coverageLandsOn`'s
+   * rule, written there and deliberately not restated here. Empty when nothing
+   * is still open.
    */
   landsOn: Array<{ id: string; name: string; active: boolean }>;
   /** The advisors this staff member is currently covering for. */
