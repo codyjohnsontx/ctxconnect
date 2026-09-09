@@ -13,6 +13,7 @@ import {
 import type { AppUser } from "@/lib/data";
 import { endOfDealershipDay } from "@/lib/dealership-day";
 import { prisma } from "@/lib/prisma";
+import { attendedSinceInbound, slaMinutesForDepartment } from "@/lib/sla";
 import {
   activeNotificationWhere,
   assigneeAddressedTypes,
@@ -66,20 +67,6 @@ const managerWhere = {
   active: true,
   role: { in: [Role.ADMIN, Role.MANAGER] },
 } satisfies Prisma.UserWhereInput;
-
-function slaMinutesForDepartment(department: Department) {
-  switch (department) {
-    case Department.SALES:
-      return 15;
-    case Department.SERVICE:
-      return 120;
-    case Department.PARTS:
-      return 240;
-    case Department.FINANCE:
-    case Department.GENERAL:
-      return 60;
-  }
-}
 
 /**
  * Count the operational facts a reader has waiting, not the rows that carry
@@ -279,6 +266,16 @@ export async function resolveConversationNotificationsTx(
  *
  * Scoped to alerts still outstanding, so a resolved row keeps the name of
  * whoever actually resolved it.
+ *
+ * Leaves the new holder exactly one outstanding row per fact. A thread can
+ * arrive here already carrying a row addressed to `to` - it was hers before
+ * coverage moved it, and the copy raised for the cover is a second row for the
+ * same fact - and simply re-addressing both would give her two. That is worse
+ * than untidy: `countNotificationFacts` counts facts, while the rail's list
+ * applies `take` to ROWS and collapses them afterwards, so duplicates eat scan
+ * slots and can push a genuine alert off the end of the list while the badge
+ * still counts it. An alert that exists and cannot be seen is the failure this
+ * whole file is meant to prevent.
  */
 export async function readdressAssigneeNotificationsTx(
   client: Prisma.TransactionClient,
@@ -289,14 +286,61 @@ export async function readdressAssigneeNotificationsTx(
     return;
   }
 
-  await client.notification.updateMany({
-    where: {
-      conversationId: { in: conversationIds },
-      type: { in: assigneeAddressedTypes },
-      status: { not: NotificationStatus.RESOLVED },
-    },
-    data: { recipientUserId: to },
+  const outstanding = {
+    conversationId: { in: conversationIds },
+    type: { in: assigneeAddressedTypes },
+    status: { not: NotificationStatus.RESOLVED },
+  } satisfies Prisma.NotificationWhereInput;
+
+  // What the new holder already has, so the move can avoid duplicating it.
+  // Read inside the caller's transaction, so a row raised between this and the
+  // update below cannot be missed by it.
+  const alreadyHers = await client.notification.findMany({
+    where: { ...outstanding, recipientUserId: to },
+    select: { conversationId: true, type: true },
   });
+
+  const held = new Set(alreadyHers.map((row) => `${row.conversationId}:${row.type}`));
+
+  const moving = await client.notification.findMany({
+    where: { ...outstanding, recipientUserId: { not: to } },
+    select: { id: true, conversationId: true, type: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const redundant: string[] = [];
+  const toMove: string[] = [];
+
+  for (const row of moving) {
+    const fact = `${row.conversationId}:${row.type}`;
+
+    // The first row for a fact she does not hold becomes hers; anything after
+    // it - a second cover's copy, or one raised for a third holder - would be
+    // the same fact a second time.
+    if (held.has(fact)) {
+      redundant.push(row.id);
+      continue;
+    }
+
+    held.add(fact);
+    toMove.push(row.id);
+  }
+
+  if (toMove.length > 0) {
+    await client.notification.updateMany({
+      where: { id: { in: toMove } },
+      data: { recipientUserId: to },
+    });
+  }
+
+  // Resolved rather than deleted, for the reason every other withdrawal here
+  // is: the rail keeps the record that the alert was raised and dealt with.
+  if (redundant.length > 0) {
+    await client.notification.updateMany({
+      where: { id: { in: redundant } },
+      data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
+    });
+  }
 }
 
 export async function resolveTaskNotifications(taskId: string) {
@@ -438,14 +482,10 @@ export async function syncOperationalNotifications() {
         return;
       }
 
-      const touchedAfterInbound = conversation.messages.some(
-        (message) =>
-          message.createdAt > latestInbound.createdAt &&
-          (message.direction === MessageDirection.OUTBOUND ||
-            message.direction === MessageDirection.INTERNAL),
-      );
-
-      if (touchedAfterInbound) {
+      // Anything a person did about this customer clears the alert; a note
+      // Attend wrote itself while moving the thread does not. The rule lives in
+      // src/lib/sla.ts so both halves of it can be run in a test.
+      if (attendedSinceInbound(latestInbound.createdAt, conversation.messages)) {
         await resolveConversationNotifications(conversation.id, [NotificationType.SLA_MISSED]);
         return;
       }

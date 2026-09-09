@@ -235,6 +235,18 @@ still switched off, because that would put them back where they started.
   picker.
 * **Coverage already running.** Starting a second one is refused; end the first.
 
+* **A breach alert on a thread coverage moves.** It stays open. Handing a
+  conversation to a colleague is not somebody answering the customer, so the
+  note Attend writes while moving it is marked `systemGenerated` and the breach
+  rule skips it. An internal note *a person* types still clears the alert - that
+  advisor did the work. See
+  [the decision](../decisions/2026-09-09-a-note-attend-wrote-itself-is-not-somebody-answering.md).
+* **Two coverages posted at once for the same advisor.** The second is refused.
+  Both pointer writes are conditional on the state the transaction read, so a
+  double click or two admins on the board cannot leave her pointed at one cover
+  while her threads sit with another, and cannot write a `coverage.end` row
+  claiming nothing moved.
+
 ## Data Requirements
 
 * `User.coveredByUserId`, `User.coveredSince` - who is holding this account's
@@ -283,6 +295,11 @@ still switched off, because that would put them back where they started.
   thread's `conversation.coverageStart` row, because both read one per-thread
   decision: only a thread left carrying no mark is described as handed over for
   good.
+
+* `Message.systemGenerated` - true on the notes Attend writes while a
+  conversation changes hands, false on anything a person typed. Read by the
+  breach rule only. Existing rows are false, which reads them as human-written;
+  that is deliberate and the reason is beside the migration.
 
 ## Analytics / Success Metrics
 

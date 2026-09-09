@@ -176,6 +176,15 @@ export type CoverageOutcome = "returns" | "stays";
  * Takes the messages rather than a database filter so this decision is made in
  * one place and can be tested as itself: the caller loads the window
  * (`createdAt >= coveredSince`) and this decides the rest.
+ *
+ * Reviewers periodically suggest narrowing that query to `OUTBOUND` from the
+ * cover, to load fewer rows. Deliberately not done. It would put the reply rule
+ * in a second place - a `where` clause nobody can run in a test - and this rule
+ * has already been rewritten once, on 2026-09-08, when it narrowed from "anyone
+ * but the returning advisor" to the cover's own reply. A query encoding it
+ * would have gone on quietly answering the old question. The rows are one
+ * coverage window of one advisor's open threads; the saving is not worth
+ * splitting the rule.
  */
 export function coverageOutcome(
   coverUserId: string,

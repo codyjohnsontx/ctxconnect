@@ -222,6 +222,9 @@ export async function updateConversation(formData: FormData) {
         kind: MessageKind.NOTE,
         body: `System: ${user.name ?? "Staff"} assigned this conversation to ${assignedName}.`,
         deliveryStatus: DeliveryStatus.INTERNAL,
+        // Attend's own bookkeeping: handing a thread on is not somebody
+        // answering the customer, so it must not clear a breach alert.
+        systemGenerated: true,
       },
     });
 
@@ -784,7 +787,11 @@ export async function startConversationCoverage(formData: FormData) {
 
     if (movingIds.length > 0) {
       await tx.conversation.updateMany({
-        where: { id: { in: movingIds } },
+        // Scoped to threads still on her account, not merely to the ids read a
+        // moment ago. A permanent hand-off writes no pointer to guard on, so
+        // this is what stops two concurrent hand-offs both moving the same
+        // threads and then disagreeing about where they went.
+        where: { id: { in: movingIds }, assignedUserId: awayUserId },
         data: { assignedUserId: cover.id },
       });
 
@@ -805,6 +812,7 @@ export async function startConversationCoverage(formData: FormData) {
           senderUserId: user.id,
           direction: MessageDirection.INTERNAL,
           kind: MessageKind.NOTE,
+          systemGenerated: true,
           body: coverageHandOffNote({
             byName: user.name ?? "Staff",
             awayName: away.name,
@@ -829,10 +837,24 @@ export async function startConversationCoverage(formData: FormData) {
       // Written together: coveredSince is the instant the return rule measures
       // a reply against, so coverage with no start is coverage nobody can end
       // correctly.
-      await tx.user.update({
-        where: { id: awayUserId },
+      //
+      // Guarded on the pointer still being empty rather than written blind. The
+      // check at the top of this transaction read `coveredByUserId` and this
+      // writes it, and Prisma runs interactive transactions at Read Committed,
+      // so two posts for the same advisor - a double click, or two admins on
+      // the board at once - both pass that read. Whoever wrote second would
+      // otherwise leave her pointed at their cover while her threads sat with
+      // the first, and overwrite the `coveredSince` the whole return rule is
+      // measured from. Making the write its own guard is what makes the check
+      // above mean anything.
+      const claimed = await tx.user.updateMany({
+        where: { id: awayUserId, coveredByUserId: null },
         data: { coveredByUserId: cover.id, coveredSince: new Date() },
       });
+
+      if (claimed.count === 0) {
+        throw new Error("Those conversations are already covered. End that coverage first.");
+      }
     }
 
     // Two records, because they answer two different questions and the audit
@@ -1062,6 +1084,7 @@ export async function endConversationCoverage(formData: FormData) {
             ? `System: ${returning.name} is back, so this conversation returned to them from ${conversation.assignedUser.name}.`
             : `System: ${returning.name} is back, so this conversation returned to them.`,
           deliveryStatus: DeliveryStatus.INTERNAL,
+          systemGenerated: true,
         })),
       });
     }
@@ -1083,6 +1106,7 @@ export async function endConversationCoverage(formData: FormData) {
           kind: MessageKind.NOTE,
           body: `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
           deliveryStatus: DeliveryStatus.INTERNAL,
+          systemGenerated: true,
         })),
       });
 
@@ -1115,10 +1139,19 @@ export async function endConversationCoverage(formData: FormData) {
       data: { coveredForUserId: null },
     });
 
-    await tx.user.update({
-      where: { id: returningUserId },
+    // Guarded on the coverage this transaction actually read, for the reason
+    // the start is: two ends posted at once would both pass the check above,
+    // and the second would write a `coverage.end` row recording that nothing
+    // moved - a row that is not wrong about any single thread but lies about
+    // what happened, which is the hardest kind to unpick months later.
+    const ended = await tx.user.updateMany({
+      where: { id: returningUserId, coveredByUserId: cover.id },
       data: { coveredByUserId: null, coveredSince: null },
     });
+
+    if (ended.count === 0) {
+      throw new Error("That coverage has already been ended.");
+    }
 
     await tx.auditLog.create({
       data: {
