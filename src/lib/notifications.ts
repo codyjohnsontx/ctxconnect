@@ -16,10 +16,10 @@ import { prisma } from "@/lib/prisma";
 import { attendedSinceInbound, slaMinutesForDepartment } from "@/lib/sla";
 import {
   activeNotificationWhere,
-  assigneeAddressedTypes,
+  assigneeAddressedNotificationsWhere,
   notificationFactCountQuery,
   notificationSubjectColumns,
-  planNotificationReaddress,
+  supersededNotificationCopies,
   type NotificationSubject,
 } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
@@ -265,19 +265,29 @@ export async function resolveConversationNotificationsTx(
  * name and its alerts stayed with the cover after the thread had gone. Do not
  * put the filter back.
  *
- * Leaves the new holder exactly one row per fact, whatever its status. A thread
- * can arrive here already carrying a row addressed to `to` - it was hers before
- * coverage moved it, and the copy raised for the cover is a second row for the
- * same fact - and simply re-addressing both would give her two. That is worse
- * than untidy: `countNotificationFacts` counts facts, while the rail's list
- * applies `take` to ROWS and collapses them afterwards, so duplicates eat scan
- * slots and can push a genuine alert off the end of the list while the badge
- * still counts it. An alert that exists and cannot be seen is the failure this
- * whole file is meant to prevent.
+ * Moves every row of these types on the thread, resolved ones included, and
+ * without reading them: which rows those are is a `where` clause rather than a
+ * list this has to hold - `assigneeAddressedNotificationsWhere` in
+ * src/lib/notification-facts.ts, where the reason status is not part of it is
+ * written down. A thread can hold an alert per inbound text over its life, and
+ * a hand-off reads none of that history.
  *
- * Which row survives, and why a resolved one is neither skipped nor left
- * resolved, is `planNotificationReaddress` in src/lib/notification-facts.ts -
- * decided there because it is the rule, and testable without a database.
+ * Then leaves her one OUTSTANDING row per fact. A thread can arrive here
+ * already carrying a row addressed to `to` - it was hers before coverage moved
+ * it, and the copy raised for the cover is a second row for the same fact - and
+ * both standing would give her two. That is worse than untidy: the rail applies
+ * its `take` to ROWS and collapses them afterwards, so copies eat scan slots and
+ * can push a genuine alert off the end of the list while the badge still counts
+ * it. An alert that exists and cannot be seen is the failure this whole file is
+ * meant to prevent.
+ *
+ * The copies are resolved, never deleted, like every other withdrawal here.
+ * Which means it is reversible, and honestly so: `reopenConversationNotifications`
+ * revives every resolved row on the thread, so marking it unread brings the
+ * copies back and the thread holds one alert per inbound text again. That is
+ * where any long-lived thread already stands and is not something a hand-off
+ * creates - see `notificationScanLimit` for where the bound belongs and why it
+ * is filed separately.
  */
 export async function readdressAssigneeNotificationsTx(
   client: Prisma.TransactionClient,
@@ -288,38 +298,35 @@ export async function readdressAssigneeNotificationsTx(
     return;
   }
 
-  // Every alert of these types standing on these threads, whoever it is
-  // addressed to and whatever its status. Read inside the caller's transaction,
-  // so a row raised between this and the writes below cannot be missed by them.
-  const standing = await client.notification.findMany({
-    where: {
-      conversationId: { in: conversationIds },
-      type: { in: assigneeAddressedTypes },
-    },
+  const onTheseThreads = assigneeAddressedNotificationsWhere(conversationIds);
+
+  await client.notification.updateMany({
+    where: { ...onTheseThreads, recipientUserId: { not: to } },
+    data: { recipientUserId: to },
+  });
+
+  // Hers now, whichever way they got here. Read inside the caller's
+  // transaction, so a row raised between the move and the write below cannot be
+  // missed by it.
+  const outstanding = await client.notification.findMany({
+    where: { ...onTheseThreads, ...activeNotificationWhere },
     select: {
       id: true,
       conversationId: true,
       type: true,
       taskId: true,
       messageId: true,
-      recipientUserId: true,
-      status: true,
       createdAt: true,
     },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
-  const { readdress, drop } = planNotificationReaddress(standing, to);
+  const superseded = supersededNotificationCopies(outstanding);
 
-  if (readdress.length > 0) {
+  if (superseded.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: readdress } },
-      data: { recipientUserId: to },
+      where: { id: { in: superseded } },
+      data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
     });
-  }
-
-  if (drop.length > 0) {
-    await client.notification.deleteMany({ where: { id: { in: drop } } });
   }
 }
 

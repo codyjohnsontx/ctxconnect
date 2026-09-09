@@ -116,71 +116,78 @@ export function notificationFactKey(notification: NotificationFact): string {
   return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
 }
 
-/** One stored alert, as much of one as a thread changing hands reads. */
-export type ReaddressedNotification = NotificationFact & {
+/**
+ * The alerts that follow a conversation when it changes hands.
+ *
+ * Status is deliberately not part of it. `reopenConversationNotifications`
+ * revives a resolved row whenever somebody marks the thread unread, and it
+ * revives on the rail it was addressed to - so a resolved row left behind comes
+ * back to an advisor who no longer holds the thread, which is the failure
+ * re-addressing exists to prevent, one hop later. Nothing is preserved by
+ * skipping it either: `recipientUserId` is the addressee, there is no column
+ * saying who resolved a row, and a thread's alerts are resolved for every
+ * recipient at once.
+ */
+export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
+  return {
+    conversationId: { in: conversationIds },
+    type: { in: assigneeAddressedTypes },
+  } satisfies Prisma.NotificationWhereInput;
+}
+
+/** One outstanding alert, as much of one as the rule below reads. */
+export type OutstandingNotification = NotificationFact & {
   id: string;
-  status: string;
   createdAt: Date;
 };
 
 /**
- * What a thread changing hands does to the alerts standing on it: which rows
- * follow it to whoever holds it now, and which are a second copy of a fact one
- * of those rows already carries.
+ * Which of these alerts are a second copy of a fact another one already
+ * carries, and can therefore be withdrawn.
  *
- * Status is deliberately not a filter. `reopenConversationNotifications` revives
- * a resolved row whenever somebody marks the thread unread, and it revives on
- * the rail it was addressed to - so a resolved row left behind comes back to an
- * advisor who no longer holds the thread, which is the failure re-addressing
- * exists to prevent, one hop later. Nothing is preserved by skipping it either:
- * `recipientUserId` is the addressee, there is no column saying who resolved a
- * row, and a thread's alerts are resolved for every recipient at once.
+ * Asked of outstanding rows only, because a resolved copy occupies no rail slot
+ * and costs nothing by existing. What the copies cost while they stand is scan
+ * slots: `countNotificationFacts` counts facts, while a list applies its `take`
+ * to ROWS and collapses them afterwards, so copies of one fact can push a
+ * genuine alert off the end of the list while the badge still counts it.
  *
- * A copy is dropped rather than resolved for the same reason: two resolved rows
- * for one fact revive together, so resolving one leaves the duplicate waiting.
- * Among copies the survivor is the row still outstanding, and the newest where
- * that does not decide it - it carries the same fact, so what is lost with the
- * others is a second row saying it.
+ * The survivor is the newest copy, which is the one already on screen: a list
+ * reads newest first and `dedupeNotificationFacts` keeps the first copy's slot,
+ * so withdrawing the older ones changes no row a reader was looking at.
+ *
+ * Withdrawn means resolved, never deleted - a resolved row is the record that
+ * the alert was raised and dealt with. That record is also reversible, so a
+ * later `reopenConversationNotifications` on the thread revives these copies
+ * along with the rest and the thread is back to holding one alert per inbound
+ * text. That is the standing condition of any long-lived thread rather than
+ * anything a hand-off creates, and the bound that would end it belongs on the
+ * write side - see `notificationScanLimit` below.
  */
-export function planNotificationReaddress(
-  notifications: ReadonlyArray<ReaddressedNotification>,
-  to: string,
-): { readdress: string[]; drop: string[] } {
-  const survivors = new Map<string, ReaddressedNotification>();
-  const drop: string[] = [];
+export function supersededNotificationCopies(
+  notifications: ReadonlyArray<OutstandingNotification>,
+): string[] {
+  const newest = new Map<string, OutstandingNotification>();
+  const superseded: string[] = [];
 
   for (const notification of notifications) {
     const key = notificationFactKey(notification);
-    const held = survivors.get(key);
+    const held = newest.get(key);
 
     if (!held) {
-      survivors.set(key, notification);
+      newest.set(key, notification);
       continue;
     }
 
-    if (outlivesCopy(notification, held)) {
-      survivors.set(key, notification);
-      drop.push(held.id);
+    if (notification.createdAt > held.createdAt) {
+      newest.set(key, notification);
+      superseded.push(held.id);
       continue;
     }
 
-    drop.push(notification.id);
+    superseded.push(notification.id);
   }
 
-  const readdress = [...survivors.values()]
-    .filter((notification) => notification.recipientUserId !== to)
-    .map((notification) => notification.id);
-
-  return { readdress, drop };
-}
-
-function outlivesCopy(notification: ReaddressedNotification, held: ReaddressedNotification): boolean {
-  const outstanding = Number(notification.status !== NotificationStatus.RESOLVED);
-  const heldOutstanding = Number(held.status !== NotificationStatus.RESOLVED);
-
-  return outstanding === heldOutstanding
-    ? notification.createdAt > held.createdAt
-    : outstanding > heldOutstanding;
+  return superseded;
 }
 
 /** The three kinds of subject an alert can have, read off the two lists above. */
