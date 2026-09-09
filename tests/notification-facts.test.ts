@@ -12,6 +12,7 @@ import {
   notificationFactKey,
   notificationScopeWhere,
   perMessageTypes,
+  planNotificationReaddress,
   readResolvesNotificationTypes,
 } from "../src/lib/notification-facts";
 import { NotificationType } from "../src/generated/prisma/enums";
@@ -578,4 +579,79 @@ describe("reading a thread and putting it back", () => {
       assert.doesNotMatch(serverAction(half), /NotificationType\.[A-Z_]+/);
     });
   }
+});
+
+describe("planNotificationReaddress", () => {
+  // A thread changes hands and its alerts have to go with it. The rows that
+  // matter most here are the ones nobody is looking at: a resolved row is
+  // revived by marking the thread unread, and it revives on the rail it is
+  // addressed to, so one left behind reaches an advisor who no longer holds the
+  // conversation - live, and in nobody's list who can act on it.
+
+  const alert = (
+    id: string,
+    recipientUserId: string,
+    status: string,
+    minutes: number,
+  ) => ({
+    id,
+    type: NotificationType.NEW_INBOUND_MESSAGE,
+    conversationId: "conversation_1",
+    recipientUserId,
+    status,
+    createdAt: new Date(Date.UTC(2026, 8, 9, 9, minutes)),
+  });
+
+  it("moves a resolved alert to the new holder, so a revive lands on her rail", () => {
+    // Alyssa read the thread before her holiday, which resolved her row.
+    // Coverage moves the thread to Ben, who marks it unread again.
+    const plan = planNotificationReaddress([alert("n1", "alyssa", "RESOLVED", 0)], "ben");
+
+    assert.deepEqual(plan, { readdress: ["n1"], drop: [] });
+  });
+
+  it("leaves the new holder one row per fact, resolved copies included", () => {
+    // Two texts on one thread are two rows and one fact, and resolving the
+    // extra would not hold: a revive brings every resolved row back at once.
+    const plan = planNotificationReaddress(
+      [alert("n1", "alyssa", "RESOLVED", 0), alert("n2", "alyssa", "RESOLVED", 5)],
+      "ben",
+    );
+
+    assert.deepEqual(plan.readdress, ["n2"]);
+    assert.deepEqual(plan.drop, ["n1"]);
+  });
+
+  it("keeps the outstanding copy over a newer resolved one", () => {
+    // The surviving row is the one still asking to be dealt with, whichever
+    // arrived last.
+    const plan = planNotificationReaddress(
+      [alert("n1", "alyssa", "UNREAD", 0), alert("n2", "ben", "RESOLVED", 5)],
+      "ben",
+    );
+
+    assert.deepEqual(plan.readdress, ["n1"]);
+    assert.deepEqual(plan.drop, ["n2"]);
+  });
+
+  it("leaves a row the new holder already carries where it is", () => {
+    const plan = planNotificationReaddress([alert("n1", "ben", "UNREAD", 0)], "ben");
+
+    assert.deepEqual(plan, { readdress: [], drop: [] });
+  });
+
+  it("keeps one row per fact rather than per thread", () => {
+    // Two different facts on one thread: the arrival alert and the alert that
+    // says it was handed to her. Both follow the thread.
+    const plan = planNotificationReaddress(
+      [
+        alert("n1", "alyssa", "UNREAD", 0),
+        { ...alert("n2", "alyssa", "UNREAD", 5), type: NotificationType.CONVERSATION_ASSIGNED },
+      ],
+      "ben",
+    );
+
+    assert.deepEqual(plan.readdress, ["n1", "n2"]);
+    assert.deepEqual(plan.drop, []);
+  });
 });

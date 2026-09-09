@@ -18,8 +18,8 @@ import {
   activeNotificationWhere,
   assigneeAddressedTypes,
   notificationFactCountQuery,
-  notificationFactKey,
   notificationSubjectColumns,
+  planNotificationReaddress,
   type NotificationSubject,
 } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
@@ -265,11 +265,8 @@ export async function resolveConversationNotificationsTx(
  * name and its alerts stayed with the cover after the thread had gone. Do not
  * put the filter back.
  *
- * Scoped to alerts still outstanding, so a resolved row keeps the name of
- * whoever actually resolved it.
- *
- * Leaves the new holder exactly one outstanding row per fact. A thread can
- * arrive here already carrying a row addressed to `to` - it was hers before
+ * Leaves the new holder exactly one row per fact, whatever its status. A thread
+ * can arrive here already carrying a row addressed to `to` - it was hers before
  * coverage moved it, and the copy raised for the cover is a second row for the
  * same fact - and simply re-addressing both would give her two. That is worse
  * than untidy: `countNotificationFacts` counts facts, while the rail's list
@@ -277,6 +274,10 @@ export async function resolveConversationNotificationsTx(
  * slots and can push a genuine alert off the end of the list while the badge
  * still counts it. An alert that exists and cannot be seen is the failure this
  * whole file is meant to prevent.
+ *
+ * Which row survives, and why a resolved one is neither skipped nor left
+ * resolved, is `planNotificationReaddress` in src/lib/notification-facts.ts -
+ * decided there because it is the rule, and testable without a database.
  */
 export async function readdressAssigneeNotificationsTx(
   client: Prisma.TransactionClient,
@@ -287,65 +288,38 @@ export async function readdressAssigneeNotificationsTx(
     return;
   }
 
-  const outstanding = {
-    conversationId: { in: conversationIds },
-    type: { in: assigneeAddressedTypes },
-    status: { not: NotificationStatus.RESOLVED },
-  } satisfies Prisma.NotificationWhereInput;
-
-  // What the new holder already has, so the move can avoid duplicating it.
-  // Read inside the caller's transaction, so a row raised between this and the
-  // update below cannot be missed by it.
-  const alreadyHers = await client.notification.findMany({
-    where: { ...outstanding, recipientUserId: to },
-    select: { conversationId: true, type: true, taskId: true, messageId: true },
+  // Every alert of these types standing on these threads, whoever it is
+  // addressed to and whatever its status. Read inside the caller's transaction,
+  // so a row raised between this and the writes below cannot be missed by them.
+  const standing = await client.notification.findMany({
+    where: {
+      conversationId: { in: conversationIds },
+      type: { in: assigneeAddressedTypes },
+    },
+    select: {
+      id: true,
+      conversationId: true,
+      type: true,
+      taskId: true,
+      messageId: true,
+      recipientUserId: true,
+      status: true,
+      createdAt: true,
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
-  const held = new Set(alreadyHers.map(notificationFactKey));
+  const { readdress, drop } = planNotificationReaddress(standing, to);
 
-  const moving = await client.notification.findMany({
-    where: { ...outstanding, recipientUserId: { not: to } },
-    select: { id: true, conversationId: true, type: true, taskId: true, messageId: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const redundant: string[] = [];
-
-  for (const row of moving) {
-    const fact = notificationFactKey(row);
-
-    // The first row for a fact she does not hold is the one she keeps; anything
-    // after it - a second cover's copy, or one raised for a third holder - is
-    // the same fact a second time.
-    if (held.has(fact)) {
-      redundant.push(row.id);
-      continue;
-    }
-
-    held.add(fact);
-  }
-
-  // Every row read above follows the thread, the duplicates included, and by id
-  // alone - a row somebody resolved while this transaction was running is one
-  // more row to re-address, not one to leave behind. A row left addressed to the
-  // previous holder is still on her rail the moment anything reopens it -
-  // `reopenConversationNotifications` matches the thread and the type, never the
-  // recipient - and she would be told about a customer message on a thread she
-  // no longer holds.
-  if (moving.length > 0) {
+  if (readdress.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: moving.map((row) => row.id) } },
+      where: { id: { in: readdress } },
       data: { recipientUserId: to },
     });
   }
 
-  // Resolved rather than deleted, for the reason every other withdrawal here
-  // is: the rail keeps the record that the alert was raised and dealt with.
-  if (redundant.length > 0) {
-    await client.notification.updateMany({
-      where: { id: { in: redundant }, status: { not: NotificationStatus.RESOLVED } },
-      data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
-    });
+  if (drop.length > 0) {
+    await client.notification.deleteMany({ where: { id: { in: drop } } });
   }
 }
 

@@ -116,6 +116,73 @@ export function notificationFactKey(notification: NotificationFact): string {
   return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
 }
 
+/** One stored alert, as much of one as a thread changing hands reads. */
+export type ReaddressedNotification = NotificationFact & {
+  id: string;
+  status: string;
+  createdAt: Date;
+};
+
+/**
+ * What a thread changing hands does to the alerts standing on it: which rows
+ * follow it to whoever holds it now, and which are a second copy of a fact one
+ * of those rows already carries.
+ *
+ * Status is deliberately not a filter. `reopenConversationNotifications` revives
+ * a resolved row whenever somebody marks the thread unread, and it revives on
+ * the rail it was addressed to - so a resolved row left behind comes back to an
+ * advisor who no longer holds the thread, which is the failure re-addressing
+ * exists to prevent, one hop later. Nothing is preserved by skipping it either:
+ * `recipientUserId` is the addressee, there is no column saying who resolved a
+ * row, and a thread's alerts are resolved for every recipient at once.
+ *
+ * A copy is dropped rather than resolved for the same reason: two resolved rows
+ * for one fact revive together, so resolving one leaves the duplicate waiting.
+ * Among copies the survivor is the row still outstanding, and the newest where
+ * that does not decide it - it carries the same fact, so what is lost with the
+ * others is a second row saying it.
+ */
+export function planNotificationReaddress(
+  notifications: ReadonlyArray<ReaddressedNotification>,
+  to: string,
+): { readdress: string[]; drop: string[] } {
+  const survivors = new Map<string, ReaddressedNotification>();
+  const drop: string[] = [];
+
+  for (const notification of notifications) {
+    const key = notificationFactKey(notification);
+    const held = survivors.get(key);
+
+    if (!held) {
+      survivors.set(key, notification);
+      continue;
+    }
+
+    if (outlivesCopy(notification, held)) {
+      survivors.set(key, notification);
+      drop.push(held.id);
+      continue;
+    }
+
+    drop.push(notification.id);
+  }
+
+  const readdress = [...survivors.values()]
+    .filter((notification) => notification.recipientUserId !== to)
+    .map((notification) => notification.id);
+
+  return { readdress, drop };
+}
+
+function outlivesCopy(notification: ReaddressedNotification, held: ReaddressedNotification): boolean {
+  const outstanding = Number(notification.status !== NotificationStatus.RESOLVED);
+  const heldOutstanding = Number(held.status !== NotificationStatus.RESOLVED);
+
+  return outstanding === heldOutstanding
+    ? notification.createdAt > held.createdAt
+    : outstanding > heldOutstanding;
+}
+
 /** The three kinds of subject an alert can have, read off the two lists above. */
 export type PerMessageNotificationType = (typeof perMessageTypes)[number];
 export type FollowUpNotificationType = (typeof followUpTypes)[number];
