@@ -32,7 +32,9 @@ import { handOffReason } from "@/lib/conversation-controls-state";
 import {
   canHandOffPermanently,
   canManageCoverage,
+  alertsStayWith,
   coverRefusal,
+  coverStillFreeWhere,
   coverageDisposition,
   coverageEndRefusal,
   coverageEndTally,
@@ -725,6 +727,32 @@ export async function startConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are already covered. End that coverage first.");
     }
 
+    // `coverRefusal` above read the cover's own row, and everything below writes
+    // on the strength of it - so re-assert it as a write, which is the only form
+    // of the check Read Committed respects.
+    //
+    // The interleaving it closes: this advisor picks a colleague who is free,
+    // and before this transaction commits that colleague starts her own leave
+    // and hands her book to somebody else. Her hand-off re-points everyone she
+    // was covering, but this advisor is not covered by her yet, so it misses -
+    // and this transaction then records a cover who is away and moves a book to
+    // somebody who is not reading. Nothing repairs that afterwards; it is the
+    // exact state coverRefusal exists to refuse.
+    //
+    // Written as an update of the row to the value it already holds, because an
+    // update takes the row lock and a select does not. A concurrent hand-off of
+    // the cover's own book then waits here rather than racing, and finds this
+    // advisor already covered when it re-points. It costs the cover's
+    // `updatedAt`, which is the price of the lock.
+    const coverStillFree = await tx.user.updateMany({
+      where: coverStillFreeWhere(cover.id),
+      data: { coveredByUserId: null },
+    });
+
+    if (coverStillFree.count === 0) {
+      throw new Error("That staff member is away and covered by somebody else.");
+    }
+
     const moving = await tx.conversation.findMany({
       where: { assignedUserId: awayUserId, ...openConversationWhere },
       select: { id: true, coveredForUserId: true },
@@ -856,9 +884,25 @@ export async function startConversationCoverage(formData: FormData) {
       // the first, and overwrite the `coveredSince` the whole return rule is
       // measured from. Making the write its own guard is what makes the check
       // above mean anything.
+      // The database's clock, not this server's, and read inside this same
+      // transaction. `coveredSince` is one end of a comparison whose other end
+      // is `Message.createdAt`, which Postgres assigns from its own clock
+      // (`DEFAULT CURRENT_TIMESTAMP`, see the init migration). On Vercel those
+      // are two machines, so a Node timestamp can land ahead of a reply written
+      // moments later - and the return query loads only `createdAt >=
+      // coveredSince`, so that reply falls outside the window and a thread the
+      // cover answered goes back to the advisor anyway.
+      //
+      // A column default cannot do this: defaults fire on INSERT and this is an
+      // UPDATE of a row that already exists, which is why a message can use one
+      // and an advisor cannot. Read here rather than before the transaction
+      // because a read outside it reopens the same gap, only narrower - and a
+      // narrower race is harder to reproduce, not safer.
+      const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT NOW() AS now`;
+
       const claimed = await tx.user.updateMany({
         where: { id: awayUserId, coveredByUserId: null },
-        data: { coveredByUserId: cover.id, coveredSince: new Date() },
+        data: { coveredByUserId: cover.id, coveredSince: now },
       });
 
       if (claimed.count === 0) {
@@ -1166,6 +1210,16 @@ export async function endConversationCoverage(formData: FormData) {
       [...returningIds, ...alreadyBackIds],
       returningUserId,
     );
+
+    // And a thread that stays where it is still needs its alerts to say so.
+    // Coverage addressed them to the cover on the way in; if a manager then
+    // routed the thread on to somebody else, it stays with that person - and
+    // without this the cover keeps an actionable alert for a customer she no
+    // longer holds, while the advisor who does holds nothing telling her.
+    // Grouped because these threads do not share a holder.
+    for (const { holderId, conversationIds } of alertsStayWith(decided)) {
+      await readdressAssigneeNotificationsTx(tx, conversationIds, holderId);
+    }
 
     // Every covered thread loses its mark, whichever way this ended: one that
     // returned has arrived, and one that did not is now wherever it has got to.

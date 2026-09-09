@@ -7,7 +7,9 @@ import {
   canCover,
   canHandOffPermanently,
   canManageCoverage,
+  alertsStayWith,
   coverRefusal,
+  coverStillFreeWhere,
   coverageDisposition,
   coverageEndRefusal,
   coverageEndTally,
@@ -174,6 +176,72 @@ describe("the gap coverage closes", () => {
 
     assert.equal(canAccessConversation(cover, answered), true);
     assert.equal(canAccessConversation(hers, answered), false);
+  });
+});
+
+describe("who a staying thread's alerts belong to", () => {
+  const thread = (
+    id: string,
+    disposition: Parameters<typeof alertsStayWith>[0][number]["disposition"],
+    assignedUserId: string | null,
+  ) => ({ id, disposition, assignedUserId });
+
+  it("leaves the cover's own kept threads with the cover", () => {
+    assert.deepEqual(alertsStayWith([thread("c1", "staysPut", "ben")]), [
+      { holderId: "ben", conversationIds: ["c1"] },
+    ]);
+  });
+
+  it("moves them to the third person a manager routed the thread to", () => {
+    // The case this exists for. Coverage addressed these alerts to the cover on
+    // the way in; the thread is now Priya's, so an alert still sitting on Ben's
+    // rail is one nobody who holds the customer can see.
+    assert.deepEqual(
+      alertsStayWith([thread("c1", "staysPut", "priya"), thread("c2", "staysPut", "ben")]),
+      [
+        { holderId: "priya", conversationIds: ["c1"] },
+        { holderId: "ben", conversationIds: ["c2"] },
+      ],
+    );
+  });
+
+  it("leaves every thread this ending moved alone", () => {
+    // Those are re-addressed by the action to wherever it put them, so naming
+    // them here would fight it.
+    assert.deepEqual(
+      alertsStayWith([
+        thread("c1", "returned", "alyssa"),
+        thread("c2", "toTheCover", "ben"),
+        thread("c3", "alreadyHers", "alyssa"),
+      ]),
+      [],
+    );
+  });
+
+  it("addresses nothing to nobody", () => {
+    // staysPut with no assignee is reachable on a permanent hand-off, and an
+    // alert addressed to nobody is the honest state until somebody takes it.
+    assert.deepEqual(alertsStayWith([thread("c1", "staysPut", null)]), []);
+  });
+});
+
+describe("the row a hand-off must still find free", () => {
+  // coverRefusal reads the cover's row; this is the same question asked as a
+  // conditional write, because a read at Read Committed does not survive until
+  // the write. Both fields are load-bearing and each is pinned on its own.
+  it("names the cover and requires that nobody is covering her", () => {
+    assert.deepEqual(coverStillFreeWhere("ben"), { id: "ben", coveredByUserId: null });
+  });
+
+  it("would let an away cover through if the coverage condition were dropped", () => {
+    // The mutation this exists to catch. A clause of only { id } still writes
+    // successfully against a colleague who has gone away since she was picked,
+    // which is the state coverRefusal exists to refuse - so the condition, not
+    // the presence of a clause, is the guard.
+    const clause = coverStillFreeWhere("ben");
+
+    assert.equal("coveredByUserId" in clause, true);
+    assert.equal(clause.coveredByUserId, null);
   });
 });
 

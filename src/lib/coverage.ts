@@ -102,6 +102,61 @@ export function coverRefusal(
   return null;
 }
 
+/**
+ * The row this hand-off must still find free when it writes, expressed as the
+ * clause that writes it.
+ *
+ * `coverRefusal` reads the cover's row; this is the same question asked as a
+ * conditional write, which is the only form of it Read Committed respects. The
+ * action updates the cover's row to the value it already holds so that the
+ * update takes the row lock: a concurrent hand-off of the cover's own book then
+ * waits rather than racing past, and finds this coverage recorded when it
+ * re-points the advisors it covers.
+ *
+ * Here rather than inline so the condition is one definition a test can run.
+ * The clause is the whole guard - drop `coveredByUserId` from it and the write
+ * still succeeds, silently, against a cover who has since gone away.
+ */
+export function coverStillFreeWhere(coverUserId: string) {
+  return { id: coverUserId, coveredByUserId: null };
+}
+
+/**
+ * Who is left holding a covered thread that is not moving, and therefore who
+ * its alerts belong to once coverage ends.
+ *
+ * Only `staysPut` threads are here: every other disposition is a move, and the
+ * action already re-addresses those to wherever it put them. A thread stays for
+ * two very different reasons, and the second is the one this exists for - the
+ * cover answered the customer and keeps it, or a manager routed it on to
+ * somebody else entirely. In that second case coverage addressed the thread's
+ * alerts to the cover on the way in, and nothing since has moved them, so
+ * without this the cover keeps an actionable alert for a customer she no longer
+ * holds while the advisor who does hold them has nothing telling her.
+ *
+ * A thread nobody holds is skipped rather than defaulted to anyone: `staysPut`
+ * with no assignee only happens on a permanent hand-off, where an alert
+ * addressed to nobody is the honest state until somebody takes the thread.
+ *
+ * Grouped, because these threads do not share a holder - which is the whole
+ * reason this cannot be one call at the end of the action.
+ */
+export function alertsStayWith<
+  Thread extends { id: string; disposition: CoverageDisposition; assignedUserId: string | null },
+>(threads: ReadonlyArray<Thread>): Array<{ holderId: string; conversationIds: string[] }> {
+  const byHolder = new Map<string, string[]>();
+
+  for (const thread of threads) {
+    if (thread.disposition !== "staysPut" || !thread.assignedUserId) {
+      continue;
+    }
+
+    byHolder.set(thread.assignedUserId, [...(byHolder.get(thread.assignedUserId) ?? []), thread.id]);
+  }
+
+  return [...byHolder].map(([holderId, conversationIds]) => ({ holderId, conversationIds }));
+}
+
 /** Whether this staff member may be offered as a cover at all. */
 export function canCover(away: CoverageAccount, cover: CoverageAccount) {
   return coverRefusal(away, cover) === null;
