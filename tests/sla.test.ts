@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { attendedSinceInbound, slaMinutesForDepartment } from "../src/lib/sla";
-import { Department, MessageDirection } from "../src/generated/prisma/enums";
+import { attendedSinceInbound, slaMinutesForDepartment, systemNote } from "../src/lib/sla";
+import {
+  DeliveryStatus,
+  Department,
+  MessageDirection,
+  MessageKind,
+} from "../src/generated/prisma/enums";
 
 // The breach alert says one thing: this customer texted and nobody has seen to
 // them since. What counts as seeing to them is the whole rule, and it is not
@@ -27,11 +32,40 @@ const personalNote = (at: Date) => ({
   systemGenerated: false,
 });
 
-const systemNote = (at: Date) => ({
+const noteAttendWrote = (at: Date) => ({
   createdAt: at,
   direction: MessageDirection.INTERNAL,
   systemGenerated: true,
 });
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      // Generated Prisma client, not authored source.
+      return entry.name === "generated" ? [] : sourceFiles(path);
+    }
+
+    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+function noteWriteSites(): Record<string, number> {
+  const sites: Record<string, number> = {};
+
+  for (const path of sourceFiles(join(repoRoot, "src"))) {
+    const writes = readFileSync(path, "utf8").split("MessageKind.NOTE").length - 1;
+
+    if (writes > 0) {
+      sites[relative(repoRoot, path).split(sep).join("/")] = writes;
+    }
+  }
+
+  return sites;
+}
 
 describe("attendedSinceInbound", () => {
   it("says nobody has, when nothing followed the customer's text", () => {
@@ -61,12 +95,12 @@ describe("attendedSinceInbound", () => {
   it("does not count a note Attend wrote itself", () => {
     // Coverage and ordinary reassignment both write one of these on every
     // thread they move. The customer is still waiting, so the alert stays.
-    assert.equal(attendedSinceInbound(inboundAt, [systemNote(after(5))]), false);
+    assert.equal(attendedSinceInbound(inboundAt, [noteAttendWrote(after(5))]), false);
 
     // And several of them - an advisor's whole book handed over, then handed
     // back - are still nobody answering the customer.
     assert.equal(
-      attendedSinceInbound(inboundAt, [systemNote(after(5)), systemNote(after(90))]),
+      attendedSinceInbound(inboundAt, [noteAttendWrote(after(5)), noteAttendWrote(after(90))]),
       false,
     );
   });
@@ -75,11 +109,11 @@ describe("attendedSinceInbound", () => {
     // The order the real rows arrive in: an advisor answers, then coverage
     // moves the thread. The hand-off must not undo the answer.
     assert.equal(
-      attendedSinceInbound(inboundAt, [reply(after(5)), systemNote(after(30))]),
+      attendedSinceInbound(inboundAt, [reply(after(5)), noteAttendWrote(after(30))]),
       true,
     );
     assert.equal(
-      attendedSinceInbound(inboundAt, [personalNote(after(5)), systemNote(after(30))]),
+      attendedSinceInbound(inboundAt, [personalNote(after(5)), noteAttendWrote(after(30))]),
       true,
     );
   });
@@ -107,45 +141,46 @@ describe("slaMinutesForDepartment", () => {
 });
 
 describe("the notes Attend writes on its own behalf", () => {
-  const actions = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "..", "src", "app", "actions.ts"),
-    "utf8",
-  );
-
-  const serverAction = (name: string) => {
-    const start = actions.indexOf(`export async function ${name}(`);
-
-    assert.notEqual(start, -1, `${name} not found`);
-
-    const next = actions.indexOf("\nexport async function ", start + 1);
-
-    return actions.slice(start, next === -1 ? undefined : next);
-  };
-
-  it("marks every note written while a conversation changes hands", () => {
-    // A marker applied at one write site and missed at another reads as a whole
-    // fix and behaves like none: the missed site goes on withdrawing breach
-    // alerts. Ordinary reassignment is listed here because it is where this bug
-    // lived before coverage ever existed.
-    for (const name of [
-      "updateConversation",
-      "startConversationCoverage",
-      "endConversationCoverage",
-    ]) {
-      const body = serverAction(name);
-
-      for (const note of body.split("kind: MessageKind.NOTE,").slice(1)) {
-        assert.match(
-          note.slice(0, 600),
-          /systemGenerated: true/,
-          `${name} writes a note without marking it as Attend's own`,
-        );
-      }
-    }
+  const written = systemNote({
+    conversationId: "conversation_1",
+    senderUserId: "user_1",
+    body: "System: Cody assigned this conversation to Alyssa.",
   });
 
-  it("leaves a note a person typed unmarked", () => {
-    // The whole point of the marker is that this one still counts.
-    assert.doesNotMatch(serverAction("addInternalNote"), /systemGenerated/);
+  it("marks every note it builds", () => {
+    // A marker applied at one write site and missed at another reads as a whole
+    // fix and behaves like none: the missed site goes on withdrawing breach
+    // alerts. There is one site now, and this is it.
+    assert.equal(written.systemGenerated, true);
+    assert.equal(written.direction, MessageDirection.INTERNAL);
+    assert.equal(written.kind, MessageKind.NOTE);
+    assert.equal(written.deliveryStatus, DeliveryStatus.INTERNAL);
+  });
+
+  it("does not attend to the customer, while the same row unmarked does", () => {
+    // Both halves of the rule read off one row, so the thing the constructor
+    // writes is the thing the rule refuses. The only difference between a
+    // hand-off's note and an advisor's "called her, left a voicemail" is the
+    // mark - which is why the second assertion is the one that must not break.
+    const note = { ...written, createdAt: after(5) };
+
+    assert.equal(attendedSinceInbound(inboundAt, [note]), false);
+    assert.equal(attendedSinceInbound(inboundAt, [{ ...note, systemGenerated: false }]), true);
+  });
+
+  it("is the only place a note row is built", () => {
+    // Structural guard, and the one assertion here read over source rather than
+    // behaviour - in the spirit of the two blessed scans in
+    // tests/coverage.test.ts. What the tests above cannot see is a future
+    // writer building its own note payload instead of calling the constructor,
+    // and an unmarked one goes on clearing breach alerts silently. Every place
+    // a NOTE row is written is therefore listed: the constructor, the seed's
+    // demo history, and `addInternalNote`, which is a person typing and stays
+    // unmarked deliberately.
+    assert.deepEqual(noteWriteSites(), {
+      "src/app/actions.ts": 1,
+      "src/lib/demo-seed.ts": 2,
+      "src/lib/sla.ts": 1,
+    });
   });
 });

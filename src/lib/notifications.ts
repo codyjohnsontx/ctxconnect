@@ -18,6 +18,7 @@ import {
   activeNotificationWhere,
   assigneeAddressedTypes,
   notificationFactCountQuery,
+  notificationFactKey,
   notificationSubjectColumns,
   type NotificationSubject,
 } from "@/lib/notification-facts";
@@ -297,21 +298,21 @@ export async function readdressAssigneeNotificationsTx(
   // update below cannot be missed by it.
   const alreadyHers = await client.notification.findMany({
     where: { ...outstanding, recipientUserId: to },
-    select: { conversationId: true, type: true },
+    select: { conversationId: true, type: true, taskId: true, messageId: true },
   });
 
-  const held = new Set(alreadyHers.map((row) => `${row.conversationId}:${row.type}`));
+  const held = new Set(alreadyHers.map(notificationFactKey));
 
   const moving = await client.notification.findMany({
     where: { ...outstanding, recipientUserId: { not: to } },
-    select: { id: true, conversationId: true, type: true },
+    select: { id: true, conversationId: true, type: true, taskId: true, messageId: true },
     orderBy: { createdAt: "asc" },
   });
 
   const redundant: string[] = [];
 
   for (const row of moving) {
-    const fact = `${row.conversationId}:${row.type}`;
+    const fact = notificationFactKey(row);
 
     // The first row for a fact she does not hold is the one she keeps; anything
     // after it - a second cover's copy, or one raised for a third holder - is
@@ -331,7 +332,7 @@ export async function readdressAssigneeNotificationsTx(
   // message on a thread she no longer holds.
   if (moving.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: moving.map((row) => row.id) } },
+      where: { id: { in: moving.map((row) => row.id) }, status: { not: NotificationStatus.RESOLVED } },
       data: { recipientUserId: to },
     });
   }
@@ -340,7 +341,7 @@ export async function readdressAssigneeNotificationsTx(
   // is: the rail keeps the record that the alert was raised and dealt with.
   if (redundant.length > 0) {
     await client.notification.updateMany({
-      where: { id: { in: redundant } },
+      where: { id: { in: redundant }, status: { not: NotificationStatus.RESOLVED } },
       data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
     });
   }

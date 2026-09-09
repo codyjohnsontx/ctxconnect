@@ -25,10 +25,21 @@
  * voicemail note along with the bookkeeping. It is **a person recording action**
  * against **the system recording an event**, and that distinction is a fact
  * about the row rather than something the shape of the message can imply.
+ *
+ * The rule reads **anything** after the customer's last text, not only the row
+ * that happens to be newest. An advisor answers and a hand-off writes its note
+ * half an hour later; she has still answered, and a rule that only looked at
+ * the last row would reopen the alert on a customer who has already been
+ * spoken to.
  * Background: content/decisions/2026-09-09-a-note-attend-wrote-itself-is-not-somebody-answering.md
  */
 
-import { Department, MessageDirection } from "@/generated/prisma/enums";
+import {
+  DeliveryStatus,
+  Department,
+  MessageDirection,
+  MessageKind,
+} from "@/generated/prisma/enums";
 
 /** How long a department may leave a customer waiting before it is a breach. */
 export function slaMinutesForDepartment(department: Department) {
@@ -76,4 +87,32 @@ export function attendedSinceInbound(
 
     return message.direction === MessageDirection.INTERNAL && !message.systemGenerated;
   });
+}
+
+/**
+ * A note Attend writes on its own behalf, as the row that stores it.
+ *
+ * The marker is only worth having if every one of those writes carries it, and
+ * a marker remembered at four call sites is a marker forgotten at the fifth -
+ * which is how this bug lived in ordinary reassignment long before coverage
+ * made it visible. Building the row here is what leaves no site to forget it.
+ *
+ * A note a person types is deliberately not built here. `addInternalNote` writes
+ * its own unmarked row, because "called her, left a voicemail" is somebody doing
+ * the work and must go on clearing the alert.
+ */
+export function systemNote(note: {
+  conversationId: string;
+  senderUserId: string;
+  body: string;
+}) {
+  return {
+    conversationId: note.conversationId,
+    senderUserId: note.senderUserId,
+    direction: MessageDirection.INTERNAL,
+    kind: MessageKind.NOTE,
+    body: note.body,
+    deliveryStatus: DeliveryStatus.INTERNAL,
+    systemGenerated: true,
+  };
 }

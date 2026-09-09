@@ -59,6 +59,7 @@ import {
   requireCustomerAccess,
 } from "@/lib/permissions";
 import { PASSWORD_CHANGED_REASON, requireUser } from "@/lib/session";
+import { systemNote } from "@/lib/sla";
 
 async function recordAiInsightFormEvent({
   aiInsightId,
@@ -215,17 +216,11 @@ export async function updateConversation(formData: FormData) {
     const assignedName = updated.assignedUser?.name ?? "Unassigned";
 
     await prisma.message.create({
-      data: {
+      data: systemNote({
         conversationId,
         senderUserId: user.id,
-        direction: MessageDirection.INTERNAL,
-        kind: MessageKind.NOTE,
         body: `System: ${user.name ?? "Staff"} assigned this conversation to ${assignedName}.`,
-        deliveryStatus: DeliveryStatus.INTERNAL,
-        // Attend's own bookkeeping: handing a thread on is not somebody
-        // answering the customer, so it must not clear a breach alert.
-        systemGenerated: true,
-      },
+      }),
     });
 
     if (nextAssignedUserId) {
@@ -814,20 +809,18 @@ export async function startConversationCoverage(formData: FormData) {
       }
 
       await tx.message.createMany({
-        data: moving.map((conversation) => ({
-          conversationId: conversation.id,
-          senderUserId: user.id,
-          direction: MessageDirection.INTERNAL,
-          kind: MessageKind.NOTE,
-          systemGenerated: true,
-          body: coverageHandOffNote({
-            byName: user.name ?? "Staff",
-            awayName: away.name,
-            coverName: cover.name,
-            returnsToName: returnsTo.get(conversation.id)?.name ?? null,
+        data: moving.map((conversation) =>
+          systemNote({
+            conversationId: conversation.id,
+            senderUserId: user.id,
+            body: coverageHandOffNote({
+              byName: user.name ?? "Staff",
+              awayName: away.name,
+              coverName: cover.name,
+              returnsToName: returnsTo.get(conversation.id)?.name ?? null,
+            }),
           }),
-          deliveryStatus: DeliveryStatus.INTERNAL,
-        })),
+        ),
       });
 
       await readdressAssigneeNotificationsTx(tx, movingIds, cover.id);
@@ -1078,52 +1071,78 @@ export async function endConversationCoverage(formData: FormData) {
     const returned = withDisposition("returned");
     const returningIds = returned.map((conversation) => conversation.id);
     const alreadyBackIds = withDisposition("alreadyHers").map((conversation) => conversation.id);
-    const toCoverIds = withDisposition("toTheCover").map((conversation) => conversation.id);
+    const toCover = withDisposition("toTheCover");
+    const toCoverIds = toCover.map((conversation) => conversation.id);
+
+    // Every move is scoped to the holder this transaction read the thread with,
+    // the way the hand-off's is. A manager routing a covered thread to somebody
+    // else between that read and this write made a decision, and an advisor
+    // walking back in must not silently undo it - which is what matching on id
+    // alone does, while the note and the audit row go on naming the holder the
+    // thread was read from.
+    const moveFromHolderRead = async (
+      moves: ReadonlyArray<{ id: string; assignedUserId: string | null }>,
+      to: string,
+    ) => {
+      const byHolder = new Map<string | null, string[]>();
+
+      for (const conversation of moves) {
+        byHolder.set(conversation.assignedUserId, [
+          ...(byHolder.get(conversation.assignedUserId) ?? []),
+          conversation.id,
+        ]);
+      }
+
+      let movedCount = 0;
+
+      for (const [assignedUserId, ids] of byHolder) {
+        const { count } = await tx.conversation.updateMany({
+          where: { id: { in: ids }, assignedUserId },
+          data: { assignedUserId: to },
+        });
+
+        movedCount += count;
+      }
+
+      if (movedCount !== moves.length) {
+        throw new Error("Those conversations moved while this was saving. Open the board again.");
+      }
+    };
 
     if (returningIds.length > 0) {
-      await tx.conversation.updateMany({
-        where: { id: { in: returningIds } },
-        data: { assignedUserId: returningUserId },
-      });
+      await moveFromHolderRead(returned, returningUserId);
 
       // The rows themselves, because who was holding one is a fact about the
       // thread rather than about the account: coverage chains, and a thread can
       // be routed on by hand mid-coverage, so the note has to name the holder it
       // actually came back from.
       await tx.message.createMany({
-        data: returned.map((conversation) => ({
-          conversationId: conversation.id,
-          senderUserId: user.id,
-          direction: MessageDirection.INTERNAL,
-          kind: MessageKind.NOTE,
-          body: conversation.assignedUser
-            ? `System: ${returning.name} is back, so this conversation returned to them from ${conversation.assignedUser.name}.`
-            : `System: ${returning.name} is back, so this conversation returned to them.`,
-          deliveryStatus: DeliveryStatus.INTERNAL,
-          systemGenerated: true,
-        })),
+        data: returned.map((conversation) =>
+          systemNote({
+            conversationId: conversation.id,
+            senderUserId: user.id,
+            body: conversation.assignedUser
+              ? `System: ${returning.name} is back, so this conversation returned to them from ${conversation.assignedUser.name}.`
+              : `System: ${returning.name} is back, so this conversation returned to them.`,
+          }),
+        ),
       });
     }
 
     if (toCoverIds.length > 0) {
       // Nobody was holding these, and "leave them with the cover" is what was
       // pressed, so they go where the button says rather than out of coverage
-      // owned by nobody.
-      await tx.conversation.updateMany({
-        where: { id: { in: toCoverIds } },
-        data: { assignedUserId: coverUserId },
-      });
+      // owned by nobody - and only while nobody is still holding them.
+      await moveFromHolderRead(toCover, coverUserId);
 
       await tx.message.createMany({
-        data: toCoverIds.map((conversationId) => ({
-          conversationId,
-          senderUserId: user.id,
-          direction: MessageDirection.INTERNAL,
-          kind: MessageKind.NOTE,
-          body: `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
-          deliveryStatus: DeliveryStatus.INTERNAL,
-          systemGenerated: true,
-        })),
+        data: toCoverIds.map((conversationId) =>
+          systemNote({
+            conversationId,
+            senderUserId: user.id,
+            body: `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
+          }),
+        ),
       });
 
       await readdressAssigneeNotificationsTx(tx, toCoverIds, coverUserId);

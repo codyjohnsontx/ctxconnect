@@ -37,12 +37,22 @@ whole book at once, which is what made it visible.
 ## Decision
 
 Option 2. `Message.systemGenerated` marks a row Attend wrote on its own behalf.
-A thread counts as attended when the newest message after the customer's last
-text is a reply, **or** an internal note written by a person.
+A thread counts as attended when **any** message after the customer's last text
+is a reply, **or** an internal note written by a person. A system-generated note
+never resolves a breach alert, and it never withdraws one an earlier reply or a
+person's note has already answered.
 
 Every site that writes a note on Attend's behalf sets it - coverage starting,
 both endings, and ordinary hand reassignment, which is where this lived first.
 A note a person types is deliberately left unmarked.
+
+Corrected 2026-09-09: an earlier relay of this decision wrote the rule as "the
+newest message after the customer's last text", which is not what was decided
+and not what the code does - under it a bookkeeping note landing after an
+advisor's reply would reopen the alert on an already-answered customer. That
+phrasing was a relay error in the write-up rather than the ruling, which was
+Option 2: mark the notes Attend writes itself so they stop resolving a standing
+breach alert.
 
 ## Reasoning
 
@@ -62,9 +72,12 @@ coverage, this feature is what turns it from one thread into a whole book.
 
 ## Tradeoffs
 
-* A column on `Message`, and a rule every future writer of a system note has to
-  remember. `tests/sla.test.ts` scans the server actions for an unmarked note so
-  a forgotten site fails there rather than in a manager's alert list.
+* A column on `Message`, and a rule every future writer of a system note had to
+  remember - until `systemNote` in `src/lib/sla.ts` became the only place such a
+  row is built, so there is no call site left to forget it. `tests/sla.test.ts`
+  runs that constructor and keeps one scan listing every place a NOTE row is
+  written, so a payload built by hand fails there rather than in a manager's
+  alert list.
 * **Existing rows are left unmarked, which reads them all as written by a
   person.** Deliberate, not a default nobody thought about. Attend cannot tell
   after the fact which historical notes it wrote - the marker is what would have
