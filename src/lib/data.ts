@@ -202,6 +202,11 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         tags: { include: { tag: true } },
         tasks: { where: activeTaskWhere, orderBy: { dueDate: "asc" } },
         messages: {
+          // `previewedMessage` owns which of a thread's messages a row previews
+          // - the newest one somebody's voice is in. Pushed down here so one row
+          // per conversation is still enough to answer it: the clause can only
+          // drop rows that rule would skip anyway.
+          where: { systemGenerated: false },
           orderBy: { createdAt: "desc" },
           take: 1,
           // The row previews this message, and a staff reply or an internal

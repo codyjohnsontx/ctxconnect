@@ -1031,6 +1031,49 @@ describe("both server actions ask the rules", () => {
     // Only the hand-off picks a cover, so only it re-checks who may be one.
     assert.match(start, /coverRefusal\(/);
   });
+
+  it("locks both accounts before the hand-off reads a thread", () => {
+    // Where the lock is taken is the whole of it, and no database-free test can
+    // watch two transactions interleave. Locking only the cover leaves the
+    // mirror case open: a hand-off of the cover's own book that reads her
+    // threads before this one commits misses every thread this one is about to
+    // move onto her, and they end up on an account that is itself away.
+    //
+    // So three structural facts, none of which running one transaction can
+    // show: both rows are locked, they are sorted first so two hand-offs naming
+    // each other cannot deadlock, and the whole block precedes the read of the
+    // away advisor's conversations.
+    const start = serverAction("startConversationCoverage");
+
+    const locks = start.indexOf("rowsToLock");
+    const loop = start.indexOf("for (const row of rowsToLock)");
+    const readsThreads = start.indexOf("assignedUserId: awayUserId");
+
+    assert.ok(locks > -1 && loop > locks, "expected the hand-off to lock both accounts");
+    assert.ok(readsThreads > -1, "expected the hand-off to read the away advisor's threads");
+    assert.ok(loop < readsThreads, "the locks must be taken before the threads are read");
+
+    const declaration = start.slice(locks, loop);
+
+    assert.match(declaration, /awayUserId/);
+    assert.match(declaration, /cover\.id/);
+    assert.match(declaration, /\.sort\(/);
+  });
+
+  it("re-addresses the alerts of every thread a return leaves where it is", () => {
+    // `alertsStayWith` is pinned by the tests above; what those cannot see is
+    // whether the ending calls it, and a thread routed on to a third person
+    // keeps its alerts on the cover's rail until it does.
+    const end = serverAction("endConversationCoverage");
+
+    const stay = end.indexOf("alertsStayWith(");
+
+    assert.ok(stay > -1, "expected the ending to ask who a staying thread's alerts belong to");
+    assert.match(
+      end.slice(stay),
+      /^alertsStayWith\([^]{0,200}?readdressAssigneeNotificationsTx\(/,
+    );
+  });
 });
 
 describe("the alerts that follow a thread", () => {

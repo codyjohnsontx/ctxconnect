@@ -29,6 +29,38 @@ type AttributableMessage = {
   sender?: { name?: string | null } | null;
 };
 
+/** One message, as much of it as {@link previewedMessage} reads. */
+type PreviewCandidate = {
+  /** True when Attend wrote the row itself - see `systemNote` in src/lib/sla.ts. */
+  systemGenerated: boolean;
+};
+
+/**
+ * Which message a queue row previews, given the thread's messages newest first.
+ *
+ * The newest one somebody's voice is in, which is not always the newest one.
+ * Attend writes a note on every thread it moves, so an advisor handed a book of
+ * forty conversations would open the queue to forty rows all previewing the same
+ * sentence about the hand-off instead of what each customer last said - the one
+ * line the queue exists for, gone at exactly the moment she has been handed
+ * unfamiliar work and has to decide what to open first.
+ *
+ * A note a PERSON typed still previews. "Called her, left a voicemail" is
+ * somebody's voice on the thread and it is not ours to hide; `previewAttribution`
+ * below is what keeps it from reading as the customer's own words. The
+ * distinction is the same one the breach rule draws in src/lib/sla.ts - a person
+ * recording action against the system recording an event - and it is a fact on
+ * the row rather than something the shape of the message can imply.
+ *
+ * Null when a thread has nothing but Attend's own notes, which is honest: there
+ * is no voice to preview yet.
+ */
+export function previewedMessage<T extends PreviewCandidate>(
+  newestFirst: readonly T[],
+): T | null {
+  return newestFirst.find((message) => !message.systemGenerated) ?? null;
+}
+
 /**
  * The first name alone. The row clamps to two lines and the customer's full
  * name is already on the line above, so a surname here spends the preview's

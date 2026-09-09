@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MessageDirection } from "../src/generated/prisma/client";
-import { previewAttribution } from "../src/lib/message-preview";
+import { previewAttribution, previewedMessage } from "../src/lib/message-preview";
 
 const READER = "user-alyssa";
 const OTHER = "user-cody";
@@ -120,5 +120,47 @@ describe("previewAttribution", () => {
       assert.ok(attribution.label.endsWith(":"), attribution.label);
       assert.ok(!attribution.label.endsWith(" :"), attribution.label);
     }
+  });
+});
+
+describe("which message a row previews", () => {
+  // Newest first, the order the queue loads them in.
+  const customerText = { body: "Is my bike ready?", systemGenerated: false };
+  const handOffNote = {
+    body: "System: Cody handed this conversation to Ben while Alyssa is away.",
+    systemGenerated: true,
+  };
+  const advisorNote = { body: "Called her, left a voicemail.", systemGenerated: false };
+
+  it("previews the customer's last text under a coverage note", () => {
+    // The case this exists for. An advisor handed a book of forty threads opens
+    // the queue to forty rows, and every one of them would otherwise preview the
+    // same sentence about the hand-off instead of what each customer said.
+    assert.deepEqual(previewedMessage([handOffNote, customerText]), customerText);
+  });
+
+  it("keeps looking past a run of them", () => {
+    // Coverage starting, a thread routed on by hand, coverage ending: the notes
+    // stack up on one thread with nobody speaking in between.
+    assert.deepEqual(
+      previewedMessage([handOffNote, handOffNote, handOffNote, customerText]),
+      customerText,
+    );
+  });
+
+  it("previews a note a person typed", () => {
+    // Somebody's voice on the thread, and the newest word on it. Hiding this
+    // would be hiding the advisor's own work, not Attend's bookkeeping.
+    assert.deepEqual(previewedMessage([advisorNote, customerText]), advisorNote);
+  });
+
+  it("previews the newest message when Attend has written nothing", () => {
+    assert.deepEqual(previewedMessage([customerText, advisorNote]), customerText);
+  });
+
+  it("has nothing to preview on a thread that is only bookkeeping", () => {
+    // Honest rather than falling back to the note: there is no voice yet.
+    assert.equal(previewedMessage([handOffNote]), null);
+    assert.equal(previewedMessage([]), null);
   });
 });

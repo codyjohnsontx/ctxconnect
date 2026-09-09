@@ -726,40 +726,56 @@ export async function startConversationCoverage(formData: FormData) {
       throw new Error("Those conversations are already covered. End that coverage first.");
     }
 
-    // `coverRefusal` above read the cover's own row, and everything below writes
-    // on the strength of it - so re-assert it as a write, which is the only form
-    // of the check Read Committed respects.
+    // Both checks above are reads, and Prisma runs interactive transactions at
+    // Read Committed, so neither survives until the writes below are made on
+    // the strength of it. Re-assert them as writes, which is the only form of
+    // the check this isolation level respects: an update of each row to the
+    // value it already holds takes that row's lock, where a select does not. It
+    // costs both accounts their `updatedAt`, which is the price of the lock.
     //
-    // The interleaving it closes: this advisor picks a colleague who is free,
-    // and before this transaction commits that colleague starts her own leave
-    // and hands her book to somebody else. Her hand-off re-points everyone she
-    // was covering, but this advisor is not covered by her yet, so it misses -
-    // and this transaction then records a cover who is away and moves a book to
-    // somebody who is not reading. Nothing repairs that afterwards; it is the
-    // exact state coverRefusal exists to refuse.
+    // BOTH rows, and before this advisor's threads are read below. The cover's
+    // row alone closes only half of it. The half it does close: an admin
+    // switches the cover off, or somebody hands the cover's own book on, while
+    // this transaction is mid-flight. The half it does not: this advisor's book
+    // is moving ONTO the cover, so a hand-off of the cover's own book that reads
+    // her threads before this one commits misses every thread this one is about
+    // to put there. It re-points this advisor's pointer and never those threads'
+    // assignment, so they end up on an account that is itself away - nobody
+    // reading, which is the state this whole feature exists to end. Locking this
+    // advisor's row here is what stops that read from happening mid-move:
+    // whichever transaction locks first, the other waits and then sees a true
+    // picture - it either takes the threads on with the rest, or finds this
+    // advisor claimed and refuses.
     //
-    // Written as an update of the row to the value it already holds, because an
-    // update takes the row lock and a select does not. A concurrent hand-off of
-    // the cover's own book then waits here rather than racing, and finds this
-    // advisor already covered when it re-points. It costs the cover's
-    // `updatedAt`, which is the price of the lock.
-    const coverStillFree = await tx.user.updateMany({
-      where: { id: cover.id, coveredByUserId: null },
-      data: { coveredByUserId: null },
-    });
+    // Taken in a deterministic order, sorted by id, and NOT in the order the
+    // form names them. Two hand-offs that name each other - she picks him while
+    // he picks her - would otherwise take the same two rows in opposite orders,
+    // and Postgres would break the cycle by aborting one with an error rather
+    // than by refusing it with a sentence. Sorting is free; do not tidy it away.
+    const rowsToLock = [
+      { id: awayUserId, refusal: "Those conversations are already covered. End that coverage first." },
+      { id: cover.id, refusal: "That staff member is away and covered by somebody else." },
+    ].sort((first, second) => (first.id < second.id ? -1 : 1));
 
-    if (coverStillFree.count === 0) {
-      throw new Error("That staff member is away and covered by somebody else.");
+    for (const row of rowsToLock) {
+      const locked = await tx.user.updateMany({
+        where: { id: row.id, coveredByUserId: null },
+        data: { coveredByUserId: null },
+      });
+
+      if (locked.count === 0) {
+        throw new Error(row.refusal);
+      }
     }
 
-    // That clause can only ask one of the three questions `coverRefusal` asks,
-    // and going away is not the only way a cover stops being one: an admin's
-    // Deactivate is a single autocommit update that takes and releases her row
-    // lock, so it can commit between the read at the top of this transaction and
-    // the lock taken just above. Under that lock her row can no longer change,
-    // so re-read it and ask the whole question again - otherwise a book moves to
-    // an account nobody can sign in as, and the refusal only ever arrives when
-    // somebody tries to end the coverage.
+    // Those clauses can only ask about `coveredByUserId`, and going away is not
+    // the only way a cover stops being one: an admin's Deactivate is a single
+    // autocommit update that takes and releases her row lock, so it can commit
+    // between the read at the top of this transaction and the lock taken just
+    // above. Under that lock her row can no longer change, so re-read it and ask
+    // the whole question again - otherwise a book moves to an account nobody can
+    // sign in as, and the refusal only ever arrives when somebody tries to end
+    // the coverage.
     const heldCover = await tx.user.findUnique({
       where: { id: cover.id },
       select: { id: true, active: true, coveredByUserId: true },
@@ -893,15 +909,12 @@ export async function startConversationCoverage(formData: FormData) {
       // a reply against, so coverage with no start is coverage nobody can end
       // correctly.
       //
-      // Guarded on the pointer still being empty rather than written blind. The
-      // check at the top of this transaction read `coveredByUserId` and this
-      // writes it, and Prisma runs interactive transactions at Read Committed,
-      // so two posts for the same advisor - a double click, or two admins on
-      // the board at once - both pass that read. Whoever wrote second would
-      // otherwise leave her pointed at their cover while her threads sat with
-      // the first, and overwrite the `coveredSince` the whole return rule is
-      // measured from. Making the write its own guard is what makes the check
-      // above mean anything.
+      // Written unguarded because this advisor's row has been locked since
+      // before her threads were read, and the lock found her pointer empty. Two
+      // posts for the same advisor - a double click, or two admins on the board
+      // at once - no longer both reach here: the second waits at that lock and
+      // is refused there, before it has moved anything.
+      //
       // The database's clock, not this server's, and read inside this same
       // transaction. `coveredSince` is one end of a comparison whose other end
       // is `Message.createdAt`, which Postgres assigns from its own clock
@@ -916,16 +929,24 @@ export async function startConversationCoverage(formData: FormData) {
       // and an advisor cannot. Read here rather than before the transaction
       // because a read outside it reopens the same gap, only narrower - and a
       // narrower race is harder to reproduce, not safer.
+      //
+      // NOT COVERED BY A TEST, and deliberately so rather than by oversight.
+      // This repo's suite is database-free: it can execute the return rule, but
+      // it cannot observe which machine's clock a write took its value from, so
+      // nothing here fails if somebody simplifies this back to `new Date()`.
+      // What that simplification breaks: `coveredSince` and `Message.createdAt`
+      // come from two machines again, and a reply the cover writes moments after
+      // coverage begins falls outside `createdAt >= coveredSince` - so a thread
+      // she has answered goes back to the advisor anyway, which is the one
+      // outcome the return rule exists to prevent. Proving it needs a
+      // database-backed test, which is a new category for this repo rather than
+      // one more case; that decision is filed on its own.
       const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT NOW() AS now`;
 
-      const claimed = await tx.user.updateMany({
-        where: { id: awayUserId, coveredByUserId: null },
+      await tx.user.update({
+        where: { id: awayUserId },
         data: { coveredByUserId: cover.id, coveredSince: now },
       });
-
-      if (claimed.count === 0) {
-        throw new Error("Those conversations are already covered. End that coverage first.");
-      }
     }
 
     // Two records, because they answer two different questions and the audit
