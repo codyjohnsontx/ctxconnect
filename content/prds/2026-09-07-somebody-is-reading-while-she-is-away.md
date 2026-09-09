@@ -310,9 +310,12 @@ still switched off, because that would put them back where they started.
   good.
 
 * `Message.systemGenerated` - true on the notes Attend writes while a
-  conversation changes hands, false on anything a person typed. Read by the
-  breach rule only. Existing rows are false, which reads them as human-written;
-  that is deliberate and the reason is beside the migration.
+  conversation changes hands, false on anything a person typed. Two readers: the
+  breach rule in `src/lib/sla.ts`, which the column was added for, and the queue
+  row's preview include in `src/lib/data.ts`, which leaves these notes out so a
+  handed-over book does not arrive as rows all previewing the hand-off - that
+  one is written where the query is. Existing rows are false, which reads them
+  as human-written; that is deliberate and the reason is beside the migration.
 
 ## Analytics / Success Metrics
 
