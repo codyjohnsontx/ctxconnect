@@ -786,14 +786,21 @@ export async function startConversationCoverage(formData: FormData) {
     );
 
     if (movingIds.length > 0) {
-      await tx.conversation.updateMany({
-        // Scoped to threads still on her account, not merely to the ids read a
-        // moment ago. A permanent hand-off writes no pointer to guard on, so
-        // this is what stops two concurrent hand-offs both moving the same
-        // threads and then disagreeing about where they went.
+      // Scoped to threads still on her account, not merely to the ids read a
+      // moment ago, and counted rather than assumed. A permanent hand-off
+      // writes no pointer to guard on, so this is the only thing standing
+      // between two concurrent hand-offs and a record of two different covers
+      // holding the same threads: everything below - the in-thread note, the
+      // re-addressed alerts, the audit rows - describes this move, so it may
+      // only be written for the threads this move actually took.
+      const moved = await tx.conversation.updateMany({
         where: { id: { in: movingIds }, assignedUserId: awayUserId },
         data: { assignedUserId: cover.id },
       });
+
+      if (moved.count !== movingIds.length) {
+        throw new Error("Those conversations moved while this was saving. Open the board again.");
+      }
 
       // Only where nothing is recorded yet. A thread this advisor was herself
       // covering already names the advisor it goes back to, and overwriting
@@ -826,10 +833,19 @@ export async function startConversationCoverage(formData: FormData) {
       await readdressAssigneeNotificationsTx(tx, movingIds, cover.id);
 
       if (chained.length > 0) {
-        await tx.user.updateMany({
-          where: { id: { in: chained.map(({ id }) => id) } },
+        // Guarded on the coverage this list was read from, like every other
+        // pointer write here. An advisor whose own coverage ended in between
+        // would otherwise be re-pointed at this cover with no `coveredSince`,
+        // and the board offers to end a coverage the action then refuses -
+        // a state only the database can undo.
+        const rechained = await tx.user.updateMany({
+          where: { id: { in: chained.map(({ id }) => id) }, coveredByUserId: awayUserId },
           data: { coveredByUserId: cover.id },
         });
+
+        if (rechained.count !== chained.length) {
+          throw new Error("Those conversations moved while this was saving. Open the board again.");
+        }
       }
     }
 
