@@ -445,6 +445,20 @@ One gap found beyond the two reported, and it is the `resolvedAt` one above:
 recorded rather than fixed, because it moves a timestamp nothing displays.
 Every other guard carries its rule's conditions.
 
+**A second known gap, in the counting rather than in a write, recorded not
+fixed: a covered thread that is CLOSED and assigned to the returning advisor is
+classified `alreadyHers`.** That arm short-circuits before the `closed` one, so
+the thread lands in the `alreadyBack` tally on the `coverage.end` row and its
+per-thread audit row reads `conversation.coverageAlreadyBack` rather than being
+counted as closed. The precedence is nonetheless right for the **move**: nothing
+should happen to such a thread on either ending, and reordering the arms to fix
+a count would change what `alreadyHers` means. It is not fixed here because it
+misstates a count rather than an attribution - the thread's handler is unchanged
+and recorded - and this branch has already been reverted once for changing a
+disposition to satisfy a downstream reader. A fix would separate the tally's
+buckets from the disposition's precedence, so counting can distinguish
+closed-and-hers with the move rule unchanged.
+
 * `src/lib/coverage.ts` holds every rule several surfaces must agree about, free
   of the database client, alongside `conversation-access.ts` and
   `task-access.ts`.
