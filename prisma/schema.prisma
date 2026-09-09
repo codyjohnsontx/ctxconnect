@@ -146,9 +146,27 @@ model User {
   // The last request this account was allowed through on, so an admin can see
   // that nothing succeeded after access ended. Only granted requests move it.
   lastSeenAt    DateTime?
+  // Who is holding this account's open conversations while they are away, and
+  // from when. Both are set when coverage begins, or neither is: `coveredSince`
+  // is the instant the return rule measures a reply against, so a cover with no
+  // start is a coverage nobody can end correctly. After that they part company.
+  // `coveredByUserId` follows the threads, so a chained hand-off re-points it at
+  // whoever is holding them now. `coveredSince` must NOT move: it is when this
+  // account's own trip began, and only the cover now holding a thread has her
+  // replies counted, so advancing it to a chained hand-off would drop one she
+  // sent on that thread before it reached her - handing back a conversation the
+  // customer has already heard her on. When a chained hand-off happened is
+  // recorded in AuditLog. A permanent hand-off leaves both null - there is
+  // nothing to return.
+  coveredByUserId String?
+  coveredSince    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  coveredBy User?  @relation("Coverage", fields: [coveredByUserId], references: [id], onDelete: SetNull)
+  covering  User[] @relation("Coverage")
+
+  coveredConversations  Conversation[] @relation("CoveredConversations")
   assignedConversations Conversation[] @relation("AssignedConversations")
   sentMessages          Message[]      @relation("SentMessages")
   assignedTasks         Task[]         @relation("AssignedTasks")
@@ -212,6 +230,10 @@ model Conversation {
   id             String             @id @default(cuid())
   customerId     String
   assignedUserId String?
+  // The advisor this thread belongs to while somebody else is holding it. Set
+  // only for coverage that can end; a permanent hand-off moves the assignee and
+  // leaves this null, because there is nobody for it to go back to.
+  coveredForUserId String?
   department     Department
   status         ConversationStatus @default(OPEN)
   priority       Priority           @default(NORMAL)
@@ -223,6 +245,7 @@ model Conversation {
 
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   assignedUser User?             @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  coveredFor   User?             @relation("CoveredConversations", fields: [coveredForUserId], references: [id], onDelete: SetNull)
   messages     Message[]
   tasks        Task[]
   tags         ConversationTag[]
@@ -232,6 +255,7 @@ model Conversation {
 
   @@index([customerId])
   @@index([assignedUserId])
+  @@index([coveredForUserId])
   @@index([department, status])
   @@index([lastMessageAt])
 }
@@ -247,6 +271,10 @@ model Message {
   deliveryStatus DeliveryStatus    @default(QUEUED)
   errorMessage   String?
   twilioSid      String?           @unique
+  /// True when Attend wrote this row itself, rather than a person typing it.
+  /// Only internal notes are ever marked; it is what lets the breach rule tell
+  /// "somebody did something about this customer" from its own bookkeeping.
+  systemGenerated Boolean          @default(false)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 

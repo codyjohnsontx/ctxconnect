@@ -9,9 +9,11 @@ import {
   followUpSubject,
   followUpTypes,
   notificationFactCountQuery,
+  assigneeAddressedNotificationsWhere,
   notificationFactKey,
   notificationScopeWhere,
   perMessageTypes,
+  supersededNotificationCopies,
   readResolvesNotificationTypes,
 } from "../src/lib/notification-facts";
 import { NotificationType } from "../src/generated/prisma/enums";
@@ -244,6 +246,8 @@ type AlertRow = {
   recipientUserId: string | null;
   department: string | null;
   status: string;
+  conversationId?: string | null;
+  type?: string;
 };
 
 function matches(where: Prisma.NotificationWhereInput, row: AlertRow): boolean {
@@ -262,6 +266,10 @@ function matches(where: Prisma.NotificationWhereInput, row: AlertRow): boolean {
 
     if (expected && typeof expected === "object" && "not" in expected) {
       return actual !== (expected as { not: unknown }).not;
+    }
+
+    if (expected && typeof expected === "object" && "in" in expected) {
+      return (expected as { in: unknown[] }).in.includes(actual);
     }
 
     return actual === expected;
@@ -578,4 +586,82 @@ describe("reading a thread and putting it back", () => {
       assert.doesNotMatch(serverAction(half), /NotificationType\.[A-Z_]+/);
     });
   }
+});
+
+describe("the alerts that follow a thread that changed hands", () => {
+  // The rows that matter most here are the ones nobody is looking at. A
+  // resolved row is revived by marking the thread unread, and it revives on the
+  // rail it is addressed to - so one left behind reaches an advisor who no
+  // longer holds the conversation: live, and in nobody's list who can act.
+
+  const handOff = assigneeAddressedNotificationsWhere(["conversation_1"]);
+
+  const onThread = (overrides: Partial<AlertRow> = {}): AlertRow =>
+    alertRow({
+      conversationId: "conversation_1",
+      type: NotificationType.NEW_INBOUND_MESSAGE,
+      ...overrides,
+    });
+
+  it("takes a resolved alert with it, so a revive lands on the new holder's rail", () => {
+    assert.equal(matches(handOff, onThread({ status: "RESOLVED" })), true);
+  });
+
+  it("takes the ones still standing too", () => {
+    assert.equal(matches(handOff, onThread({ status: "UNREAD" })), true);
+    assert.equal(matches(handOff, onThread({ status: "READ" })), true);
+  });
+
+  it("leaves the alerts addressed to managers where they are", () => {
+    // SLA_MISSED, MESSAGE_FAILED and UNASSIGNED_CONVERSATION are raised to
+    // managers rather than to whoever holds the thread, so they do not move
+    // with it.
+    assert.equal(matches(handOff, onThread({ type: NotificationType.SLA_MISSED })), false);
+  });
+
+  it("leaves another thread's alerts alone", () => {
+    assert.equal(matches(handOff, onThread({ conversationId: "conversation_2" })), false);
+  });
+});
+
+describe("supersededNotificationCopies", () => {
+  const copy = (id: string, minutes: number, overrides: Record<string, unknown> = {}) => ({
+    id,
+    type: NotificationType.NEW_INBOUND_MESSAGE,
+    conversationId: "conversation_1",
+    createdAt: new Date(Date.UTC(2026, 8, 9, 9, minutes)),
+    ...overrides,
+  });
+
+  it("withdraws the older copies of one fact and keeps the newest", () => {
+    // Two texts on one thread are two rows and one fact. The newest is the copy
+    // a list already shows, because it reads newest first and keeps the first
+    // copy's slot.
+    assert.deepEqual(supersededNotificationCopies([copy("n1", 0), copy("n2", 5)]), ["n1"]);
+    assert.deepEqual(supersededNotificationCopies([copy("n2", 5), copy("n1", 0)]), ["n1"]);
+  });
+
+  it("withdraws nothing when each row is its own fact", () => {
+    assert.deepEqual(
+      supersededNotificationCopies([
+        copy("n1", 0),
+        copy("n2", 5, { type: NotificationType.CONVERSATION_ASSIGNED }),
+        copy("n3", 10, { conversationId: "conversation_2" }),
+      ]),
+      [],
+    );
+  });
+
+  it("keeps a failed text per message, because two are two things to fix", () => {
+    const failures = [
+      copy("n1", 0, { type: NotificationType.MESSAGE_FAILED, messageId: "message_1" }),
+      copy("n2", 5, { type: NotificationType.MESSAGE_FAILED, messageId: "message_2" }),
+    ];
+
+    assert.deepEqual(supersededNotificationCopies(failures), []);
+  });
+
+  it("withdraws nothing given one row", () => {
+    assert.deepEqual(supersededNotificationCopies([copy("n1", 0)]), []);
+  });
 });

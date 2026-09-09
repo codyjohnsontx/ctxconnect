@@ -19,6 +19,7 @@ import {
   scopedConversationWhere,
   unreachableDepartments,
 } from "@/lib/conversation-access";
+import { coverageLandsOn, openConversationWhere } from "@/lib/coverage";
 import { getIntegrationHealth } from "@/lib/env";
 import {
   activeNotificationWhere,
@@ -201,6 +202,18 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
         tags: { include: { tag: true } },
         tasks: { where: activeTaskWhere, orderBy: { dueDate: "asc" } },
         messages: {
+          // Which message a row previews, and the only place that decides it:
+          // the newest one somebody's voice is in. A hand-off writes a note on
+          // every thread it moves, so without this an advisor handed a book of
+          // forty opens the queue to forty rows all previewing the same
+          // sentence about the hand-off instead of what each customer last
+          // said. A note a PERSON typed is not marked and still previews.
+          //
+          // Asked of the query rather than of the loaded row because the row is
+          // capped at one message: skipping in memory would need the whole
+          // thread loaded for every row in the queue, and a run of Attend's own
+          // notes has no bound to cap it at.
+          where: { systemGenerated: false },
           orderBy: { createdAt: "desc" },
           take: 1,
           // The row previews this message, and a staff reply or an internal
@@ -1051,17 +1064,160 @@ export async function getTemplates() {
   });
 }
 
+/**
+ * How many still-open conversations each staff member is holding right now.
+ *
+ * Coverage moves exactly these, so the number the board shows before the click
+ * and the rows the hand-off actually moves are counted by one clause - see
+ * openConversationWhere in src/lib/coverage.ts. A staff member holding none is
+ * absent from the map rather than zero, which is what `?? 0` at each reader is
+ * for.
+ */
+async function openConversationCounts() {
+  const rows = await prisma.conversation.groupBy({
+    by: ["assignedUserId"],
+    where: openConversationWhere,
+    _count: { _all: true },
+  });
+
+  return new Map(
+    rows.flatMap((row) =>
+      row.assignedUserId ? [[row.assignedUserId, row._count._all] as const] : [],
+    ),
+  );
+}
+
+/**
+ * Who is holding each advisor's covered threads right now, which is not always
+ * the cover - coverage chains, and a thread can be routed on by hand - and
+ * whether any of them is held by nobody, which is the only case the cover
+ * herself would be left with one. The board needs both so it can ask
+ * coverageEndRefusal the same question the action asks, rather than offering a
+ * button the action would refuse or refusing one the action would allow.
+ */
+async function coveredThreadHolders() {
+  const rows = await prisma.conversation.findMany({
+    where: { coveredForUserId: { not: null }, ...openConversationWhere },
+    select: {
+      coveredForUserId: true,
+      status: true,
+      assignedUser: { select: { id: true, name: true, active: true } },
+    },
+  });
+
+  const byAdvisor = new Map<
+    string,
+    Array<{ status: string; heldBy: { id: string; name: string; active: boolean } | null }>
+  >();
+
+  for (const row of rows) {
+    if (!row.coveredForUserId) {
+      continue;
+    }
+
+    byAdvisor.set(row.coveredForUserId, [
+      ...(byAdvisor.get(row.coveredForUserId) ?? []),
+      { status: row.status, heldBy: row.assignedUser },
+    ]);
+  }
+
+  return byAdvisor;
+}
+
+export type CoverageRow = {
+  id: string;
+  name: string;
+  role: string;
+  department: string | null;
+  active: boolean;
+  coveredByUserId: string | null;
+  /** Who is holding this advisor's conversations, and from when. */
+  coveredBy: { id: string; name: string; active: boolean } | null;
+  coveredSince: Date | null;
+  /** Open conversations assigned to this advisor right now. */
+  openConversations: number;
+  /**
+   * Her open covered threads and who is actually reading each one, `heldBy`
+   * null for one nobody holds. `landsOn` below cannot answer that question: it
+   * reports some of these threads as the cover's, because that is where leaving
+   * the coverage with her would put them.
+   */
+  coveredThreads: Array<{ heldBy: { id: string; name: string; active: boolean } | null }>;
+  /**
+   * The accounts that would actually be left holding those if this coverage were
+   * left with the cover, which is not always their current holder and not always
+   * the cover either. Which account each thread lands on is `coverageLandsOn`'s
+   * rule, written there and deliberately not restated here. Empty when nothing
+   * is still open.
+   */
+  landsOn: Array<{ id: string; name: string; active: boolean }>;
+  /** The advisors this staff member is currently covering for. */
+  covering: Array<{ id: string; name: string }>;
+};
+
+/**
+ * The floor's coverage, for the page that arranges it.
+ *
+ * Everyone is returned, including inactive accounts: an advisor who has already
+ * been switched off is the case the feature was asked for, and her card is the
+ * only place her stranded conversations are visible. Who the reader may act on,
+ * and who may be offered as a cover, are decided by src/lib/coverage.ts from
+ * these rows rather than by filtering them away here.
+ */
+export async function getCoverageBoard(): Promise<CoverageRow[]> {
+  const [users, assigned, holders] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        department: true,
+        active: true,
+        coveredByUserId: true,
+        coveredSince: true,
+        coveredBy: { select: { id: true, name: true, active: true } },
+        covering: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+      },
+    }),
+    openConversationCounts(),
+    coveredThreadHolders(),
+  ]);
+
+  return users.map((user) => ({
+    ...user,
+    openConversations: assigned.get(user.id) ?? 0,
+    coveredThreads: holders.get(user.id) ?? [],
+    landsOn: user.coveredBy
+      ? coverageLandsOn(user.coveredBy, holders.get(user.id) ?? [], user.id)
+      : [],
+  }));
+}
+
 export async function getSettingsData() {
-  const [users, dealershipSettings, health] = await Promise.all([
+  const [users, openConversations, holders, dealershipSettings, health] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ role: "asc" }, { name: "asc" }],
+      include: { coveredBy: { select: { id: true, name: true } } },
     }),
+    // Deactivating an account is where conversations get stranded, so the screen
+    // that does it says how many are on each account and who, if anyone, is
+    // reading them. Counted by the clause coverage itself moves by.
+    openConversationCounts(),
+    // The same threads the coverage board reads, so this row can say what that
+    // one says: a covered account can still be holding open work of its own,
+    // and neither screen may report it as fully covered.
+    coveredThreadHolders(),
     getDealershipSettings(),
     getIntegrationHealth(),
   ]);
 
   return {
-    users,
+    users: users.map((user) => ({
+      ...user,
+      openConversations: openConversations.get(user.id) ?? 0,
+      coveredThreads: holders.get(user.id) ?? [],
+    })),
     dealershipSettings,
     health,
   };

@@ -10,6 +10,7 @@ import {
   ConversationStatus,
   DeliveryStatus,
   Department,
+  Prisma,
   MessageDirection,
   MessageKind,
   Priority,
@@ -22,11 +23,29 @@ import {
 import {
   notifyAssignee,
   notifyManagers,
+  readdressAssigneeNotificationsTx,
   reopenConversationNotifications,
   resolveConversationNotifications,
+  resolveConversationNotificationsTx,
   resolveTaskNotifications,
 } from "@/lib/notifications";
 import { handOffReason } from "@/lib/conversation-controls-state";
+import {
+  canHandOffPermanently,
+  canManageCoverage,
+  coverageAlertPlan,
+  coverRefusal,
+  coverageDisposition,
+  coverageEndRefusal,
+  coverageEndTally,
+  coverageHandOffNote,
+  coverageHolder,
+  coverageLandsOn,
+  coverageReturnsTo,
+  openConversationWhere,
+  parseCoverageKind,
+  type CoverageDisposition,
+} from "@/lib/coverage";
 import {
   type CustomerProfileSaveResult,
   checkCustomerProfile,
@@ -42,6 +61,7 @@ import {
   requireCustomerAccess,
 } from "@/lib/permissions";
 import { PASSWORD_CHANGED_REASON, requireUser } from "@/lib/session";
+import { systemNote } from "@/lib/sla";
 
 async function recordAiInsightFormEvent({
   aiInsightId,
@@ -198,14 +218,11 @@ export async function updateConversation(formData: FormData) {
     const assignedName = updated.assignedUser?.name ?? "Unassigned";
 
     await prisma.message.create({
-      data: {
+      data: systemNote({
         conversationId,
         senderUserId: user.id,
-        direction: MessageDirection.INTERNAL,
-        kind: MessageKind.NOTE,
         body: `System: ${user.name ?? "Staff"} assigned this conversation to ${assignedName}.`,
-        deliveryStatus: DeliveryStatus.INTERNAL,
-      },
+      }),
     });
 
     if (nextAssignedUserId) {
@@ -636,6 +653,712 @@ export async function createStaffUser(formData: FormData) {
   });
 
   revalidatePath("/settings");
+}
+
+/**
+ * Holds both accounts a hand-off is about, so nothing can change either while
+ * it runs, and refuses if either is already covered.
+ *
+ * The checks the action makes before this are reads, and Prisma runs
+ * interactive transactions at Read Committed, so neither survives until the
+ * writes made on the strength of it. This re-asserts them as writes, which is
+ * the only form of the check this isolation level respects: an update of each
+ * row to the value it already holds takes that row's lock, where a select does
+ * not. It costs both accounts their `updatedAt`, which is the price of the lock.
+ *
+ * BOTH rows, and the caller must do this before it reads the away advisor's
+ * threads. The cover's row alone closes only half of it. The half it does
+ * close: an admin switches the cover off, or somebody hands the cover's own
+ * book on, while the hand-off is mid-flight. The half it does not: the away
+ * advisor's book is moving ONTO the cover, so a hand-off of the cover's own
+ * book that reads her threads before this one commits misses every thread this
+ * one is about to put there. It re-points the away advisor's pointer and never
+ * those threads' assignment, so they end up on an account that is itself away -
+ * nobody reading, which is the state this whole feature exists to end. Locking
+ * the away advisor's row is what stops that read from happening mid-move:
+ * whichever transaction locks first, the other waits and then sees a true
+ * picture - it either takes the threads on with the rest, or finds that advisor
+ * claimed and refuses.
+ *
+ * Taken in a deterministic order, sorted by id, and NOT in the order the form
+ * names them. Two hand-offs that name each other - she picks him while he picks
+ * her - would otherwise take the same two rows in opposite orders, and Postgres
+ * would break the cycle by aborting one with an error rather than by refusing
+ * it with a sentence. Sorting is free; do not tidy it away.
+ *
+ * What no test here can see is that this runs at all: two transactions
+ * interleaving needs a database, and this repo's suite does not have one. So
+ * `tests/coverage.test.ts` asserts only that the hand-off invokes it.
+ */
+async function lockCoverageAccounts(
+  tx: Prisma.TransactionClient,
+  awayUserId: string,
+  coverUserId: string,
+) {
+  const rows = [
+    { id: awayUserId, refusal: "Those conversations are already covered. End that coverage first." },
+    { id: coverUserId, refusal: "That staff member is away and covered by somebody else." },
+  ].sort((first, second) => (first.id < second.id ? -1 : 1));
+
+  for (const row of rows) {
+    const locked = await tx.user.updateMany({
+      where: { id: row.id, coveredByUserId: null },
+      data: { coveredByUserId: null },
+    });
+
+    if (locked.count === 0) {
+      throw new Error(row.refusal);
+    }
+  }
+}
+
+/**
+ * Hands an advisor's open conversations to somebody who is here.
+ *
+ * The gap this closes: an advisor goes on holiday, or leaves, or is switched
+ * off, and her open threads stay assigned to her. Nothing in the app moved
+ * them, so the customers in them are mid-conversation with a person who is not
+ * reading. Whether anyone else could even open those threads was luck - an
+ * advisor in the same department could, and a thread routed to a department
+ * nobody else works was reachable by no one at all.
+ *
+ * Two shapes, and the difference is only whether it can end. Temporary coverage
+ * marks each thread with the advisor it goes back to and records who is holding
+ * them from when; a permanent hand-off moves the assignment and marks nothing,
+ * because there is nobody for it to go back to.
+ *
+ * The customer is not told. That is deliberate and is not this action's call to
+ * make - see the PRD's non-goals.
+ */
+export async function startConversationCoverage(formData: FormData) {
+  const user = await requireUser();
+  const awayUserId = String(formData.get("userId") ?? "");
+  const coveringUserId = String(formData.get("coveringUserId") ?? "");
+  const kind = parseCoverageKind(String(formData.get("kind") ?? ""));
+
+  if (!awayUserId || !coveringUserId) {
+    throw new Error("An advisor and a cover are both required.");
+  }
+
+  if (!kind) {
+    throw new Error("Coverage must be temporary or permanent.");
+  }
+
+  // The board renders the same two rules to decide whose card carries a form
+  // and whether it offers "for good"; they are re-asked here because a form
+  // posted from a stale tab is not a form this app rendered.
+  if (!canManageCoverage(user, awayUserId)) {
+    throw new Error("Coverage access denied.");
+  }
+
+  if (kind === "permanent" && !canHandOffPermanently(user)) {
+    throw new Error("Only an admin can hand conversations over for good.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const [away, cover] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: awayUserId },
+        select: { id: true, name: true, active: true, coveredByUserId: true },
+      }),
+      tx.user.findUnique({
+        where: { id: coveringUserId },
+        select: { id: true, name: true, active: true, coveredByUserId: true },
+      }),
+    ]);
+
+    if (!away) {
+      throw new Error("That staff account no longer exists.");
+    }
+
+    // Reported as the sentence the picker would have shown, so an advisor who
+    // picked a colleague who went away in the meantime reads why rather than a
+    // bare failure.
+    const refusal = coverRefusal(away, cover);
+
+    if (refusal || !cover) {
+      throw new Error(refusal ?? "That staff account no longer exists.");
+    }
+
+    if (away.coveredByUserId) {
+      throw new Error("Those conversations are already covered. End that coverage first.");
+    }
+
+    await lockCoverageAccounts(tx, awayUserId, cover.id);
+
+    // Those clauses can only ask about `coveredByUserId`, and going away is not
+    // the only way a cover stops being one: an admin's Deactivate is a single
+    // autocommit update that takes and releases her row lock, so it can commit
+    // between the read at the top of this transaction and the lock taken just
+    // above. Under that lock her row can no longer change, so re-read it and ask
+    // the whole question again - otherwise a book moves to an account nobody can
+    // sign in as, and the refusal only ever arrives when somebody tries to end
+    // the coverage.
+    const heldCover = await tx.user.findUnique({
+      where: { id: cover.id },
+      select: { id: true, active: true, coveredByUserId: true },
+    });
+
+    const heldRefusal = coverRefusal(away, heldCover);
+
+    if (heldRefusal) {
+      throw new Error(heldRefusal);
+    }
+
+    const moving = await tx.conversation.findMany({
+      where: { assignedUserId: awayUserId, ...openConversationWhere },
+      select: { id: true, coveredForUserId: true },
+    });
+
+    const movingIds = moving.map((conversation) => conversation.id);
+
+    // Coverage chains: threads this advisor was herself covering move on with
+    // the rest, so the advisors they go back to are now covered by this cover
+    // rather than by her. `coveredByUserId` has to follow the threads or the
+    // board, the return note and the audit all name somebody who is no longer
+    // holding anything. `coveredSince` deliberately does not move - it is when
+    // each of those advisors' own trips began, and advancing it to this hand-off
+    // would stop counting a reply this cover had already sent on one of their
+    // threads before it reached her - so when the hand-off happened is recorded
+    // in the audit log rather than on the account.
+    const marked = new Map<string, number>();
+
+    for (const conversation of moving) {
+      const markedFor = conversation.coveredForUserId;
+
+      if (markedFor && markedFor !== awayUserId) {
+        marked.set(markedFor, (marked.get(markedFor) ?? 0) + 1);
+      }
+    }
+
+    // Every advisor a moving thread is marked for, named, because the thread's
+    // note has to say whose customer it is rather than whose book moved.
+    const markedAdvisors =
+      marked.size > 0
+        ? await tx.user.findMany({
+            where: { id: { in: [...marked.keys()] } },
+            select: { id: true, name: true, coveredByUserId: true },
+          })
+        : [];
+
+    // What each moving thread goes back to once it has moved, decided once
+    // because everything that records the move has to agree about it.
+    const returnsTo = new Map(
+      moving.map((conversation) => [
+        conversation.id,
+        coverageReturnsTo(kind, away, conversation, markedAdvisors),
+      ]),
+    );
+
+    // A mark alone is not enough to re-point an account. A thread routed on by
+    // hand carries the mark of an advisor this one may never have covered, and
+    // moving that advisor's pointer on the strength of the one thread would name
+    // a cover holding none of her others - her real cover still holds those.
+    // Only the advisors she is genuinely covering come with her, and this is the
+    // single list both the pointer rewrite and the audit rows below read.
+    const chained = markedAdvisors.filter(
+      (advisor) => advisor.coveredByUserId === awayUserId,
+    );
+
+    if (movingIds.length > 0) {
+      // Scoped to threads still on her account, not merely to the ids read a
+      // moment ago, and counted rather than assumed. A permanent hand-off
+      // writes no pointer to guard on, so this is the only thing standing
+      // between two concurrent hand-offs and a record of two different covers
+      // holding the same threads: everything below - the in-thread note, the
+      // re-addressed alerts, the audit rows - describes this move, so it may
+      // only be written for the threads this move actually took.
+      const moved = await tx.conversation.updateMany({
+        where: { id: { in: movingIds }, assignedUserId: awayUserId, ...openConversationWhere },
+        data: { assignedUserId: cover.id },
+      });
+
+      if (moved.count !== movingIds.length) {
+        throw new Error("Those conversations moved while this was saving. Open the board again.");
+      }
+
+      // Only where nothing is recorded yet. A thread this advisor was herself
+      // covering already names the advisor it goes back to, and overwriting
+      // that would strand it with her when she returns - it belongs to somebody
+      // further back who is still away.
+      if (kind === "temporary") {
+        await tx.conversation.updateMany({
+          where: { id: { in: movingIds }, coveredForUserId: null },
+          data: { coveredForUserId: awayUserId },
+        });
+      }
+
+      await tx.message.createMany({
+        data: moving.map((conversation) =>
+          systemNote({
+            conversationId: conversation.id,
+            senderUserId: user.id,
+            body: coverageHandOffNote({
+              byName: user.name ?? "Staff",
+              awayName: away.name,
+              coverName: cover.name,
+              returnsToName: returnsTo.get(conversation.id)?.name ?? null,
+            }),
+          }),
+        ),
+      });
+
+      await readdressAssigneeNotificationsTx(tx, movingIds, cover.id);
+
+      if (chained.length > 0) {
+        // Guarded on the coverage this list was read from, like every other
+        // pointer write here. An advisor whose own coverage ended in between
+        // would otherwise be re-pointed at this cover with no `coveredSince`,
+        // and the board offers to end a coverage the action then refuses -
+        // a state only the database can undo.
+        const rechained = await tx.user.updateMany({
+          where: { id: { in: chained.map(({ id }) => id) }, coveredByUserId: awayUserId },
+          data: { coveredByUserId: cover.id },
+        });
+
+        if (rechained.count !== chained.length) {
+          throw new Error("Those conversations moved while this was saving. Open the board again.");
+        }
+      }
+    }
+
+    if (kind === "temporary") {
+      // Written together: coveredSince is the instant the return rule measures
+      // a reply against, so coverage with no start is coverage nobody can end
+      // correctly.
+      //
+      // Written unguarded because this advisor's row has been locked since
+      // before her threads were read, and the lock found her pointer empty. Two
+      // posts for the same advisor - a double click, or two admins on the board
+      // at once - no longer both reach here: the second waits at that lock and
+      // is refused there, before it has moved anything.
+      //
+      // THE APPLICATION CLOCK, and do not "improve" this by reaching for the
+      // database's. `coveredSince` is one end of a comparison whose other end is
+      // `Message.createdAt`, and the two have to come from the SAME clock or the
+      // return window compares two machines. That shared clock is this one:
+      // `Message.createdAt` is `@default(now())`, which Prisma GENERATES AND
+      // SENDS, so the column's `DEFAULT CURRENT_TIMESTAMP` never fires. A DDL
+      // DEFAULT ONLY FIRES IF THE CLIENT OMITS THE COLUMN, and Prisma does not
+      // omit it - so reading prisma/migrations and concluding that Postgres
+      // stamps a message is exactly backwards.
+      //
+      // That conclusion was drawn once. A `SELECT NOW()` read stood here until
+      // 2026-09-09; on a database whose session timezone was not UTC it put
+      // `coveredSince` hours ahead of the cover's reply, the reply fell outside
+      // `createdAt >= coveredSince`, and a thread she had answered went back to
+      // the advisor anyway - the one outcome the return rule exists to prevent.
+      //
+      // Nothing here needs a test to hold it, because both ends now agree by
+      // construction rather than by a guard: there is no second clock left for
+      // this one to disagree with.
+      await tx.user.update({
+        where: { id: awayUserId },
+        data: { coveredByUserId: cover.id, coveredSince: new Date() },
+      });
+    }
+
+    // Two records, because they answer two different questions and the audit
+    // log is indexed on (entity, entityId). The User row answers "who covered
+    // whom, when, and how many threads moved"; the Conversation rows answer
+    // "where did this thread go, and when" for one thread months later.
+    //
+    // `conversations` is her own threads only - the rest of what moved was hers
+    // to hold rather than hers to hand over, and is accounted on the chained row
+    // of whoever it goes back to. `movedInTotal` keeps the difference visible,
+    // because a thread hand-routed to her from an advisor she does not cover
+    // moves with the others and has no chained row of its own.
+    const ownConversations = moving.filter(
+      (conversation) =>
+        conversation.coveredForUserId === null || conversation.coveredForUserId === awayUserId,
+    ).length;
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "coverage.start",
+        entity: "User",
+        entityId: awayUserId,
+        metadata: {
+          kind,
+          coveringUserId: cover.id,
+          conversations: ownConversations,
+          movedInTotal: movingIds.length,
+        },
+      },
+    });
+
+    // An advisor whose cover has itself gone away gets her own start row, so her
+    // account's trail names every person who has held her threads rather than
+    // only the first. `chainedFrom` is what tells the two apart: the row on the
+    // advisor actually going away carries none, and her `coveredSince` still
+    // says when her coverage began rather than when this cover took over.
+    //
+    // Always temporary, whatever moved her threads on. Only temporary coverage
+    // writes a mark, and a permanent hand-off leaves an already-marked thread
+    // its mark, so her threads still come back to her.
+    if (chained.length > 0) {
+      await tx.auditLog.createMany({
+        data: chained.map(({ id }) => ({
+          userId: user.id,
+          action: "coverage.start",
+          entity: "User",
+          entityId: id,
+          metadata: {
+            kind: "temporary",
+            coveringUserId: cover.id,
+            conversations: marked.get(id) ?? 0,
+            chainedFrom: awayUserId,
+          },
+        })),
+      });
+    }
+
+    if (movingIds.length > 0) {
+      await tx.auditLog.createMany({
+        data: moving.map((conversation) => ({
+          userId: user.id,
+          action: "conversation.coverageStart",
+          entity: "Conversation",
+          entityId: conversation.id,
+          metadata: {
+            kind: returnsTo.get(conversation.id) ? "temporary" : "permanent",
+            from: awayUserId,
+            to: cover.id,
+          },
+        })),
+      });
+    }
+  });
+
+  revalidatePath("/coverage");
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
+}
+
+/**
+ * Ends coverage, either way it can end.
+ *
+ * `return` is the advisor coming back. Everything the cover never answered goes
+ * back to her; anything the cover has replied to since coverage began stays
+ * with the cover until it closes, because handing a live exchange back is a
+ * second change of voice on the same conversation - see coverageOutcome in
+ * src/lib/coverage.ts, which is where that rule lives and is tested.
+ *
+ * `keep` is the trip that turned into a departure. The marks that said these
+ * threads would go back are cleared, because now they will not, and nearly
+ * everything stays where it is - but two kinds move to the cover: a thread
+ * nobody is holding, and one sitting on the returning advisor's own account
+ * after that account has been switched off. Both would otherwise be finalised
+ * onto somebody who is not reading, which is what this ending must not do.
+ *
+ * Either ending can be refused, and for the same reason: no open thread may be
+ * left with an account nobody can sign in as, because that recreates the exact
+ * state coverage exists to end. The hand-back is refused while the returning
+ * advisor's own account is switched off. Leaving them with the cover is refused
+ * when any OTHER account a thread would be left with is - the cover herself, or
+ * a colleague a manager routed a covered thread to, who was given it
+ * deliberately and whose thread is not the cover's to inherit silently.
+ * `coverageEndRefusal` and `coverageLandsOn` in src/lib/coverage.ts own both
+ * halves, and the board asks them the same question this does, so a button it
+ * offers is never one this turns into an error page.
+ */
+export async function endConversationCoverage(formData: FormData) {
+  const user = await requireUser();
+  const returningUserId = String(formData.get("userId") ?? "");
+  const outcome = String(formData.get("outcome") ?? "");
+
+  if (!returningUserId) {
+    throw new Error("An advisor is required.");
+  }
+
+  if (outcome !== "return" && outcome !== "keep") {
+    throw new Error("Coverage ends either by handing the conversations back or by leaving them.");
+  }
+
+  if (!canManageCoverage(user, returningUserId)) {
+    throw new Error("Coverage access denied.");
+  }
+
+  // Leaving them with the cover is the same irreversible hand-off
+  // startConversationCoverage guards as `permanent`: nothing records where the
+  // threads came from afterwards. The board only offers it to an admin, and a
+  // form posted from a stale tab is not a form this app rendered.
+  if (outcome === "keep" && !canHandOffPermanently(user)) {
+    throw new Error("Only an admin can hand conversations over for good.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const returning = await tx.user.findUnique({
+      where: { id: returningUserId },
+      select: {
+        id: true,
+        name: true,
+        active: true,
+        coveredSince: true,
+        coveredBy: { select: { id: true, name: true, active: true } },
+      },
+    });
+
+    if (!returning) {
+      throw new Error("That staff account no longer exists.");
+    }
+
+    if (!returning.coveredBy || !returning.coveredSince) {
+      throw new Error("Those conversations are not covered.");
+    }
+
+    const cover = returning.coveredBy;
+
+    const covered = await tx.conversation.findMany({
+      where: { coveredForUserId: returningUserId },
+      select: {
+        id: true,
+        status: true,
+        assignedUserId: true,
+        assignedUser: { select: { id: true, name: true, active: true } },
+        // The coverage window only, anchored on `coveredSince`, which is why
+        // nothing may advance it once coverage has begun: only the cover now
+        // holding a thread has her replies counted, and a later instant would
+        // drop one she sent on it before it reached her, handing back a
+        // conversation the customer has already heard her on. What these
+        // messages mean is coverageDisposition's decision, not this query's, so
+        // that rule stays in one testable place.
+        messages: {
+          where: { createdAt: { gte: returning.coveredSince } },
+          select: { direction: true, senderUserId: true },
+        },
+      },
+    });
+
+    // Every account that would actually be left holding one of these threads if
+    // the coverage were left with the cover, which `coverageEndRefusal` below
+    // judges the ending by. Which account each thread lands on is
+    // `coverageLandsOn`'s rule, written there and deliberately not restated
+    // here.
+    const landsOn = coverageLandsOn(
+      cover,
+      covered.map((conversation) => ({
+        status: conversation.status,
+        heldBy: conversation.assignedUser,
+      })),
+      returningUserId,
+    );
+
+    // The board renders this rule to decide whether either button is pressable,
+    // and it is re-asked here because a form posted from a stale tab is not a
+    // form this app rendered - and because any of those accounts may have been
+    // switched off since the page was drawn.
+    const endRefusal = coverageEndRefusal(outcome, returning, landsOn);
+
+    if (endRefusal) {
+      throw new Error(endRefusal);
+    }
+
+    // One decision per covered thread, taken once in src/lib/coverage.ts. This
+    // action moves threads and writes records; it does not restate the
+    // conditions, because the four holders a covered thread can have crossed
+    // with the reply rule is not a set anybody re-derives correctly twice.
+    const coverUserId = cover.id;
+    const coverName = cover.name;
+    const decided = covered.map((conversation) => ({
+      ...conversation,
+      disposition: coverageDisposition(outcome, returningUserId, coverUserId, conversation),
+    }));
+
+    const withDisposition = (disposition: CoverageDisposition) =>
+      decided.filter((conversation) => conversation.disposition === disposition);
+
+    const tally = coverageEndTally(decided.map((conversation) => conversation.disposition));
+
+    const returned = withDisposition("returned");
+    const returningIds = returned.map((conversation) => conversation.id);
+    const toCover = withDisposition("toTheCover");
+    const toCoverIds = toCover.map((conversation) => conversation.id);
+
+    // Every move is scoped to the holder this transaction read the thread with,
+    // the way the hand-off's is. A manager routing a covered thread to somebody
+    // else between that read and this write made a decision, and an advisor
+    // walking back in must not silently undo it - which is what matching on id
+    // alone does, while the note and the audit row go on naming the holder the
+    // thread was read from.
+    const moveFromHolderRead = async (
+      moves: ReadonlyArray<{ id: string; assignedUserId: string | null }>,
+      to: string,
+    ) => {
+      const byHolder = new Map<string | null, string[]>();
+
+      for (const conversation of moves) {
+        byHolder.set(conversation.assignedUserId, [
+          ...(byHolder.get(conversation.assignedUserId) ?? []),
+          conversation.id,
+        ]);
+      }
+
+      let movedCount = 0;
+
+      for (const [assignedUserId, ids] of byHolder) {
+        const { count } = await tx.conversation.updateMany({
+          where: { id: { in: ids }, assignedUserId, ...openConversationWhere },
+          data: { assignedUserId: to },
+        });
+
+        movedCount += count;
+      }
+
+      if (movedCount !== moves.length) {
+        throw new Error("Those conversations moved while this was saving. Open the board again.");
+      }
+    };
+
+    if (returningIds.length > 0) {
+      await moveFromHolderRead(returned, returningUserId);
+
+      // The rows themselves, because who was holding one is a fact about the
+      // thread rather than about the account: coverage chains, and a thread can
+      // be routed on by hand mid-coverage, so the note has to name the holder it
+      // actually came back from.
+      await tx.message.createMany({
+        data: returned.map((conversation) =>
+          systemNote({
+            conversationId: conversation.id,
+            senderUserId: user.id,
+            body: conversation.assignedUser
+              ? `System: ${returning.name} is back, so this conversation returned to them from ${conversation.assignedUser.name}.`
+              : `System: ${returning.name} is back, so this conversation returned to them.`,
+          }),
+        ),
+      });
+    }
+
+    if (toCoverIds.length > 0) {
+      // Nobody was holding these, and "leave them with the cover" is what was
+      // pressed, so they go where the button says rather than out of coverage
+      // owned by nobody - and only while nobody is still holding them.
+      await moveFromHolderRead(toCover, coverUserId);
+
+      await tx.message.createMany({
+        data: toCover.map((conversation) =>
+          systemNote({
+            conversationId: conversation.id,
+            senderUserId: user.id,
+            body: conversation.assignedUser
+              ? `System: ${returning.name}'s conversations were left with ${coverName}, and this one was back on that switched-off account, so it went to ${coverName} too.`
+              : `System: ${returning.name}'s conversations were left with ${coverName}, and this one had no assignee, so it went to ${coverName} too.`,
+          }),
+        ),
+      });
+    }
+
+    // Exactly the threads this action gave an owner. "Nobody is holding this"
+    // has stopped being true for them, and an alert about a fact that has
+    // stopped being true is withdrawn - the same thing updateConversation does
+    // when an assignment lands there.
+    await resolveConversationNotificationsTx(tx, [...returningIds, ...toCoverIds], [
+      NotificationType.UNASSIGNED_CONVERSATION,
+    ]);
+
+    // Every covered thread's alerts, addressed to whoever holds it now this
+    // ending has run. Which threads go to whom is `coverageAlertPlan`'s decision
+    // and nothing here re-derives any part of it: three separate calls, each
+    // with its own idea of which threads it covered, is how a thread routed on
+    // to a third person came to fall between them and keep its alerts addressed
+    // to the cover. Grouped because these threads do not share a holder.
+    for (const { holderId, conversationIds } of coverageAlertPlan(
+      decided,
+      returningUserId,
+      coverUserId,
+    )) {
+      await readdressAssigneeNotificationsTx(tx, conversationIds, holderId);
+    }
+
+    // Every covered thread loses its mark, whichever way this ended: one that
+    // returned has arrived, and one that did not is now wherever it has got to.
+    await tx.conversation.updateMany({
+      where: { coveredForUserId: returningUserId },
+      data: { coveredForUserId: null },
+    });
+
+    // Guarded on the coverage this transaction actually read, for the reason
+    // the start is: two ends posted at once would both pass the check above,
+    // and the second would write a `coverage.end` row recording that nothing
+    // moved - a row that is not wrong about any single thread but lies about
+    // what happened, which is the hardest kind to unpick months later.
+    const ended = await tx.user.updateMany({
+      where: { id: returningUserId, coveredByUserId: cover.id },
+      data: { coveredByUserId: null, coveredSince: null },
+    });
+
+    if (ended.count === 0) {
+      throw new Error("That coverage has already been ended.");
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "coverage.end",
+        entity: "User",
+        entityId: returningUserId,
+        metadata: {
+          outcome,
+          coveringUserId: returning.coveredBy.id,
+          coveredSince: returning.coveredSince.toISOString(),
+          // One bucket per thread, from the decision already made about it -
+          // `notReturned` counts the threads that stayed rather than being what
+          // is left over when the others are taken away.
+          ...tally,
+        },
+      },
+    });
+
+    const auditActions: Record<CoverageDisposition, string> = {
+      returned: "conversation.coverageReturned",
+      alreadyHers: "conversation.coverageAlreadyBack",
+      toTheCover: "conversation.coverageNotReturned",
+      closed: "conversation.coverageNotReturned",
+      staysPut: "conversation.coverageNotReturned",
+    };
+
+    const moved = (disposition: CoverageDisposition) =>
+      disposition === "returned" || disposition === "toTheCover";
+
+    if (decided.length > 0) {
+      await tx.auditLog.createMany({
+        data: decided.map((conversation) => ({
+          userId: user.id,
+          action: auditActions[conversation.disposition],
+          entity: "Conversation",
+          entityId: conversation.id,
+          metadata: {
+            coveredFor: returningUserId,
+            // Who holds the thread once this action is done, on every row and
+            // whichever way it got there, so the field means one thing wherever
+            // it is read. `null` reads as nobody holds it, which only a thread
+            // nothing moved can now be: the assignee picker has an explicit
+            // unassigned option, and deleting a staff account nulls the
+            // assignment on everything they held. Where the thread did move,
+            // `movedFrom` carries the account it came off, so the hop can be
+            // reconstructed without either value standing in for the other.
+            heldBy: coverageHolder(
+              conversation.disposition,
+              returningUserId,
+              coverUserId,
+              conversation.assignedUserId,
+            ),
+            ...(moved(conversation.disposition)
+              ? { movedFrom: conversation.assignedUserId }
+              : {}),
+          },
+        })),
+      });
+    }
+  });
+
+  revalidatePath("/coverage");
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  revalidatePath("/command-center");
 }
 
 export async function updateStaffUserStatus(formData: FormData) {

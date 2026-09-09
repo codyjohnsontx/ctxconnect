@@ -378,7 +378,11 @@ export function InboxView({
           ) : (
             <div className="divide-y divide-zinc-100">
               {conversations.map((conversation) => {
-                const lastMessage = conversation.messages[0];
+                // The newest message somebody's voice is in: the query loads
+                // one message and leaves out the notes Attend wrote itself, so
+                // a book just handed over does not arrive as rows all
+                // previewing the same sentence about the hand-off.
+                const lastMessage = conversation.messages[0] ?? null;
                 // Asked of the last reply staff sent, not of the message being
                 // previewed. A note or a customer message written afterwards
                 // takes over the preview without undoing the failure, and a row

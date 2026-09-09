@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Settings,
+  UserRoundCheck,
 } from "lucide-react";
 import { AccountMenu } from "@/components/account-menu";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -141,6 +142,17 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
             <div className="truncate text-sm font-medium">{user.name}</div>
             <div className="text-xs text-zinc-500 dark:text-zinc-400">{user.role}</div>
           </div>
+          {/* Not in the navigation: arranging cover is something an advisor does
+              on her last day before a holiday, not a place she works from, and
+              the phone bar is already at six cells. It lives with the account it
+              is about instead. */}
+          <Link
+            href="/coverage"
+            className="mb-3 flex items-center gap-2 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            <UserRoundCheck className="h-3.5 w-3.5" />
+            Coverage
+          </Link>
           <div className="flex gap-2">
             <ThemeToggle />
             <SignOutButton userId={user.id} />

@@ -79,6 +79,25 @@ export const readResolvesNotificationTypes: NotificationType[] = [
   NotificationType.NEW_INBOUND_MESSAGE,
 ];
 
+/**
+ * The alerts a thread raises against whoever is holding it, which is why they
+ * follow the thread when it changes hands. A row is stored per recipient, so an
+ * alert left addressed to an advisor who has gone away is an alert nobody's
+ * rail can show - the work is still there and the one person now doing it is
+ * not told about it.
+ *
+ * The three types here are the ones written to `conversation.assignedUserId`.
+ * Everything else on a thread is addressed to managers, who are not the ones
+ * changing, and a follow-up's alerts go to the *task's* assignee - coverage
+ * moves conversations, not follow-ups, and `src/lib/task-access.ts` already
+ * lets the department work one either way.
+ */
+export const assigneeAddressedTypes: NotificationType[] = [
+  NotificationType.NEW_INBOUND_MESSAGE,
+  NotificationType.CONVERSATION_ASSIGNED,
+  NotificationType.CONVERSATION_REASSIGNED,
+];
+
 // The two lists are fixed tuples so the shapes a writer may build can be
 // derived from them below. A stored row's `type` arrives here as a plain
 // string, though, so widen them again to ask whether it is in one.
@@ -95,6 +114,80 @@ export function notificationFactKey(notification: NotificationFact): string {
     : "";
 
   return [subject, notification.conversationId ?? "", notification.taskId ?? "", message].join(" ");
+}
+
+/**
+ * The alerts that follow a conversation when it changes hands.
+ *
+ * Status is deliberately not part of it. `reopenConversationNotifications`
+ * revives a resolved row whenever somebody marks the thread unread, and it
+ * revives on the rail it was addressed to - so a resolved row left behind comes
+ * back to an advisor who no longer holds the thread, which is the failure
+ * re-addressing exists to prevent, one hop later. Nothing is preserved by
+ * skipping it either: `recipientUserId` is the addressee, there is no column
+ * saying who resolved a row, and a thread's alerts are resolved for every
+ * recipient at once.
+ */
+export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
+  return {
+    conversationId: { in: conversationIds },
+    type: { in: assigneeAddressedTypes },
+  } satisfies Prisma.NotificationWhereInput;
+}
+
+/** One outstanding alert, as much of one as the rule below reads. */
+export type OutstandingNotification = NotificationFact & {
+  id: string;
+  createdAt: Date;
+};
+
+/**
+ * Which of these alerts are a second copy of a fact another one already
+ * carries, and can therefore be withdrawn.
+ *
+ * Asked of outstanding rows only, because a resolved copy occupies no rail slot
+ * and costs nothing by existing. What the copies cost while they stand is scan
+ * slots: `countNotificationFacts` counts facts, while a list applies its `take`
+ * to ROWS and collapses them afterwards, so copies of one fact can push a
+ * genuine alert off the end of the list while the badge still counts it.
+ *
+ * The survivor is the newest copy, which is the one already on screen: a list
+ * reads newest first and `dedupeNotificationFacts` keeps the first copy's slot,
+ * so withdrawing the older ones changes no row a reader was looking at.
+ *
+ * Withdrawn means resolved, never deleted - a resolved row is the record that
+ * the alert was raised and dealt with. That record is also reversible, so a
+ * later `reopenConversationNotifications` on the thread revives these copies
+ * along with the rest and the thread is back to holding one alert per inbound
+ * text. That is the standing condition of any long-lived thread rather than
+ * anything a hand-off creates, and the bound that would end it belongs on the
+ * write side - see `notificationScanLimit` below.
+ */
+export function supersededNotificationCopies(
+  notifications: ReadonlyArray<OutstandingNotification>,
+): string[] {
+  const newest = new Map<string, OutstandingNotification>();
+  const superseded: string[] = [];
+
+  for (const notification of notifications) {
+    const key = notificationFactKey(notification);
+    const held = newest.get(key);
+
+    if (!held) {
+      newest.set(key, notification);
+      continue;
+    }
+
+    if (notification.createdAt > held.createdAt) {
+      newest.set(key, notification);
+      superseded.push(held.id);
+      continue;
+    }
+
+    superseded.push(notification.id);
+  }
+
+  return superseded;
 }
 
 /** The three kinds of subject an alert can have, read off the two lists above. */
