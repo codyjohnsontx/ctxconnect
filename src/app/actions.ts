@@ -933,38 +933,28 @@ export async function startConversationCoverage(formData: FormData) {
       // at once - no longer both reach here: the second waits at that lock and
       // is refused there, before it has moved anything.
       //
-      // The database's clock, not this server's, and read inside this same
-      // transaction. `coveredSince` is one end of a comparison whose other end
-      // is `Message.createdAt`, which Postgres assigns from its own clock
-      // (`DEFAULT CURRENT_TIMESTAMP`, see the init migration). On Vercel those
-      // are two machines, so a Node timestamp can land ahead of a reply written
-      // moments later - and the return query loads only `createdAt >=
-      // coveredSince`, so that reply falls outside the window and a thread the
-      // cover answered goes back to the advisor anyway.
+      // THE APPLICATION CLOCK, and do not "improve" this by reaching for the
+      // database's. `coveredSince` is one end of a comparison whose other end is
+      // `Message.createdAt`, and the two have to come from the SAME clock or the
+      // return window compares two machines. That shared clock is this one:
+      // `Message.createdAt` is `@default(now())`, which Prisma GENERATES AND
+      // SENDS, so the column's `DEFAULT CURRENT_TIMESTAMP` never fires. A DDL
+      // DEFAULT ONLY FIRES IF THE CLIENT OMITS THE COLUMN, and Prisma does not
+      // omit it - so reading prisma/migrations and concluding that Postgres
+      // stamps a message is exactly backwards.
       //
-      // A column default cannot do this: defaults fire on INSERT and this is an
-      // UPDATE of a row that already exists, which is why a message can use one
-      // and an advisor cannot. Read here rather than before the transaction
-      // because a read outside it reopens the same gap, only narrower - and a
-      // narrower race is harder to reproduce, not safer.
+      // That conclusion was drawn once. A `SELECT NOW()` read stood here until
+      // 2026-09-09; on a database whose session timezone was not UTC it put
+      // `coveredSince` hours ahead of the cover's reply, the reply fell outside
+      // `createdAt >= coveredSince`, and a thread she had answered went back to
+      // the advisor anyway - the one outcome the return rule exists to prevent.
       //
-      // NOT COVERED BY A TEST, and deliberately so rather than by oversight.
-      // This repo's suite is database-free: it can execute the return rule, but
-      // it cannot observe which machine's clock a write took its value from, so
-      // nothing here fails if somebody simplifies this back to `new Date()`.
-      // What that simplification breaks: `coveredSince` and `Message.createdAt`
-      // come from two machines again, and a reply the cover writes moments after
-      // coverage begins falls outside `createdAt >= coveredSince` - so a thread
-      // she has answered goes back to the advisor anyway, which is the one
-      // outcome the return rule exists to prevent. Proving it needs a
-      // database-backed test, which is a new category for this repo rather than
-      // one more case, and that is an open question of its own:
-      // content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md.
-      const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT NOW() AS now`;
-
+      // Nothing here needs a test to hold it, because both ends now agree by
+      // construction rather than by a guard: there is no second clock left for
+      // this one to disagree with.
       await tx.user.update({
         where: { id: awayUserId },
-        data: { coveredByUserId: cover.id, coveredSince: now },
+        data: { coveredByUserId: cover.id, coveredSince: new Date() },
       });
     }
 

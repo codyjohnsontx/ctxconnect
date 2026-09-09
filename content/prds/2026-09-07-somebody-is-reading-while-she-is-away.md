@@ -371,21 +371,28 @@ inactive accounts, which should be zero.
   return can even see the thread is decided by `endConversationCoverage`'s
   loading clause and by the mark-clearing scoped to the same id, and this repo's
   tests are database-free and execute neither.
-* **`coveredSince` takes the database's clock, and nothing here can see that it
-  does.** The hand-off reads the instant with `SELECT NOW()` inside its own
-  transaction rather than stamping a Node `Date`, because the other end of the
-  return-window comparison is `Message.createdAt`, which Postgres assigns from
-  its own clock. On Vercel those are two machines, so a Node timestamp can land
-  ahead of a reply the cover writes moments later, and that reply then falls
-  outside `createdAt >= coveredSince` - a thread she answered goes back to the
-  advisor anyway, which is the one outcome the return rule exists to prevent.
-  Reasoned rather than proven: this repo's tests are database-free, so they can
-  execute the return rule but cannot observe which machine's clock a write took
-  its value from, and nothing fails if somebody simplifies the read back to
-  `new Date()`. Declined deliberately rather than forgotten - covering it needs a
-  database-backed test, which is a new test *category* for this repo rather than
-  one more case, and that wants agreement of its own rather than arriving inside
-  this feature.
+* **`coveredSince` takes the application's clock, and this entry once said the
+  opposite.** RESOLVED 2026-09-09, and recorded here rather than deleted because
+  the reasoning that was wrong is the useful part. Between 2026-09-08 and
+  2026-09-09 the hand-off read the instant with `SELECT NOW()` inside its own
+  transaction, on the stated premise that the other end of the return-window
+  comparison, `Message.createdAt`, is assigned by Postgres from
+  `DEFAULT CURRENT_TIMESTAMP`. **That premise is false.** `Message.createdAt` is
+  `@default(now())`, which Prisma generates and sends, so the column's DDL
+  default never fires - a default only fires when the client omits the column,
+  and Prisma does not omit it. The read was therefore not removing a
+  two-machine comparison, it was introducing one: it put `coveredSince` on the
+  database's clock while every message stayed on the application's. Proven by
+  writing to a real database rather than by argument - with the session timezone
+  set to `Asia/Tokyo`, one hand-off transaction wrote `coveredSince` in JST and
+  its own hand-off note's `createdAt` in UTC nine hours apart, and a control
+  insert relying on the column's own default came back in JST. Downstream, the
+  cover's reply fell below `createdAt >= coveredSince` and the thread she was
+  mid-exchange on was handed back to the advisor anyway. The remedy was to
+  revert: `new Date()` is back at the write, the `SELECT NOW()` read is gone,
+  and both ends of the window are one clock again. There is now nothing here for
+  a database-backed test to catch - the two agree by construction rather than by
+  a guard - which is a better outcome than the test that was declined for it.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
@@ -427,7 +434,7 @@ row locks the writes above them take.
 | `actions.ts:871` (assignment move) | Only OPEN threads still on her account move to the cover. | The ids read; still hers; still open. | `id in`, `assignedUserId`, `openConversationWhere`. | Complete. The status clause was added 2026-09-09 - without it a thread closed between the read and this write was reassigned and marked, against the brief. |
 | `actions.ts:885` (`coveredForUserId` mark) | Mark only threads this move took, and only ones carrying no earlier mark. | The ids moved; unmarked; still open. | `id in`, `coveredForUserId: null`. | Complete. The status is not repeated because the write above holds the row lock on every one of these ids until commit, so nothing can close them in between. |
 | `actions.ts:914` (`rechained` pointers) | Re-point only the advisors this cover genuinely covers. | The ids read; each still covered by *this* away advisor. | `id in`, `coveredByUserId: awayUserId`, count checked. | Complete. |
-| `actions.ts:965` (pointer + `coveredSince`) | Record the coverage on an account that is not already covered. | The row; still uncovered. | `id` only. | Complete. The uncovered condition is held by the lock at 704, which refused if it was not; re-asserting it here would be a second copy of the same guard. |
+| `actions.ts:955` (pointer + `coveredSince`) | Record the coverage on an account that is not already covered. | The row; still uncovered. | `id` only. | Complete. The uncovered condition is held by the lock at 704, which refused if it was not; re-asserting it here would be a second copy of the same guard. |
 | `notifications.ts:303` (re-address) | Every assignee-addressed alert on the moved threads is addressed to the new holder. | Those threads; those types; any status. | `conversationId in`, `type in`, `recipientUserId: { not: to }`. | Complete. Status is deliberately absent - see the docstring; a resolved row that revives must not revive addressed to somebody who left. |
 | `notifications.ts:326` (supersede copies) | Leave one outstanding row per fact per recipient. | The ids chosen from the rows read a statement earlier. | `id in`. | Known gap, recorded not fixed: a row resolved by another transaction between the read and this write is re-resolved, moving its `resolvedAt` later. No surface reads `resolvedAt`, and the row's status is already what this write sets. |
 
@@ -435,11 +442,11 @@ row locks the writes above them take.
 
 | Write | Rule it enforces | Conditions the rule needs | Conditions the clause carries | Verdict |
 |---|---|---|---|---|
-| `actions.ts:1213` (`moveFromHolderRead`) | Move only threads still with the holder the disposition was computed from, and only open ones - both dispositions that move (`returned`, `toTheCover`) require an open thread. | The ids; same holder; still open. | `id in`, `assignedUserId`, `openConversationWhere`, count checked. | Complete. The status clause was added 2026-09-09, same defect as 871. |
+| `actions.ts:1202` (`moveFromHolderRead`) | Move only threads still with the holder the disposition was computed from, and only open ones - both dispositions that move (`returned`, `toTheCover`) require an open thread. | The ids; same holder; still open. | `id in`, `assignedUserId`, `openConversationWhere`, count checked. | Complete. The status clause was added 2026-09-09, same defect as 871. |
 | `notifications.ts:159` (`resolveConversationNotificationsTx`) | Withdraw "nobody is holding this" for exactly the threads this ending gave an owner. | Those ids; that one type; only rows not already resolved. | `conversationId in`, `type in`, `status: { not: RESOLVED }`. | Complete. |
 | `notifications.ts:303` / `:326` (re-address) | As above, once per recipient in `coverageAlertPlan`'s plan. | As above. | As above. | As above. |
-| `actions.ts:1289` (clear the marks) | Every covered thread loses its mark, whichever way this ended. | Exactly the threads carrying this advisor's mark. | `coveredForUserId: returningUserId`. | Complete, and deliberately not scoped to the ids read: it must match the same set the read at the top matched. A thread cannot gain this mark mid-transaction, because writing it needs a hand-off, and a hand-off refuses while this advisor is already covered. |
-| `actions.ts:1299` (end the coverage) | End only the coverage this transaction actually read. | The row; still covered by *this* cover. | `id`, `coveredByUserId: cover.id`, count checked. | Complete. |
+| `actions.ts:1278` (clear the marks) | Every covered thread loses its mark, whichever way this ended. | Exactly the threads carrying this advisor's mark. | `coveredForUserId: returningUserId`. | Complete, and deliberately not scoped to the ids read: it must match the same set the read at the top matched. A thread cannot gain this mark mid-transaction, because writing it needs a hand-off, and a hand-off refuses while this advisor is already covered. |
+| `actions.ts:1288` (end the coverage) | End only the coverage this transaction actually read. | The row; still covered by *this* cover. | `id`, `coveredByUserId: cover.id`, count checked. | Complete. |
 
 One gap found beyond the two reported, and it is the `resolvedAt` one above:
 recorded rather than fixed, because it moves a timestamp nothing displays.
@@ -459,6 +466,16 @@ disposition to satisfy a downstream reader. A fix would separate the tally's
 buckets from the disposition's precedence, so counting can distinguish
 closed-and-hers with the move rule unchanged.
 
+* **`coveredSince` and `Message.createdAt` must come from the same clock, and
+  that clock is the application's.** The return window is `createdAt >=
+  coveredSince`, so a value read from anywhere else is a comparison between two
+  machines. The reason nobody should reach for the database's clock, which is
+  the sentence that would have prevented one defect here already: a DDL default
+  only fires if the client omits the column, and Prisma does not omit it -
+  `@default(now())` is generated and sent, so `DEFAULT CURRENT_TIMESTAMP` in
+  `prisma/migrations` never assigns a message's timestamp. Reading the migration
+  and concluding otherwise is what put a `SELECT NOW()` at the write for a day;
+  see the resolved Open Question above.
 * `src/lib/coverage.ts` holds every rule several surfaces must agree about, free
   of the database client, alongside `conversation-access.ts` and
   `task-access.ts`.
@@ -487,3 +504,14 @@ force it to fail when nobody suitable exists. Instead the screen that creates
 the gap names it. The scope cut that matters most is not telling the customer -
 a real product question the owner has not answered, and not one to answer by
 default.
+
+The third is how to count the cross-vendor review this branch carries, and it
+should be counted as two, not three. Finding (1), the coverage-start race - the
+chosen cover read once and never re-checked - was real, and nothing else on this
+branch caught it. Finding (3), the return window's clock, was itself reasoning
+from a false premise about where `Message.createdAt` comes from: the defect it
+described never existed, and the fix written for it introduced a real one, found
+a day later by writing to a database rather than by reading the code again.
+Worth saying plainly wherever this work is written up, because "confirmed by the
+implementer" is not the same as "observed", and a review counted generously
+teaches the wrong lesson about where defects actually get caught.
