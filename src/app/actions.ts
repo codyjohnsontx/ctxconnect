@@ -940,7 +940,8 @@ export async function startConversationCoverage(formData: FormData) {
       // she has answered goes back to the advisor anyway, which is the one
       // outcome the return rule exists to prevent. Proving it needs a
       // database-backed test, which is a new category for this repo rather than
-      // one more case; that decision is filed on its own.
+      // one more case, and that is an open question of its own:
+      // content/prds/2026-09-07-somebody-is-reading-while-she-is-away.md.
       const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT NOW() AS now`;
 
       await tx.user.update({

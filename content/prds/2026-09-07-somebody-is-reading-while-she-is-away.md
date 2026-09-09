@@ -361,6 +361,21 @@ inactive accounts, which should be zero.
   return can even see the thread is decided by `endConversationCoverage`'s
   loading clause and by the mark-clearing scoped to the same id, and this repo's
   tests are database-free and execute neither.
+* **`coveredSince` takes the database's clock, and nothing here can see that it
+  does.** The hand-off reads the instant with `SELECT NOW()` inside its own
+  transaction rather than stamping a Node `Date`, because the other end of the
+  return-window comparison is `Message.createdAt`, which Postgres assigns from
+  its own clock. On Vercel those are two machines, so a Node timestamp can land
+  ahead of a reply the cover writes moments later, and that reply then falls
+  outside `createdAt >= coveredSince` - a thread she answered goes back to the
+  advisor anyway, which is the one outcome the return rule exists to prevent.
+  Reasoned rather than proven: this repo's tests are database-free, so they can
+  execute the return rule but cannot observe which machine's clock a write took
+  its value from, and nothing fails if somebody simplifies the read back to
+  `new Date()`. Declined deliberately rather than forgotten - covering it needs a
+  database-backed test, which is a new test *category* for this repo rather than
+  one more case, and that wants agreement of its own rather than arriving inside
+  this feature.
 * Should the assignee picker on a conversation mark an advisor who is currently
   away? It would stop the case above at its source. Not built: it widens a panel
   that has its own reset hazard, and the board already answers the question.
