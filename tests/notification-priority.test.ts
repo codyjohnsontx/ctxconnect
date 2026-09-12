@@ -199,7 +199,14 @@ describe("no writer ranks an alert itself", () => {
   // A rank handed in as a constant, under either the field name a draft uses or
   // the column name a hand-built row uses. `overdue ? Priority.HIGH : ...` is
   // caught too, which is how the sweep used to rank a late follow-up.
-  const constantRank = /\b(?:subjectP|p)riority:[^,\n]*\bPriority\.[A-Z]/;
+  //
+  // The value runs to the next `,` or `}` rather than to the end of the line,
+  // because a formatter is free to wrap a long property onto the line below and
+  // a guard that stops at the newline would read `subjectPriority:\n
+  // Priority.HIGH` as clean. Stopping at the comma is what keeps it from running
+  // on into the next property and matching a constant that belongs to something
+  // else.
+  const constantRank = /\b(?:subjectP|p)riority\s*:[^,}]*\bPriority\.[A-Z]/;
 
   const files = scannedSourceFiles().map((path) => relative(repoRoot, path));
   const read = (path: string) => readFileSync(join(repoRoot, path), "utf8");

@@ -87,9 +87,13 @@ thread holds are exactly what they were before.
   separately; the note lives on the function that causes it. Superseded on
   2026-09-12: the divergence is closed and that note is gone. The mechanism this
   bullet named was wrong too, and reproducing it in the running app is what
-  settled that: the two writers never collide on one row, because each row keeps
-  the text it was raised from, so both are written and the priority-ordered scan
-  reaches the higher-ranked copy before the read side collapses them. See
+  settled that. It was never first-writer-wins on one row: the two writers never
+  collided, because each row keeps the text it was raised from, so both rows were
+  written - the webhook's at a hard-coded HIGH, the sweep's at the thread's own
+  rank - and the priority-ordered scan reached the HIGH copy before the read side
+  collapsed them. That is the defect as it stood, in the past tense: every copy of
+  a fact now carries the same derived rank, so no copy outranks another and the
+  scan has nothing to pick between. See
   [An Alert Ranks Where Its Subject Ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **The fact, the badge and the rail are unchanged.** Checked rather than
   assumed: the old writers and the new ones were run against the same freshly
