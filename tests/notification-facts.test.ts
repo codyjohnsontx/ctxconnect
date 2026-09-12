@@ -34,6 +34,7 @@ function alert(
   type: string,
   recipientUserId: string,
   ids: { conversationId?: string; taskId?: string; messageId?: string } = {},
+  minute = 0,
 ) {
   return {
     type,
@@ -41,6 +42,7 @@ function alert(
     conversationId: ids.conversationId ?? null,
     taskId: ids.taskId ?? null,
     messageId: ids.messageId ?? null,
+    createdAt: new Date(Date.UTC(2026, 8, 12, 9, minute)),
   };
 }
 
@@ -234,6 +236,85 @@ describe("dedupeNotificationFacts", () => {
 
   it("handles an empty list", () => {
     assert.deepEqual(dedupeNotificationFacts([], advisor), []);
+  });
+});
+
+// Two writers raise an unowned thread's alert and word it differently on
+// purpose. The webhook quotes what the customer sent and records that text on
+// its row; the sweep has no text to quote and says the thread is waiting. Both
+// copies rank alike, the sweep's is written on the next Command Center load and
+// so is the newer, and the scan reads newest first - which handed her the
+// generic line for the whole life of the alert. The owner's call (2026-09-12):
+// she reads the customer's own words, and the latest of them.
+describe("which copy of one fact she reads", () => {
+  const thread = { conversationId: "c1" };
+  const sweep = (recipient: string, minute: number) =>
+    alert("UNASSIGNED_CONVERSATION", recipient, thread, minute);
+  const webhook = (recipient: string, messageId: string, minute: number) =>
+    alert("UNASSIGNED_CONVERSATION", recipient, { ...thread, messageId }, minute);
+
+  it("shows what the customer wrote on a thread she texted once, not the sweep's line", () => {
+    // As the scan reads them: newest first, every copy at the thread's rank.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), sweep(managerB, 30), webhook(managerA, "m1", 10), webhook(managerB, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].messageId, "m1");
+  });
+
+  it("shows the latest text on a thread she texted more than once", () => {
+    const kept = dedupeNotificationFacts(
+      [
+        sweep(managerA, 30),
+        webhook(managerA, "m3", 20),
+        webhook(managerA, "m2", 15),
+        webhook(managerA, "m1", 10),
+      ],
+      managerA,
+    );
+
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].messageId, "m3");
+  });
+
+  it("shows the latest text even when the scan reaches an older one first", () => {
+    // The scan orders by rank before time, and a copy can stand at a rank its
+    // thread has since left: a text she read on an URGENT thread, revived by
+    // marking the thread unread after it was re-ranked LOW and texted again.
+    const kept = dedupeNotificationFacts(
+      [
+        alert("NEW_INBOUND_MESSAGE", advisor, { ...thread, messageId: "m1" }, 10),
+        alert("NEW_INBOUND_MESSAGE", advisor, { ...thread, messageId: "m2" }, 20),
+      ],
+      advisor,
+    );
+
+    assert.equal(kept[0].messageId, "m2");
+  });
+
+  it("shows the latest text over an older one addressed to her", () => {
+    // Her own copy of the first text stands, and she holds none of the second -
+    // a manager deactivated between the two and brought back since.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), webhook(managerB, "m2", 20), webhook(managerA, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept[0].messageId, "m2");
+  });
+
+  it("still shows her own copy of a text over a colleague's copy of it", () => {
+    // Copies of one text are written moments apart, one per manager, so the
+    // colleague's can be the later row. That is not a later text.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), webhook(managerB, "m1", 11), webhook(managerA, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept[0].messageId, "m1");
+    assert.equal(kept[0].recipientUserId, managerA);
   });
 });
 

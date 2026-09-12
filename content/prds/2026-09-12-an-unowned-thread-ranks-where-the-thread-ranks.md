@@ -49,13 +49,17 @@ rail can be trusted.
 
 ## Non-Goals
 
-- Changing an alert's wording, its due time, or which text it previews. Those
-  stay the writer's own, and no stored row's wording, due time or preview text
-  is touched by this work. What that does not cover, said plainly because the
-  sentence above reads wider than it is: converging the rank changes which copy
-  of a fact is the representative one, so the text an advisor actually reads on
-  the rail can change even though no writer changed a word of it. Recorded in
-  the decision log's Tradeoffs.
+- Changing an alert's wording or its due time. Those stay the writer's own, and
+  no stored row's wording or due time is touched by this work. Which text an
+  alert previews was left out of this work and then decided on its own. As
+  shipped, converging the rank let the sweep's generic "is waiting without an
+  owner" copy become the one shown on an unowned thread, in place of what the
+  customer wrote. The owner decided on 2026-09-12 that a copy quoting a customer
+  text is deliberately preferred over a generic one, and between two texts the
+  most recent, so the rail shows the customer's latest words. It is a read-side
+  rule (`shownInstead` in `src/lib/notification-facts.ts`), so it applies to rows
+  already stored and needed no migration. Recorded in the decision log's
+  Tradeoffs.
 - Changing how many rows a thread accumulates, or the read-side collapse. Those
   are settled in the 2026-08-19 decision and stay settled.
 - Any change to who a thread's alerts are addressed to. The standing-alerts-
@@ -72,6 +76,10 @@ rail can be trusted.
   follow-up, then it keeps its own rank whatever the thread is ranked at.
 - Given rows stored at the wrong rank before this change, when the migration
   runs, then they read their conversation's rank.
+- Given an unowned conversation the customer has texted, when the sweep has
+  raised its generic copy of the alert since, then the rail shows what the
+  customer wrote - and on a thread with several unanswered texts, the most
+  recent one. (Added 2026-09-12 with the owner's decision above.)
 
 ## Risks / Open Questions
 

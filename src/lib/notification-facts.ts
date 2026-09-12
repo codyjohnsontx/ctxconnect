@@ -311,6 +311,11 @@ export type ThreadNotificationType = Exclude<
  * which is what stops one unowned thread being written under two keys and
  * listed twice.
  *
+ * The rail does read that provenance: of the copies of one fact, it shows one
+ * that quotes a customer text over one that does not, and the latest text over
+ * an earlier one (`shownInstead`). So `raisedByMessageId` names a text the
+ * customer sent, whose words the row quotes, and nothing else.
+ *
  * Why a thread alert still stores that text at all, rather than dropping it and
  * holding one row per recipient, is decided in
  * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md.
@@ -371,23 +376,77 @@ const notificationFactKeySql = Prisma.sql`
   || ' ' || (CASE WHEN "type"::text = ANY(${perMessageTypes}) THEN COALESCE("messageId", '') ELSE '' END)
 `;
 
-// Which of the rows describing one fact the reader should actually see: the
-// row that describes the follow-up's current state beats the one it
-// superseded, and among equals the row addressed to the reader beats a copy
-// addressed to somebody else, because hers is worded for her.
-function representativeRank(notification: NotificationFact, viewerId?: string | null): number {
-  const current = notification.type === NotificationType.FOLLOW_UP_OVERDUE ? 2 : 0;
-  const addressedToViewer = viewerId && notification.recipientUserId === viewerId ? 1 : 0;
+/** One copy of a fact, as much of one as choosing which copy to show reads. */
+export type NotificationCopy = NotificationFact & { createdAt: Date };
 
-  return current + addressedToViewer;
+// The customer text a copy quotes, if it quotes one. Only the inbound webhook
+// raises a thread alert with a text to record, and its wording is what the
+// customer sent; the sweep raises the same fact with nothing to quote. So the
+// stored column says what the wording only says in prose, and it goes on saying
+// it when the wording changes. A per-message alert's message is the fact itself,
+// shared by every copy, so it quotes nothing here.
+function quotedTextId(notification: NotificationFact): string | null {
+  return names(perMessageTypes).includes(notification.type)
+    ? null
+    : (notification.messageId ?? null);
+}
+
+/**
+ * Whether the reader should see `candidate` rather than `held`, two copies of
+ * one fact. The first of these that tells them apart decides:
+ *
+ * 1. The row that describes the follow-up's current state beats the one it
+ *    superseded.
+ * 2. A copy that quotes the customer's text beats one that does not. The
+ *    sweep's "is waiting without an owner" copy is written on the next Command
+ *    Center load after the text, so it is the newer row and used to hold the
+ *    alert for its whole life. What she reads is the customer's own words - the
+ *    owner's call on 2026-09-12.
+ * 3. Between copies quoting two different texts, the later text wins: what the
+ *    customer said last, never what they said first. Asked of the rows' times
+ *    rather than the order they arrived in, because a list orders by rank before
+ *    time and a revived copy can stand at a rank its thread has since left.
+ * 4. Otherwise - one text copied to several recipients, or generic copies - the
+ *    row addressed to the reader beats a copy addressed to somebody else,
+ *    because hers is worded for her.
+ *
+ * When none of them tells the two apart, the copy already held stays.
+ */
+function shownInstead(
+  candidate: NotificationCopy,
+  held: NotificationCopy,
+  viewerId?: string | null,
+): boolean {
+  const current = (notification: NotificationCopy) =>
+    notification.type === NotificationType.FOLLOW_UP_OVERDUE;
+
+  if (current(candidate) !== current(held)) {
+    return current(candidate);
+  }
+
+  const candidateText = quotedTextId(candidate);
+  const heldText = quotedTextId(held);
+
+  if ((candidateText === null) !== (heldText === null)) {
+    return candidateText !== null;
+  }
+
+  if (candidateText !== heldText) {
+    return candidate.createdAt > held.createdAt;
+  }
+
+  const addressedToViewer = (notification: NotificationCopy) =>
+    Boolean(viewerId) && notification.recipientUserId === viewerId;
+
+  return addressedToViewer(candidate) && !addressedToViewer(held);
 }
 
 /**
  * Collapse notification rows to one row per fact, keeping the order the rows
  * arrived in - a fact holds the position of its first copy, even when a later
- * copy is the one shown.
+ * copy is the one shown. Which copy is shown is `shownInstead`'s to decide.
  */
-export function dedupeNotificationFacts<T extends NotificationFact>(
+export function dedupeNotificationFacts<T extends NotificationCopy>(
   notifications: T[],
   viewerId?: string | null,
 ): T[] {
@@ -404,7 +463,7 @@ export function dedupeNotificationFacts<T extends NotificationFact>(
       continue;
     }
 
-    if (representativeRank(notification, viewerId) > representativeRank(kept[slot], viewerId)) {
+    if (shownInstead(notification, kept[slot], viewerId)) {
       kept[slot] = notification;
     }
   }
