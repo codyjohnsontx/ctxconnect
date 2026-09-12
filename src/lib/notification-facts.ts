@@ -198,7 +198,7 @@ export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
  * row raised from one inbound text is never revisited by its writer - that text
  * will not arrive again - so a thread re-ranked afterwards would leave that copy
  * standing at the old rank forever. The rail reads rows in priority order before
- * collapsing them, so the stale copy is the one it shows.
+ * collapsing them, so the stale copy decides where the whole fact is listed.
  *
  * The recipient is deliberately not part of it, and that is what makes this the
  * whole fact rather than one person's share of it. A rank is recipient-independent

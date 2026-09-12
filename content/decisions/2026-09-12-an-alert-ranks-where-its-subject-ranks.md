@@ -92,7 +92,7 @@ would ever reach. A manager who has been deactivated is the concrete one:
 `assigneeAddressedTypes` leaves `UNASSIGNED_CONVERSATION` out so coverage
 re-addressing never reaches them either, while the sweep raises only for active
 managers. A manager's rail scope is `{}`, so the rail reads that copy, orders it
-first at its stale rank, and hands the fact that copy's slot.
+first at its stale rank, and lists the whole fact at that rank.
 
 The reconcile is cheap rather than churn: because the rank is derived, every
 writer of one fact computes the same value, so the update matches no rows unless

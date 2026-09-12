@@ -124,8 +124,8 @@ export function notificationHref(notification: {
  *
  * Which is exactly why the rank cannot be left at whatever each row was written
  * with. The rows collapse but the scan does not: a list orders by priority and
- * reads only `notificationScanLimit` rows before collapsing them, so the copy
- * the reader is shown is the highest-ranked one, and a stale rank moves the
+ * reads only `notificationScanLimit` rows before collapsing them, so the fact
+ * is listed at the rank of its highest-ranked copy, and a stale rank moves the
  * whole fact through that list - high enough to push a genuine alert off the
  * end, low enough to be pushed off it. So the rank is corrected across the
  * whole fact rather than on the one row this call happened to match, and across
