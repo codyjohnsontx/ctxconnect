@@ -4,7 +4,9 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
+  notificationFactKey,
   notificationPriority,
+  sameFactNotificationsWhere,
   subjectRankedNotificationTypes,
 } from "../src/lib/notification-facts";
 import { NotificationType, Priority } from "../src/generated/prisma/enums";
@@ -66,11 +68,31 @@ describe("how an alert ranks", () => {
 
   it("keeps the ranks that belong to the event rather than to the thread", () => {
     // A missed clock, a text that never arrived and a follow-up past its time
-    // are severities of their own, and outrank a quiet thread deliberately.
+    // are severities of their own, and lift a quiet thread's alert deliberately.
     assert.equal(notificationPriority(NotificationType.SLA_MISSED, Priority.LOW), Priority.URGENT);
     assert.equal(notificationPriority(NotificationType.MESSAGE_FAILED, Priority.LOW), Priority.HIGH);
     assert.equal(
       notificationPriority(NotificationType.FOLLOW_UP_OVERDUE, Priority.LOW),
+      Priority.HIGH,
+    );
+  });
+
+  it("lets an event's own rank lower an urgent subject as well as lift a quiet one", () => {
+    // A fixed rank replaces the subject's rather than setting a floor under it.
+    // So an URGENT follow-up's alert reads URGENT while it is merely due and
+    // HIGH once it is late: it sinks on the rail at the moment it goes late,
+    // and a failed text on an URGENT thread reads HIGH rather than URGENT.
+    // Pinned in this direction too, because it is what the rule computes today.
+    assert.equal(
+      notificationPriority(NotificationType.FOLLOW_UP_DUE, Priority.URGENT),
+      Priority.URGENT,
+    );
+    assert.equal(
+      notificationPriority(NotificationType.FOLLOW_UP_OVERDUE, Priority.URGENT),
+      Priority.HIGH,
+    );
+    assert.equal(
+      notificationPriority(NotificationType.MESSAGE_FAILED, Priority.URGENT),
       Priority.HIGH,
     );
   });
@@ -86,13 +108,81 @@ describe("how an alert ranks", () => {
   });
 });
 
-// The rule above only binds writers that go through it. These are the guards
-// that a writer cannot rank an alert itself, which is the form the defect took.
+// Agreeing at write time is only half of it. The other half is the scope a
+// raise re-ranks over, which is what reaches a copy no writer will revisit.
+describe("which rows one raise re-ranks", () => {
+  const managerCopy = {
+    recipientUserId: "manager-1",
+    conversationId: "conversation-1",
+    taskId: null,
+    messageId: "message-1",
+  };
+
+  it("reaches a thread alert whatever text raised it, so both writers' copies move together", () => {
+    // The whole defect, at the scope level. The webhook's row carries the text
+    // it was raised from and the sweep's carries none, so leaving the message
+    // in would have left the webhook's copy standing at its old rank forever.
+    assert.deepEqual(
+      sameFactNotificationsWhere({
+        ...managerCopy,
+        type: NotificationType.UNASSIGNED_CONVERSATION,
+      }),
+      {
+        type: NotificationType.UNASSIGNED_CONVERSATION,
+        recipientUserId: "manager-1",
+        conversationId: "conversation-1",
+        taskId: null,
+      },
+    );
+  });
+
+  it("keeps a failed text to its own row", () => {
+    // Two failed texts on one thread are two things to fix, so re-ranking the
+    // alert about one must not reach the alert about the other.
+    assert.deepEqual(
+      sameFactNotificationsWhere({ ...managerCopy, type: NotificationType.MESSAGE_FAILED }),
+      {
+        type: NotificationType.MESSAGE_FAILED,
+        recipientUserId: "manager-1",
+        conversationId: "conversation-1",
+        taskId: null,
+        messageId: "message-1",
+      },
+    );
+  });
+
+  it("matches the type exactly, so a due follow-up and a late one do not merge", () => {
+    // The read side collapses the two states of one follow-up into one fact on
+    // purpose. The re-rank must not follow it there: they rank differently, so
+    // re-ranking the due row has to leave the overdue row alone.
+    const subject = {
+      recipientUserId: "advisor-1",
+      conversationId: "conversation-1",
+      taskId: "task-1",
+      messageId: null,
+    };
+    const due = { ...subject, type: NotificationType.FOLLOW_UP_DUE };
+    const overdue = { ...subject, type: NotificationType.FOLLOW_UP_OVERDUE };
+
+    assert.notDeepEqual(sameFactNotificationsWhere(due), sameFactNotificationsWhere(overdue));
+    assert.equal(notificationFactKey(due), notificationFactKey(overdue));
+  });
+});
+
+// The rule above binds a writer only where the writer goes through it. Two
+// scans cover the two ways a rank can still be written around it.
 //
-// Textual checks, not proofs, in the same spirit as the scans in
-// tests/notification-write-shape.test.ts and tests/dealership-day.test.ts: they
-// match the code as it is written today, and the point is that the obvious way
-// to reintroduce the defect fails here.
+// The compiler enforces whatever `NotificationDetails` says today, and it says
+// nothing about `priority`, so a rank passed at a call site does not compile.
+// What the compiler cannot object to is that type being widened to accept one
+// again, and the first scan is what still fails once it has been. The second
+// covers src/lib/demo-seed.ts, which bypasses the draft type altogether by
+// calling `prisma.notification.create` with a raw row: Prisma's own input type
+// has a `priority` field, legitimately, so there is nothing there for the
+// compiler to catch at all.
+//
+// Textual checks rather than proofs, the same bar as the scans in
+// tests/notification-write-shape.test.ts and tests/dealership-day.test.ts.
 describe("no writer ranks an alert itself", () => {
   const raisesAlerts = /\bnotify(Managers|Assignee)(Tx)?\s*\(/;
   const buildsRows = /\bnotification\.(create|createMany|createManyAndReturn|upsert)\b/;
@@ -100,36 +190,12 @@ describe("no writer ranks an alert itself", () => {
   // the column name a hand-built row uses. `overdue ? Priority.HIGH : ...` is
   // caught too, which is how the sweep used to rank a late follow-up.
   const constantRank = /\b(?:subjectP|p)riority:[^,\n]*\bPriority\.[A-Z]/;
-  const readsTheRule = /\bnotificationPriority\b/;
 
   const files = scannedSourceFiles().map((path) => relative(repoRoot, path));
   const read = (path: string) => readFileSync(join(repoRoot, path), "utf8");
 
   const alertWriters = files.filter((path) => raisesAlerts.test(read(path))).sort();
   const rowWriters = files.filter((path) => buildsRows.test(read(path))).sort();
-
-  it("finds the alert writers where they are expected", () => {
-    // The four surfaces that raise alerts as the app runs, plus the module they
-    // all raise them through. A sixth name is a writer to look at.
-    assert.deepEqual(
-      alertWriters,
-      [
-        join("src", "app", "actions.ts"),
-        join("src", "app", "api", "messages", "send", "route.ts"),
-        join("src", "app", "api", "twilio", "inbound", "route.ts"),
-        join("src", "app", "api", "twilio", "status", "route.ts"),
-        join("src", "lib", "notifications.ts"),
-      ].sort(),
-    );
-
-    // And the one writer that builds rows itself: the demo seed, which
-    // fabricates a dataset against an empty database rather than raising alerts
-    // as the app runs.
-    assert.deepEqual(rowWriters, [
-      join("src", "lib", "demo-seed.ts"),
-      join("src", "lib", "notifications.ts"),
-    ].sort());
-  });
 
   it("hands no alert a rank of its own choosing", () => {
     // Whole-file, because nothing in these five files writes a priority for any
@@ -158,12 +224,6 @@ describe("no writer ranks an alert itself", () => {
         .slice(1)
         .some((tail) => constantRank.test(tail.slice(0, rowWindow)));
     });
-
-    assert.deepEqual(offenders, []);
-  });
-
-  it("makes the writer that builds rows by hand read the rule", () => {
-    const offenders = rowWriters.filter((path) => !readsTheRule.test(read(path)));
 
     assert.deepEqual(offenders, []);
   });

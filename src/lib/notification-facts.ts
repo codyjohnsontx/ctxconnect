@@ -79,14 +79,20 @@ export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
  *
  * Two kinds of alert. Most describe a thread or a follow-up and inherit its
  * rank, so an escalated thread's alert escalates with it. The three below carry
- * their own rank whatever they are about, because the event is the severity: a
- * missed response clock is the dealership's worst kind of failure whatever the
- * thread was ranked at, a text that never reached the customer is urgent work
- * on a thread nobody thought was urgent, and a follow-up that has gone past its
- * time outranks the same follow-up while it was merely due.
+ * a rank of their own because the event is the severity: a missed response
+ * clock is the dealership's worst kind of failure whatever the thread was
+ * ranked at, and a text that never reached the customer is urgent work on a
+ * thread nobody thought was urgent.
  *
- * `tests/notification-priority.test.ts` pins which types are which, so adding
- * an alert type is a decision rather than a default.
+ * That rank stands in place of the subject's, in either direction. It is a
+ * replacement rather than a floor, so it lifts a quiet subject's alert and
+ * lowers a loud one: an URGENT follow-up's alert reads URGENT while it is
+ * merely due and drops to HIGH the moment it goes late, and a failed text on an
+ * URGENT thread reads HIGH. That is what this computes today, and
+ * `tests/notification-priority.test.ts` pins both directions.
+ *
+ * That test also pins which types are which, so adding an alert type is a
+ * decision rather than a default.
  */
 const fixedNotificationPriorities: Partial<Record<NotificationType, Priority>> = {
   [NotificationType.SLA_MISSED]: Priority.URGENT,

@@ -13,8 +13,8 @@ Built
 An unowned conversation raises an alert on the manager's rail. That alert was
 being stored at `HIGH` whenever the customer's text arrived through the Twilio
 webhook, whatever the conversation itself was ranked at, and nothing ever
-corrected it. The alert now carries the thread's own rank, and a thread re-ranked
-later drags its standing alerts with it.
+corrected it. The alert now carries the thread's own rank, and the next raise of
+that alert brings every standing copy of it up to date.
 
 ## Problem
 
@@ -42,8 +42,9 @@ rail can be trusted.
 
 - An alert's rank is derived from the alert type plus the priority of the thread
   or follow-up it is about, in one rule every writer reads.
-- A standing alert is re-ranked when the thread or follow-up behind it is
-  re-ranked, across every stored copy of that fact.
+- When a writer raises a fact again, every standing copy of that fact is
+  re-ranked rather than only the row the raise matched. That is what reaches the
+  webhook's per-text copy, which has no writer of its own to revisit it.
 - A one-off correction of the rows already stored at the wrong rank.
 
 ## Non-Goals
@@ -72,8 +73,25 @@ rail can be trusted.
 - The rail's order changes for real. An unowned LOW thread now sorts below a
   NORMAL one. That is intended, and it is the reason this was filed as its own
   piece of work rather than folded into the 2026-08-19 refactor.
-- The seeded demo dataset shifts with it: the unassigned sales lead was written
-  HIGH by hand over a NORMAL conversation and now reads NORMAL.
+- The seeded demo dataset shifts with it, in two places. The unassigned sales
+  lead was written HIGH by hand over a NORMAL conversation and now reads NORMAL.
+  The sales advisor's "New customer message" alert on the Panigale thread was
+  written HIGH over an URGENT conversation and now reads URGENT. Both are the
+  seed telling the truth about its own data rather than a regression, and
+  together they reorder the demo rail, so it is worth seeing before the next
+  demo.
+- **The re-rank reaches a fact only when some writer raises it again**, and only
+  over rows that are not resolved. The operational sweep re-raises
+  `UNASSIGNED_CONVERSATION`, `FOLLOW_UP_DUE` and `FOLLOW_UP_OVERDUE` on every
+  Command Center load, so those three converge on their own. `NEW_INBOUND_MESSAGE`,
+  `CONVERSATION_ASSIGNED` and `CONVERSATION_REASSIGNED` are raised only by the
+  inbound webhook and by `updateConversation`, and `updateConversation` raises
+  nothing on a priority edit, so one of those alerts standing on a thread that
+  is re-ranked afterwards keeps the rank it was written with. Same for a
+  resolved copy that `reopenConversationNotifications` later revives. This is
+  the behaviour before this change rather than something it introduced, and
+  closing it means re-ranking a thread's alerts where its priority is edited,
+  which is its own piece of work.
 - The guard against a future writer ranking an alert itself is a textual scan
   over the writers, which is best-effort rather than a proof.
 

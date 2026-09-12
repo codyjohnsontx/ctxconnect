@@ -89,17 +89,35 @@ the thread or follow-up has genuinely been re-ranked since.
   An unowned LOW thread now sorts below a NORMAL one instead of above it. The
   2026-08-19 work was forbidden from making this change and filed it; this is
   the change being made deliberately and on its own terms.
-- **The seeded demo dataset moves with it.** The seed's unassigned sales lead
-  was written HIGH by hand over a NORMAL conversation and now reads NORMAL, so
-  the demo rail is ordered slightly differently. That is the seed telling the
-  truth about its own data rather than a regression, and it is worth knowing
-  before the next demo.
+- **The seeded demo dataset moves with it, in two places.** The seed's
+  unassigned sales lead was written HIGH by hand over a NORMAL conversation and
+  now reads NORMAL. The sales advisor's "New customer message" alert on the
+  Panigale thread was written HIGH over an URGENT conversation and now reads
+  URGENT. Both are the seed telling the truth about its own data rather than a
+  regression, and between them the demo rail is ordered differently, so it is
+  worth seeing before the next demo.
 - **Three ranks stay the alert's own rather than the thread's.** A missed
   response clock is URGENT, a text that never reached the customer is HIGH and a
   follow-up past its time is HIGH, whatever the thread behind them was ranked
   at, because the event is the severity. That is a judgement, and it is pinned in
   `tests/notification-priority.test.ts` so a new alert type has to be sorted
   rather than defaulting into inheritance.
+- **A fixed rank replaces the subject's rather than setting a floor under it**,
+  which cuts both ways. It lifts a quiet subject's alert, which is the point of
+  it, and it also lowers a loud one: an URGENT follow-up's alert reads URGENT
+  while it is merely due and drops to HIGH the moment it goes late. That is the
+  behaviour as it stood before this change, carried across unchanged and now
+  pinned in both directions rather than left to be discovered. Whether the drop
+  is right is a product question and is filed on its own.
+- **The re-rank reaches a fact only when a writer raises it again**, and only
+  over rows that are not resolved, because it lives on the create-if-missing
+  path. The sweep re-raises `UNASSIGNED_CONVERSATION`, `FOLLOW_UP_DUE` and
+  `FOLLOW_UP_OVERDUE` on every Command Center load, so those converge.
+  `NEW_INBOUND_MESSAGE`, `CONVERSATION_ASSIGNED` and `CONVERSATION_REASSIGNED`
+  have no such writer, and `updateConversation` raises nothing on a priority
+  edit, so one of those standing on a thread re-ranked afterwards keeps its old
+  rank. Putting the re-rank where a thread's priority is edited would close it
+  and is a write path this change deliberately does not add.
 - **The guard against a new writer is textual.** A scan over the alert writers
   fails on a rank handed in as a constant. It matches the code as written today
   and a sufficiently indirect writer would slip past, the same best-effort bar
@@ -107,10 +125,15 @@ the thread or follow-up has genuinely been re-ranked since.
 - **One extra statement per raise.** An `updateMany` that usually matches
   nothing, on paths that already do several writes. Measured against the
   alternative - a rank nobody can correct - it is worth it.
-- **Rows already stored wrong cannot fix themselves**, so a migration corrects
-  them once. It is not scoped by status: the thread's priority is the answer
-  today and was the answer when the row was written, so there is no judgement to
-  preserve in a resolved row. Nothing revives a resolved row of this type today
+- **A one-off migration for the rows the sweep will not reach.** On a thread
+  that is still unassigned and open, the next Command Center load re-ranks the
+  webhook's standing copy on its own, so the migration is not what fixes those.
+  What it buys is the window before that load, and the rows the sweep's scope
+  never covers: threads assigned or closed since the row was written, which it
+  no longer queries, and resolved copies, which the re-rank skips. It is not
+  scoped by status, because the thread's priority is the answer today and was
+  the answer when the row was written, so there is no judgement to preserve in a
+  resolved row. Nothing revives a resolved row of this type today
   (`reopenConversationNotifications` is only ever called with
   `readResolvesNotificationTypes`, which is `NEW_INBOUND_MESSAGE` alone), so that
   half corrects the record rather than the rail.

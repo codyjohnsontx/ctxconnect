@@ -8,9 +8,12 @@
 -- after reading rows in priority order. The HIGH copy is the one it shows, and it sits ahead of
 -- every genuinely-NORMAL alert in a list that stops at a fixed number of rows.
 --
--- The writers now agree, so no new row can be stored this way. Rows already written cannot correct
--- themselves: the webhook will not fire again for a text it has already recorded, so nothing
--- revisits them. This is that one-off correction.
+-- The writers now agree, so no new row can be stored this way, and a raise re-ranks every standing
+-- copy of the fact it raises. The sweep raises UNASSIGNED_CONVERSATION for every unassigned open
+-- thread on each Command Center load, so on those threads it is the next load that corrects the
+-- webhook's copy, not this migration. What this buys is the rest: it closes the window before that
+-- load, and it reaches the rows the sweep's own scope never will - threads assigned or closed since
+-- the row was written, which it no longer queries, and resolved copies, which the re-rank skips.
 
 UPDATE "Notification" AS n
 SET "priority" = c."priority"

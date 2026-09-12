@@ -465,8 +465,10 @@ export async function syncOperationalNotifications() {
         taskId: task.id,
         conversationId: task.conversationId,
         department: task.department,
-        // Overdue outranks due-today, and that is the alert type's own rank
-        // rather than this writer's - see `notificationPriority`.
+        // The rank belongs to the alert type rather than to this writer - see
+        // `notificationPriority`. FOLLOW_UP_OVERDUE carries a fixed HIGH that
+        // stands in place of the follow-up's own rank, so going late lifts a
+        // NORMAL follow-up's alert and drops an URGENT one.
         subjectPriority: task.priority,
         dueAt: task.dueDate,
       };
