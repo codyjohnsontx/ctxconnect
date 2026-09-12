@@ -130,8 +130,8 @@ nothing.
   sweep's carried the thread's rank, so ordering by priority put the customer's
   words first on a LOW or NORMAL thread. Once both carried the same derived rank
   nothing preferred either copy, the tie fell through to `createdAt` descending,
-  and the sweep's copy - created on the first Command Center load after the text
-  - was the newer one and won. On a thread the customer texted once and nobody
+  and the sweep's copy - created on the first Command Center load after the
+  text - was the newer one and won. On a thread the customer texted once and nobody
   answered, she read the generic sentence, timestamped at the sweep, for the
   whole life of the alert. That shipped unintended and was recorded rather than
   fixed, because which copy an advisor reads is a product rule. **Decided on
