@@ -75,13 +75,22 @@ thread holds are exactly what they were before.
 - **The two writers still produce different rows.** They now differ only in
   provenance and in wording, priority and due time. Unifying those would change
   the rail's copy and the order it lists alerts in, which is the user-visible
-  change this work was not allowed to make.
+  change this work was not allowed to make. Superseded on 2026-09-12 for
+  priority alone: a writer no longer passes a rank at all, and the ordering
+  change this bullet declined to make was made there deliberately. Wording and
+  due time are still the writer's own.
 - **One divergence with a consequence is left standing.** Whichever writer
   creates a row first fixes that fact's priority, because an existing active row
   is returned rather than updated, and the two writers do not agree on priority.
   It is invisible to the key and to the badge, since priority orders rows rather
   than identifying facts. Pre-existing, deliberately unchanged here, and filed
-  separately; the note lives on the function that causes it.
+  separately; the note lives on the function that causes it. Superseded on
+  2026-09-12: the divergence is closed and that note is gone. The mechanism this
+  bullet named was wrong too, and reproducing it in the running app is what
+  settled that: the two writers never collide on one row, because each row keeps
+  the text it was raised from, so both are written and the priority-ordered scan
+  reaches the higher-ranked copy before the read side collapses them. See
+  [An Alert Ranks Where Its Subject Ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **The fact, the badge and the rail are unchanged.** Checked rather than
   assumed: the old writers and the new ones were run against the same freshly
   seeded database and the stored rows, the distinct fact keys, the rail's
