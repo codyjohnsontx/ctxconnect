@@ -30,7 +30,7 @@
  */
 
 import { type Department, Prisma } from "@/generated/prisma/client";
-import { NotificationStatus, NotificationType, Priority } from "@/generated/prisma/enums";
+import { MessageDirection, NotificationStatus, NotificationType, Priority } from "@/generated/prisma/enums";
 import { canSeeAll } from "@/lib/conversation-access";
 import type { AppUser } from "@/lib/data";
 
@@ -73,9 +73,9 @@ export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
  * an unowned thread proved it: the webhook hard-coded `Priority.HIGH` while the
  * sweep passed `conversation.priority`, so a LOW thread whose text arrived at
  * the webhook was listed HIGH - above every NORMAL and LOW alert in a rail that
- * orders by priority and only reads so far. Wording is the writer's own, since
- * the webhook can quote the text that just landed and the sweep has none. The
- * rank is not, so it is decided here, once, for every writer.
+ * orders by priority and only reads so far. Wording is the writer's own - the
+ * webhook's copy announces a text that just landed, the sweep's a thread that is
+ * still waiting. The rank is not, so it is decided here, once, for every writer.
  *
  * Two kinds of alert. Most describe a thread or a follow-up and inherit its
  * rank, so an escalated thread's alert escalates with it. The three below carry
@@ -306,9 +306,9 @@ export type ThreadNotificationType = Exclude<
  *
  * A per-message alert is about one text, a follow-up is about one task, and
  * every other alert is about one thread. A thread alert may still record the
- * text it happened to be raised from - the sweep has none to give, the webhook
- * does - but it names it `raisedByMessageId`, because that is provenance and
- * the key does not read it. `messageId` on a thread alert is a compile error,
+ * text it quotes - the webhook's copy the text that just landed, the sweep's the
+ * latest one on the thread - but it names it `raisedByMessageId`, because that
+ * is provenance and the key does not read it. `messageId` on a thread alert is a compile error,
  * which is what stops one unowned thread being written under two keys and
  * listed twice.
  *
@@ -364,6 +364,56 @@ export function notificationSubjectColumns(subject: NotificationSubject) {
   };
 }
 
+/** A text the customer sent, as much of one as an alert quotes. */
+export type CustomerText = { id: string; body: string };
+
+/**
+ * The wording and the provenance of a copy that quotes the customer, built
+ * together.
+ *
+ * The rail takes the text a row names to mean the row quotes it (`quotedTextId`
+ * below), and prefers that row over a generic one. A writer setting
+ * `raisedByMessageId` on its own could name a text its body never says, and the
+ * rail would choose it for words it does not show. So the inbound webhook and
+ * the operational sweep both quote through this, and neither sets it by hand.
+ */
+export function quotedCustomerText(customerName: string, text: CustomerText) {
+  return {
+    body: `${customerName}: ${text.body}`,
+    raisedByMessageId: text.id,
+  };
+}
+
+/**
+ * The newest text the customer sent on each of these threads: one statement
+ * however many threads, and a row back for each thread that has a text at all.
+ *
+ * The sweep asks this on every Command Center load, so the shape is the point. A
+ * Prisma `include` with `take: 1` would read every message on every one of the
+ * threads and trim them in memory - the client binds no LIMIT on a nested take,
+ * which is how the sweep's twelve-message window is already read. This walks
+ * each thread's `(conversationId, createdAt)` index from the newest end and
+ * stops at the first text the customer sent.
+ *
+ * The id breaks a tie between two texts stamped the same instant. Without it
+ * the answer could change from one load to the next, and the sweep would write
+ * a new copy each time it did.
+ */
+export function latestCustomerTextsQuery(conversationIds: string[]): Prisma.Sql {
+  return Prisma.sql`
+    SELECT thread."conversationId", latest."id", latest."body"
+    FROM unnest(${conversationIds}::text[]) AS thread("conversationId")
+    CROSS JOIN LATERAL (
+      SELECT "id", "body"
+      FROM "Message"
+      WHERE "Message"."conversationId" = thread."conversationId"
+        AND "direction"::text = ${MessageDirection.INBOUND}
+      ORDER BY "createdAt" DESC, "id" DESC
+      LIMIT 1
+    ) AS latest
+  `;
+}
+
 /**
  * The same key, written out for the database and from the same two lists: the
  * four parts in the order `notificationFactKey` joins them. It is what the
@@ -380,12 +430,12 @@ const notificationFactKeySql = Prisma.sql`
 /** One copy of a fact, as much of one as choosing which copy to show, and where to list it, reads. */
 export type NotificationCopy = NotificationFact & { createdAt: Date; priority: string };
 
-// The customer text a copy quotes, if it quotes one. Only the inbound webhook
-// raises a thread alert with a text to record, and its wording is what the
-// customer sent; the sweep raises the same fact with nothing to quote. So the
-// stored column says what the wording only says in prose, and it goes on saying
-// it when the wording changes. A per-message alert's message is the fact itself,
-// shared by every copy, so it quotes nothing here.
+// The customer text a copy quotes, if it quotes one. A thread alert records a
+// text only when its wording is that text - `quotedCustomerText` builds the two
+// together, for the webhook and for the sweep alike - so the stored column says
+// what the wording only says in prose, and it goes on saying it when the wording
+// changes. A per-message alert's message is the fact itself, shared by every
+// copy, so it quotes nothing here.
 function quotedTextId(notification: NotificationFact): string | null {
   return names(perMessageTypes).includes(notification.type)
     ? null

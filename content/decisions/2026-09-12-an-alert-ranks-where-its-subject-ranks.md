@@ -141,7 +141,8 @@ nothing.
   at that text. The alert keeps its place in its priority tier and is listed
   there by the time of the copy it shows. A copy is known to quote a text by the
   `messageId` it stores
-  (`raisedByMessageId` at the writer, which only the inbound webhook has to give),
+  (`raisedByMessageId` at the writer, which only the inbound webhook had to give
+  until [the sweep began quoting the latest text](./2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md)),
   not by its title or body, so rewording either copy cannot quietly undo it. It is
   a read-side rule, `shownInstead` in `src/lib/notification-facts.ts`, so it
   applies to rows already stored and needed no migration. The older preferences
