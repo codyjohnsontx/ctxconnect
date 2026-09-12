@@ -103,8 +103,22 @@ nothing.
 
 ## Tradeoffs
 
-- **The rail's ordering changes, and that is the visible point of the work.**
-  An unowned LOW thread now sorts below a NORMAL one instead of above it. The
+- **A brand-new unanswered customer text drops from HIGH to NORMAL, and that is
+  the common case rather than the edge one.** The dominant path through this
+  code is a number the dealership has not seen texting in: the webhook creates
+  the thread and nobody owns it. `Conversation.priority` is `@default(NORMAL)`
+  (prisma/schema.prisma:239) and the webhook sets no priority when it creates
+  one, so what used to be a hard-coded HIGH is now NORMAL. An advisor sees two
+  differences. That alert now ranks below every `MESSAGE_FAILED` and every
+  `FOLLOW_UP_OVERDUE`, because those two carry a fixed HIGH of their own. And
+  its Command Center badge goes from red to amber, since the badge is red only
+  for URGENT or HIGH. Beside that belongs the rest of the picture: a text that
+  is genuinely being neglected does not stay quiet, because the sweep raises
+  `SLA_MISSED` at URGENT once the thread passes its department response clock,
+  so the escalation arrives as its own alert. This follows from the rule rather
+  than happening alongside it, and it is a product decision made on purpose.
+- **The narrower ordering change is the one this was originally filed for.** An
+  unowned LOW thread now sorts below a NORMAL one instead of above it. The
   2026-08-19 work was forbidden from making this change and filed it; this is
   the change being made deliberately and on its own terms.
 - **The seeded demo dataset moves with it, in two places.** The seed's

@@ -60,7 +60,9 @@ type AddressedNotificationDraft = NotificationDraft & { recipientUserId: string 
  * so a writer cannot reach past the draft into a column this module has not
  * agreed to.
  */
-function notificationRow(draft: AddressedNotificationDraft): Prisma.NotificationUncheckedCreateInput {
+function notificationRow(
+  draft: AddressedNotificationDraft,
+): Prisma.NotificationUncheckedCreateInput & { priority: Priority } {
   return {
     ...notificationSubjectColumns(draft),
     recipientUserId: draft.recipientUserId,
@@ -144,7 +146,7 @@ async function createIfMissingWithClient(
   draft: AddressedNotificationDraft,
 ) {
   const data = notificationRow(draft);
-  const priority = notificationPriority(draft.type, draft.subjectPriority);
+  const priority = data.priority;
   const thisFact = {
     ...sameFactNotificationsWhere(data),
     ...activeNotificationWhere,

@@ -70,9 +70,24 @@ rail can be trusted.
 
 ## Risks / Open Questions
 
-- The rail's order changes for real. An unowned LOW thread now sorts below a
-  NORMAL one. That is intended, and it is the reason this was filed as its own
-  piece of work rather than folded into the 2026-08-19 refactor.
+- **A brand-new unanswered customer text now reads NORMAL instead of HIGH, and
+  that is the common case, not an edge one.** When a number the dealership has
+  not seen texts in, the webhook creates the thread and nobody owns it.
+  `Conversation.priority` is `@default(NORMAL)` (prisma/schema.prisma:239) and
+  the webhook sets no priority when it creates one, so the alert that used to be
+  hard-coded HIGH is now NORMAL. Two things an advisor actually sees change. It
+  sorts below every `MESSAGE_FAILED` and every `FOLLOW_UP_OVERDUE` alert, since
+  those two carry a fixed HIGH. And its Command Center badge turns from red to
+  amber, because that badge is red only for URGENT or HIGH. The rest of the
+  picture: a genuinely neglected text does not go quiet. Once the thread passes
+  its department response clock the operational sweep raises `SLA_MISSED` at
+  URGENT, so the escalation path for an ignored customer is intact and arrives
+  as its own alert. This is a deliberate product consequence of the rule that an
+  alert ranks where its thread ranks, not an incidental, and it is the reason
+  this was filed as its own piece of work rather than folded into the 2026-08-19
+  refactor.
+- The same rule shows up more narrowly elsewhere on the rail: an unowned LOW
+  thread now sorts below a NORMAL one.
 - The seeded demo dataset shifts with it, in two places. The unassigned sales
   lead was written HIGH by hand over a NORMAL conversation and now reads NORMAL.
   The sales advisor's "New customer message" alert on the Panigale thread was
