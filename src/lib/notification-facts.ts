@@ -211,7 +211,7 @@ export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
  * re-addressing never reaches them either, while the sweep raises only for active
  * managers. That copy kept its old rank for good, and a manager's rail scope is
  * `{}`, so the rail read it, ordered it first at the stale rank, and
- * `dedupeNotificationFacts` handed the fact the slot of that first copy - a quiet
+ * `dedupeNotificationFacts` kept the fact at that first copy's rank - a quiet
  * LOW thread sitting at the top of the rail ahead of genuinely urgent work.
  * Widening it is also strictly fewer writes: once the first recipient's raise has
  * converged every copy, each later recipient's update in the same sweep matches
@@ -252,8 +252,9 @@ export type OutstandingNotification = NotificationFact & {
  * genuine alert off the end of the list while the badge still counts it.
  *
  * The survivor is the newest copy, which is the one already on screen: a list
- * reads newest first and `dedupeNotificationFacts` keeps the first copy's slot,
- * so withdrawing the older ones changes no row a reader was looking at.
+ * reads newest first, shows a thread's latest text over an earlier one, and
+ * lists a fact by the time of the copy it shows, so withdrawing the older ones
+ * changes no row a reader was looking at.
  *
  * Withdrawn means resolved, never deleted - a resolved row is the record that
  * the alert was raised and dealt with. That record is also reversible, so a
@@ -376,8 +377,8 @@ const notificationFactKeySql = Prisma.sql`
   || ' ' || (CASE WHEN "type"::text = ANY(${perMessageTypes}) THEN COALESCE("messageId", '') ELSE '' END)
 `;
 
-/** One copy of a fact, as much of one as choosing which copy to show reads. */
-export type NotificationCopy = NotificationFact & { createdAt: Date };
+/** One copy of a fact, as much of one as choosing which copy to show, and where to list it, reads. */
+export type NotificationCopy = NotificationFact & { createdAt: Date; priority: string };
 
 // The customer text a copy quotes, if it quotes one. Only the inbound webhook
 // raises a thread alert with a text to record, and its wording is what the
@@ -442,33 +443,44 @@ function shownInstead(
 }
 
 /**
- * Collapse notification rows to one row per fact, keeping the order the rows
- * arrived in - a fact holds the position of its first copy, even when a later
- * copy is the one shown. Which copy is shown is `shownInstead`'s to decide.
+ * Collapse notification rows to one row per fact. Which copy is shown is
+ * `shownInstead`'s to decide; where the fact is listed is decided here.
+ *
+ * Rows arrive by rank and then newest first. A fact keeps the rank of its first
+ * copy, because choosing a copy to show must not re-rank the alert: a late
+ * URGENT follow-up shows its HIGH overdue copy and still lists among the URGENT
+ * alerts. Within that rank it is listed by the time of the copy it shows, so the
+ * time printed beside it agrees with its place. Ranks keep the order they
+ * arrived in, so no rank order is written down here, and ties keep theirs.
  */
 export function dedupeNotificationFacts<T extends NotificationCopy>(
   notifications: T[],
   viewerId?: string | null,
 ): T[] {
-  const slotByFact = new Map<string, number>();
-  const kept: T[] = [];
+  const tiers: string[] = [];
+  const facts = new Map<string, { tier: number; shown: T }>();
 
   for (const notification of notifications) {
     const key = notificationFactKey(notification);
-    const slot = slotByFact.get(key);
+    const fact = facts.get(key);
 
-    if (slot === undefined) {
-      slotByFact.set(key, kept.length);
-      kept.push(notification);
+    if (!fact) {
+      if (!tiers.includes(notification.priority)) {
+        tiers.push(notification.priority);
+      }
+
+      facts.set(key, { tier: tiers.indexOf(notification.priority), shown: notification });
       continue;
     }
 
-    if (shownInstead(notification, kept[slot], viewerId)) {
-      kept[slot] = notification;
+    if (shownInstead(notification, fact.shown, viewerId)) {
+      fact.shown = notification;
     }
   }
 
-  return kept;
+  return [...facts.values()]
+    .sort((a, b) => a.tier - b.tier || b.shown.createdAt.getTime() - a.shown.createdAt.getTime())
+    .map((fact) => fact.shown);
 }
 
 /**

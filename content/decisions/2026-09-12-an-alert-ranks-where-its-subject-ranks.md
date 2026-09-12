@@ -138,7 +138,9 @@ nothing.
   2026-09-12:** a copy that quotes a customer text is deliberately preferred over
   a generic one, and between copies quoting different texts the most recent text
   wins, never the first - so she reads the latest thing the customer said, timed
-  at that text. A copy is known to quote a text by the `messageId` it stores
+  at that text. The alert keeps its place in its priority tier and is listed
+  there by the time of the copy it shows. A copy is known to quote a text by the
+  `messageId` it stores
   (`raisedByMessageId` at the writer, which only the inbound webhook has to give),
   not by its title or body, so rewording either copy cannot quietly undo it. It is
   a read-side rule, `shownInstead` in `src/lib/notification-facts.ts`, so it
