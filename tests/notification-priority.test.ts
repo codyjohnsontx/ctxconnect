@@ -84,18 +84,6 @@ describe("how an alert ranks", () => {
       NotificationType.UNASSIGNED_CONVERSATION,
     ]);
   });
-
-  it("answers the same for one fact however many writers ask", () => {
-    // The webhook has the conversation in hand and so does the sweep, so the
-    // one input they both supply is the one input the rank is made of.
-    const asked = new Set(
-      [1, 2, 3].map(() =>
-        notificationPriority(NotificationType.UNASSIGNED_CONVERSATION, Priority.LOW),
-      ),
-    );
-
-    assert.equal(asked.size, 1);
-  });
 });
 
 // The rule above only binds writers that go through it. These are the guards

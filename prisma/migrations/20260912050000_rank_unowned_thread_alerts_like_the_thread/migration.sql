@@ -19,8 +19,9 @@ WHERE n."conversationId" = c."id"
   AND n."type" = 'UNASSIGNED_CONVERSATION'
   AND n."priority" <> c."priority";
 
--- Resolved rows are corrected too, deliberately. Marking a thread unread revives its resolved
--- alerts (`reopenConversationNotifications`), so a wrong rank left in a resolved row comes back to
--- the rail later. Unlike the system-note migration beside this one, there is no judgement to
--- preserve here: the thread's priority is the answer today and was the answer when the row was
--- written, so every row is being set to the value its writer should have used.
+-- Not scoped by status, deliberately. Unlike the system-note migration beside this one there is no
+-- judgement to preserve: the thread's priority is the answer today and was the answer when the row
+-- was written, so every row is being set to the value its writer should have used. A resolved row
+-- of this type is not revived today - `reopenConversationNotifications` is only ever called with
+-- `readResolvesNotificationTypes`, which is NEW_INBOUND_MESSAGE alone - so this half corrects the
+-- record rather than the rail, and a status filter would be a condition that buys nothing.
