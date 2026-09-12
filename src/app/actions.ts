@@ -234,7 +234,7 @@ export async function updateConversation(formData: FormData) {
         actorUserId: user.id,
         conversationId,
         department: updated.department,
-        priority: updated.priority,
+        subjectPriority: updated.priority,
       });
     }
 
@@ -477,7 +477,7 @@ export async function createTask(formData: FormData) {
     taskId: task.id,
     conversationId: conversationId || null,
     department: department as Department,
-    priority: priority as Priority,
+    subjectPriority: priority as Priority,
     dueAt,
   };
 

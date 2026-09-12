@@ -30,7 +30,7 @@ import {
   redactProviderSecrets,
 } from "./ai/ops-brief";
 import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
-import { notificationSubjectColumns } from "./notification-facts";
+import { notificationPriority, notificationSubjectColumns } from "./notification-facts";
 
 const dealershipName = defaultDealershipSettings.dealershipName;
 
@@ -906,7 +906,7 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
           body: `${panigaleLead.customer.name} asked for an OTD number and still needs a staff response.`,
           recipientUserId: manager.id,
           department: panigaleLead.department,
-          priority: Priority.URGENT,
+          priority: notificationPriority(NotificationType.SLA_MISSED, panigaleLead.priority),
           dueAt: hoursFromNow(-1),
         },
         {
@@ -919,7 +919,10 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
           body: `${panigaleLead.customer.name}: Can you send the OTD number?`,
           recipientUserId: sales.id,
           department: panigaleLead.department,
-          priority: Priority.HIGH,
+          priority: notificationPriority(
+            NotificationType.NEW_INBOUND_MESSAGE,
+            panigaleLead.priority,
+          ),
         },
       ],
     });
@@ -937,7 +940,10 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
         body: `${tigerService.customer.name} needs estimate approval on RO 48219.`,
         recipientUserId: service.id,
         department: tigerService.department,
-        priority: Priority.HIGH,
+        priority: notificationPriority(
+          NotificationType.FOLLOW_UP_OVERDUE,
+          tigerService.tasks[0].priority,
+        ),
         dueAt: tigerService.tasks[0].dueDate,
       },
     });
@@ -954,7 +960,10 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
         body: `${mvTestRide.customer.name} asked about an MV Agusta Brutale test ride.`,
         recipientUserId: manager.id,
         department: mvTestRide.department,
-        priority: Priority.HIGH,
+        priority: notificationPriority(
+          NotificationType.UNASSIGNED_CONVERSATION,
+          mvTestRide.priority,
+        ),
         dueAt: hoursFromNow(-2),
       },
     });
@@ -979,7 +988,7 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
         body: `${tiresParts.customer.name}: Carrier rejected message: unreachable destination.`,
         recipientUserId: manager.id,
         department: tiresParts.department,
-        priority: Priority.HIGH,
+        priority: notificationPriority(NotificationType.MESSAGE_FAILED, tiresParts.priority),
       },
     });
   }

@@ -9,7 +9,6 @@ import {
   OptInEventType,
   Prisma,
   PreferredContactMethod,
-  Priority,
 } from "@/generated/prisma/client";
 import { placeholderCustomerName } from "@/lib/customer-identity";
 import { isStartMessage, isStopMessage, normalizePhone } from "@/lib/phone";
@@ -158,7 +157,7 @@ export async function POST(request: Request) {
           conversationId: conversation.id,
           raisedByMessageId: message.id,
           department: conversation.department,
-          priority: conversation.priority,
+          subjectPriority: conversation.priority,
         });
       } else {
         await notifyManagersTx(tx, {
@@ -168,7 +167,9 @@ export async function POST(request: Request) {
           conversationId: conversation.id,
           raisedByMessageId: message.id,
           department: conversation.department,
-          priority: Priority.HIGH,
+          // The thread's own rank, exactly as the sweep reads it. Hard-coding
+          // HIGH here listed a LOW thread above every NORMAL alert on the rail.
+          subjectPriority: conversation.priority,
         });
       }
     });

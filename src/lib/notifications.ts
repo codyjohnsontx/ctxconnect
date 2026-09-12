@@ -18,7 +18,9 @@ import {
   activeNotificationWhere,
   assigneeAddressedNotificationsWhere,
   notificationFactCountQuery,
+  notificationPriority,
   notificationSubjectColumns,
+  sameFactNotificationsWhere,
   supersededNotificationCopies,
   type NotificationSubject,
 } from "@/lib/notification-facts";
@@ -28,18 +30,25 @@ type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
 
 /**
  * Everything about an alert that is not what it is about: the wording the
- * writer chose, and how it should be ranked. These are the writer's own, and
- * the two writers of an unowned thread legitimately differ here - the webhook
- * can quote the text that just arrived, the sweep only knows the thread has
- * been sitting there. What they may not differ about is the subject, which is
- * why that half comes from `NotificationSubject` instead.
+ * writer chose, and the thread or follow-up it is raised against.
+ *
+ * The wording is the writer's own, and the two writers of an unowned thread
+ * legitimately differ there - the webhook can quote the text that just arrived,
+ * the sweep only knows the thread has been sitting there. Two things they may
+ * not differ about: the subject, which comes from `NotificationSubject`, and
+ * the rank, which is not here at all. A writer supplies `subjectPriority` - how
+ * the thread or follow-up behind the alert is ranked, which is a fact about the
+ * dealership rather than a judgement - and `notificationPriority` turns that
+ * into the row's rank. Handing a writer the rank itself is what let the webhook
+ * hard-code HIGH over a LOW thread.
  */
 type NotificationDetails = {
   title: string;
   body?: string | null;
   actorUserId?: string | null;
   department?: Department | null;
-  priority?: Priority;
+  /** How the thread or follow-up this alert is about is ranked, not the alert. */
+  subjectPriority: Priority;
   dueAt?: Date | null;
 };
 
@@ -59,7 +68,7 @@ function notificationRow(draft: AddressedNotificationDraft): Prisma.Notification
     body: draft.body,
     actorUserId: draft.actorUserId,
     department: draft.department,
-    priority: draft.priority,
+    priority: notificationPriority(draft.type, draft.subjectPriority),
     dueAt: draft.dueAt,
   };
 }
@@ -102,21 +111,48 @@ export function notificationHref(notification: {
 }
 
 /**
- * Raise one recipient's row unless an active one already carries the same fact.
- * One shape for the subject makes the two writers of an unowned thread look
- * interchangeable, and they are not: this returns the existing row rather than
- * updating it, so whichever writer gets there first fixes that fact's priority
- * for good - the webhook hard-codes `Priority.HIGH` where the sweep uses
- * `conversation.priority`, so a low-priority thread whose text arrives at the
- * webhook keeps a HIGH row the sweep never corrects. The key and the badge
- * cannot see it, because priority orders the rows rather than identifying the
- * fact. Pre-existing, deliberately unchanged here, and filed separately.
+ * Raise one recipient's row unless an active one already stands for it, and
+ * bring the rank of every standing copy of that fact up to date either way.
+ *
+ * The row is matched on all of its stored columns, so a thread alert raised
+ * from a later text is a new row: that is what
+ * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md
+ * chose, so the Command Center can preview the latest text rather than the
+ * first, and the read side collapses those rows to one fact afterwards.
+ *
+ * Which is exactly why the rank cannot be left at whatever each row was written
+ * with. The rows collapse but the scan does not: a list orders by priority and
+ * reads only `notificationScanLimit` rows before collapsing them, so the copy
+ * the reader is shown is the highest-ranked one, and a stale rank moves the
+ * whole fact through that list - high enough to push a genuine alert off the
+ * end, low enough to be pushed off it. So the rank is corrected across the
+ * fact rather than on the one row this call happened to match: a copy raised
+ * from one inbound text has no writer that will ever revisit it, because that
+ * text will not arrive again.
+ *
+ * Cheap in the steady state. The rank comes from `notificationPriority`, so
+ * every writer of one fact computes the same value, and the update matches
+ * nothing unless the thread or follow-up behind the alert has actually been
+ * re-ranked since. Wording and due time are deliberately not reconciled - those
+ * are the writer's own, and the row already on the rail is the one the reader
+ * has been looking at.
  */
 async function createIfMissingWithClient(
   client: NotificationDbClient,
   draft: AddressedNotificationDraft,
 ) {
   const data = notificationRow(draft);
+  const priority = notificationPriority(draft.type, draft.subjectPriority);
+  const thisFact = {
+    ...sameFactNotificationsWhere({ ...data, recipientUserId: draft.recipientUserId }),
+    ...activeNotificationWhere,
+  };
+
+  await client.notification.updateMany({
+    where: { ...thisFact, priority: { not: priority } },
+    data: { priority },
+  });
+
   const existing = await client.notification.findFirst({
     where: {
       type: data.type,
@@ -398,7 +434,7 @@ export async function syncOperationalNotifications() {
         body: `${conversation.customer.name} is waiting without an owner.`,
         conversationId: conversation.id,
         department: conversation.department,
-        priority: conversation.priority,
+        subjectPriority: conversation.priority,
         dueAt: now,
       }),
     ),
@@ -413,7 +449,7 @@ export async function syncOperationalNotifications() {
         conversationId: message.conversationId,
         messageId: message.id,
         department: message.conversation.department,
-        priority: Priority.HIGH,
+        subjectPriority: message.conversation.priority,
         dueAt: message.updatedAt,
       }),
     ),
@@ -429,7 +465,9 @@ export async function syncOperationalNotifications() {
         taskId: task.id,
         conversationId: task.conversationId,
         department: task.department,
-        priority: overdue ? Priority.HIGH : task.priority,
+        // Overdue outranks due-today, and that is the alert type's own rank
+        // rather than this writer's - see `notificationPriority`.
+        subjectPriority: task.priority,
         dueAt: task.dueDate,
       };
 
@@ -490,7 +528,7 @@ export async function syncOperationalNotifications() {
         body: `${conversation.customer.name} has not been touched in ${Math.floor(ageMinutes)} minutes.`,
         conversationId: conversation.id,
         department: conversation.department,
-        priority: Priority.URGENT,
+        subjectPriority: conversation.priority,
         dueAt: new Date(latestInbound.createdAt.getTime() + slaMinutes * 60_000),
       });
     }),
