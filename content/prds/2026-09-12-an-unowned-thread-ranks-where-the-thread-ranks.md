@@ -92,6 +92,11 @@ rail can be trusted.
   the behaviour before this change rather than something it introduced, and
   closing it means re-ranking a thread's alerts where its priority is edited,
   which is its own piece of work.
+- Deactivating a staff member resolves none of their notification rows, so those
+  copies stand indefinitely; after this change they at least converge to the
+  right rank and collapse into one rail slot, which makes it row-growth hygiene
+  for people who have left rather than a wrong-rank harm, and it is filed as its
+  own piece of work.
 - The guard against a future writer ranking an alert itself is a textual scan
   over the writers, which is best-effort rather than a proof.
 

@@ -111,8 +111,7 @@ describe("how an alert ranks", () => {
 // Agreeing at write time is only half of it. The other half is the scope a
 // raise re-ranks over, which is what reaches a copy no writer will revisit.
 describe("which rows one raise re-ranks", () => {
-  const managerCopy = {
-    recipientUserId: "manager-1",
+  const threadAlert = {
     conversationId: "conversation-1",
     taskId: null,
     messageId: "message-1",
@@ -124,26 +123,38 @@ describe("which rows one raise re-ranks", () => {
     // in would have left the webhook's copy standing at its old rank forever.
     assert.deepEqual(
       sameFactNotificationsWhere({
-        ...managerCopy,
+        ...threadAlert,
         type: NotificationType.UNASSIGNED_CONVERSATION,
       }),
       {
         type: NotificationType.UNASSIGNED_CONVERSATION,
-        recipientUserId: "manager-1",
         conversationId: "conversation-1",
         taskId: null,
       },
     );
   });
 
+  it("does not constrain the recipient, so one raise converges every copy", () => {
+    // A rank is recipient-independent by construction, so there is no copy this
+    // may legitimately skip. The one it used to skip belonged to a manager since
+    // deactivated: nothing resolves their rows, the sweep never raises for them
+    // again, and a manager's rail reads every recipient's rows, so that stale
+    // copy took the fact's slot at the top of the list.
+    const clause = sameFactNotificationsWhere({
+      ...threadAlert,
+      type: NotificationType.UNASSIGNED_CONVERSATION,
+    });
+
+    assert.ok(!("recipientUserId" in clause));
+  });
+
   it("keeps a failed text to its own row", () => {
     // Two failed texts on one thread are two things to fix, so re-ranking the
     // alert about one must not reach the alert about the other.
     assert.deepEqual(
-      sameFactNotificationsWhere({ ...managerCopy, type: NotificationType.MESSAGE_FAILED }),
+      sameFactNotificationsWhere({ ...threadAlert, type: NotificationType.MESSAGE_FAILED }),
       {
         type: NotificationType.MESSAGE_FAILED,
-        recipientUserId: "manager-1",
         conversationId: "conversation-1",
         taskId: null,
         messageId: "message-1",
@@ -156,7 +167,6 @@ describe("which rows one raise re-ranks", () => {
     // purpose. The re-rank must not follow it there: they rank differently, so
     // re-ranking the due row has to leave the overdue row alone.
     const subject = {
-      recipientUserId: "advisor-1",
       conversationId: "conversation-1",
       taskId: "task-1",
       messageId: null,

@@ -187,8 +187,8 @@ export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
 }
 
 /**
- * Every row that carries one recipient's copy of this fact, whatever text each
- * was raised from.
+ * Every stored row that carries this fact, whoever it is addressed to and
+ * whatever text each was raised from.
  *
  * The narrower question - which single row a writer is about to duplicate - is
  * asked with all the stored columns, because a thread alert deliberately keeps
@@ -200,20 +200,35 @@ export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
  * standing at the old rank forever. The rail reads rows in priority order before
  * collapsing them, so the stale copy is the one it shows.
  *
+ * The recipient is deliberately not part of it, and that is what makes this the
+ * whole fact rather than one person's share of it. A rank is recipient-independent
+ * by construction: `notificationPriority` is given the type and the subject's
+ * priority and never the recipient, so two copies of one fact cannot legitimately
+ * hold different ranks. Scoping the correction per recipient therefore fixed
+ * nothing and left copies that nothing would ever reach. A deactivated manager is
+ * the concrete case: `updateStaffUserStatus` resolves none of their rows, and
+ * `assigneeAddressedTypes` leaves UNASSIGNED_CONVERSATION out so coverage
+ * re-addressing never reaches them either, while the sweep raises only for active
+ * managers. That copy kept its old rank for good, and a manager's rail scope is
+ * `{}`, so the rail read it, ordered it first at the stale rank, and
+ * `dedupeNotificationFacts` handed the fact the slot of that first copy - a quiet
+ * LOW thread sitting at the top of the rail ahead of genuinely urgent work.
+ * Widening it is also strictly fewer writes: once the first recipient's raise has
+ * converged every copy, each later recipient's update in the same sweep matches
+ * nothing.
+ *
  * `type` is matched exactly rather than through `followUpSubject`, because a
  * follow-up that is due and one that is overdue rank differently on purpose.
  * The message is part of the question only where it is part of the fact.
  */
 export function sameFactNotificationsWhere(row: {
   type: NotificationType;
-  recipientUserId: string;
   conversationId?: string | null;
   taskId?: string | null;
   messageId?: string | null;
 }): Prisma.NotificationWhereInput {
   return {
     type: row.type,
-    recipientUserId: row.recipientUserId,
     conversationId: row.conversationId ?? null,
     taskId: row.taskId ?? null,
     ...(names(perMessageTypes).includes(row.type) ? { messageId: row.messageId ?? null } : {}),

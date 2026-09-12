@@ -79,9 +79,27 @@ shape one step later, so option 2 comes with it - and it is corrected across
 every standing copy of the fact rather than on the row the call happened to
 match, since a per-text copy has no writer of its own.
 
+"Every standing copy" means every copy, including the ones addressed to other
+people. `sameFactNotificationsWhere` matches on the type, exactly, and the
+thread or follow-up the alert is about, with the message included only where the
+message is part of the fact. It does not match on the recipient, and the reason
+is that a rank cannot legitimately differ between recipients in the first place:
+`notificationPriority` is handed the type and the subject's priority and never
+the recipient, so two copies of one fact always compute the same rank. Scoping
+the correction per recipient would have fixed nothing and left copies nothing
+would ever reach. A manager who has been deactivated is the concrete one:
+`updateStaffUserStatus` resolves none of their notification rows, and
+`assigneeAddressedTypes` leaves `UNASSIGNED_CONVERSATION` out so coverage
+re-addressing never reaches them either, while the sweep raises only for active
+managers. A manager's rail scope is `{}`, so the rail reads that copy, orders it
+first at its stale rank, and hands the fact that copy's slot.
+
 The reconcile is cheap rather than churn: because the rank is derived, every
 writer of one fact computes the same value, so the update matches no rows unless
-the thread or follow-up has genuinely been re-ranked since.
+the thread or follow-up has genuinely been re-ranked since. Widening it past the
+recipient makes it cheaper still, not dearer - the first recipient's raise
+converges every copy, so each later recipient's update in the same sweep matches
+nothing.
 
 ## Tradeoffs
 

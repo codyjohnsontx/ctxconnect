@@ -126,9 +126,11 @@ export function notificationHref(notification: {
  * the reader is shown is the highest-ranked one, and a stale rank moves the
  * whole fact through that list - high enough to push a genuine alert off the
  * end, low enough to be pushed off it. So the rank is corrected across the
- * fact rather than on the one row this call happened to match: a copy raised
- * from one inbound text has no writer that will ever revisit it, because that
- * text will not arrive again.
+ * whole fact rather than on the one row this call happened to match, and across
+ * every recipient's copy rather than the recipient being raised for. Both
+ * matter because both leave copies no writer returns to: one raised from an
+ * inbound text, because that text will not arrive again, and one addressed to
+ * somebody the sweep has stopped raising for - see `sameFactNotificationsWhere`.
  *
  * Cheap in the steady state. The rank comes from `notificationPriority`, so
  * every writer of one fact computes the same value, and the update matches
@@ -144,7 +146,7 @@ async function createIfMissingWithClient(
   const data = notificationRow(draft);
   const priority = notificationPriority(draft.type, draft.subjectPriority);
   const thisFact = {
-    ...sameFactNotificationsWhere({ ...data, recipientUserId: draft.recipientUserId }),
+    ...sameFactNotificationsWhere(data),
     ...activeNotificationWhere,
   };
 
