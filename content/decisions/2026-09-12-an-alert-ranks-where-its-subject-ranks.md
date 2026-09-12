@@ -108,8 +108,12 @@ the thread or follow-up has genuinely been re-ranked since.
   nothing, on paths that already do several writes. Measured against the
   alternative - a rank nobody can correct - it is worth it.
 - **Rows already stored wrong cannot fix themselves**, so a migration corrects
-  them once. Resolved rows are corrected too, because marking a thread unread
-  revives them onto the rail later.
+  them once. It is not scoped by status: the thread's priority is the answer
+  today and was the answer when the row was written, so there is no judgement to
+  preserve in a resolved row. Nothing revives a resolved row of this type today
+  (`reopenConversationNotifications` is only ever called with
+  `readResolvesNotificationTypes`, which is `NEW_INBOUND_MESSAGE` alone), so that
+  half corrects the record rather than the rail.
 
 ## Portfolio Notes
 
