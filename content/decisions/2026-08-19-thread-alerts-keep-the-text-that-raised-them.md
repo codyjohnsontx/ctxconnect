@@ -78,7 +78,10 @@ thread holds are exactly what they were before.
   change this work was not allowed to make. Superseded on 2026-09-12 for
   priority alone: a writer no longer passes a rank at all, and the ordering
   change this bullet declined to make was made there deliberately. Wording and
-  due time are still the writer's own.
+  due time are still the writer's own. Which of the two wordings the rail shows
+  is not: since 2026-09-12 a copy quoting a customer text is shown over the
+  sweep's generic one, and the latest text over an earlier one - see
+  [An Alert Ranks Where Its Subject Ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **One divergence with a consequence is left standing.** Whichever writer
   creates a row first fixes that fact's priority, because an existing active row
   is returned rather than updated, and the two writers do not agree on priority.

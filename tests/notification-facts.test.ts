@@ -34,6 +34,7 @@ function alert(
   type: string,
   recipientUserId: string,
   ids: { conversationId?: string; taskId?: string; messageId?: string } = {},
+  minute = 0,
 ) {
   return {
     type,
@@ -41,6 +42,8 @@ function alert(
     conversationId: ids.conversationId ?? null,
     taskId: ids.taskId ?? null,
     messageId: ids.messageId ?? null,
+    priority: "NORMAL",
+    createdAt: new Date(Date.UTC(2026, 8, 12, 9, minute)),
   };
 }
 
@@ -234,6 +237,187 @@ describe("dedupeNotificationFacts", () => {
 
   it("handles an empty list", () => {
     assert.deepEqual(dedupeNotificationFacts([], advisor), []);
+  });
+});
+
+// Two writers raise an unowned thread's alert and word it differently on
+// purpose. The webhook quotes what the customer sent and records that text on
+// its row; the sweep has no text to quote and says the thread is waiting. Both
+// copies rank alike, the sweep's is written on the next Command Center load and
+// so is the newer, and the scan reads newest first - which handed her the
+// generic line for the whole life of the alert. The owner's call (2026-09-12):
+// she reads the customer's own words, and the latest of them.
+describe("which copy of one fact she reads", () => {
+  const thread = { conversationId: "c1" };
+  const sweep = (recipient: string, minute: number) =>
+    alert("UNASSIGNED_CONVERSATION", recipient, thread, minute);
+  const webhook = (recipient: string, messageId: string, minute: number) =>
+    alert("UNASSIGNED_CONVERSATION", recipient, { ...thread, messageId }, minute);
+
+  it("shows what the customer wrote on a thread she texted once, not the sweep's line", () => {
+    // As the scan reads them: newest first, every copy at the thread's rank.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), sweep(managerB, 30), webhook(managerA, "m1", 10), webhook(managerB, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].messageId, "m1");
+  });
+
+  it("shows the latest text on a thread she texted more than once", () => {
+    const kept = dedupeNotificationFacts(
+      [
+        sweep(managerA, 30),
+        webhook(managerA, "m3", 20),
+        webhook(managerA, "m2", 15),
+        webhook(managerA, "m1", 10),
+      ],
+      managerA,
+    );
+
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].messageId, "m3");
+  });
+
+  it("shows the latest text even when the scan reaches an older one first", () => {
+    // The scan orders by rank before time, and a copy can stand at a rank its
+    // thread has since left: a text she read on an URGENT thread, revived by
+    // marking the thread unread after it was re-ranked LOW and texted again.
+    const kept = dedupeNotificationFacts(
+      [
+        alert("NEW_INBOUND_MESSAGE", advisor, { ...thread, messageId: "m1" }, 10),
+        alert("NEW_INBOUND_MESSAGE", advisor, { ...thread, messageId: "m2" }, 20),
+      ],
+      advisor,
+    );
+
+    assert.equal(kept[0].messageId, "m2");
+  });
+
+  it("shows the latest text over an older one addressed to her", () => {
+    // Her own copy of the first text stands, and she holds none of the second -
+    // a manager deactivated between the two and brought back since.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), webhook(managerB, "m2", 20), webhook(managerA, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept[0].messageId, "m2");
+  });
+
+  it("still shows her own copy of a text over a colleague's copy of it", () => {
+    // Copies of one text are written moments apart, one per manager, so the
+    // colleague's can be the later row. That is not a later text.
+    const kept = dedupeNotificationFacts(
+      [sweep(managerA, 30), webhook(managerB, "m1", 11), webhook(managerA, "m1", 10)],
+      managerA,
+    );
+
+    assert.equal(kept[0].messageId, "m1");
+    assert.equal(kept[0].recipientUserId, managerA);
+  });
+});
+
+// A list reads rows by rank and then by time, and shows one copy per fact - but
+// not always the first copy it read. The customer's words beat the sweep's newer
+// line, and a late follow-up beats its due-today row. A fact listed where its
+// first copy stood printed a time out of step with its place in the list. Within
+// its rank a fact is listed by the time of the copy it shows; the rank itself
+// stays the first copy's, because choosing a copy is not re-ranking the alert.
+describe("where a fact is listed", () => {
+  const at = (day: number, hour: number, minute: number, ms = 0) =>
+    new Date(Date.UTC(2026, 8, day, hour, minute, 0, ms));
+  const stored = (
+    type: string,
+    recipientUserId: string,
+    ids: { conversationId?: string; taskId?: string; messageId?: string },
+    priority: string,
+    createdAt: Date,
+  ) => ({ ...alert(type, recipientUserId, ids), priority, createdAt });
+
+  it("lists unowned threads by when the customer texted, not by when the sweep ran", () => {
+    const textedLastNight = stored(
+      "UNASSIGNED_CONVERSATION",
+      managerA,
+      { conversationId: "a", messageId: "text-a" },
+      "NORMAL",
+      at(11, 22, 0),
+    );
+    const textedThisMorning = stored(
+      "UNASSIGNED_CONVERSATION",
+      managerA,
+      { conversationId: "b", messageId: "text-b" },
+      "NORMAL",
+      at(12, 7, 30),
+    );
+    const assignedThread = stored(
+      "NEW_INBOUND_MESSAGE",
+      advisor,
+      { conversationId: "c", messageId: "text-c" },
+      "NORMAL",
+      at(12, 7, 45),
+    );
+
+    // The first Command Center load of the day sweeps both unowned threads
+    // milliseconds apart, in whichever order it reaches them.
+    for (const [sweptFirst, sweptSecond] of [["a", "b"], ["b", "a"]]) {
+      const kept = dedupeNotificationFacts(
+        [
+          stored("UNASSIGNED_CONVERSATION", managerA, { conversationId: sweptSecond }, "NORMAL", at(12, 8, 0, 5)),
+          stored("UNASSIGNED_CONVERSATION", managerA, { conversationId: sweptFirst }, "NORMAL", at(12, 8, 0, 2)),
+          assignedThread,
+          textedThisMorning,
+          textedLastNight,
+        ],
+        managerA,
+      );
+
+      assert.deepEqual(
+        kept.map((row) => [row.conversationId, row.messageId]),
+        [
+          ["c", "text-c"],
+          ["b", "text-b"],
+          ["a", "text-a"],
+        ],
+        `swept ${sweptFirst} first`,
+      );
+    }
+  });
+
+  it("keeps an urgent follow-up that went late at the top of the urgent alerts", () => {
+    const followUp = { conversationId: "c1", taskId: "t1" };
+    const kept = dedupeNotificationFacts(
+      [
+        stored("SLA_MISSED", managerA, { conversationId: "c2" }, "URGENT", at(12, 8, 0)),
+        stored("FOLLOW_UP_DUE", advisor, followUp, "URGENT", at(12, 7, 0)),
+        stored("MESSAGE_FAILED", managerA, { conversationId: "c3", messageId: "m1" }, "HIGH", at(12, 9, 30)),
+        stored("FOLLOW_UP_OVERDUE", advisor, followUp, "HIGH", at(12, 9, 0)),
+      ],
+      advisor,
+    );
+
+    assert.deepEqual(
+      kept.map((row) => row.type),
+      ["FOLLOW_UP_OVERDUE", "SLA_MISSED", "MESSAGE_FAILED"],
+    );
+  });
+
+  it("lists a follow-up whose two rows share a rank by the row it shows", () => {
+    const followUp = { conversationId: "c1", taskId: "t1" };
+    const kept = dedupeNotificationFacts(
+      [
+        stored("FOLLOW_UP_DUE", advisor, followUp, "HIGH", at(12, 9, 30)),
+        stored("MESSAGE_FAILED", managerA, { conversationId: "c2", messageId: "m1" }, "HIGH", at(12, 9, 15)),
+        stored("FOLLOW_UP_OVERDUE", advisor, followUp, "HIGH", at(12, 9, 0)),
+      ],
+      advisor,
+    );
+
+    assert.deepEqual(
+      kept.map((row) => row.type),
+      ["MESSAGE_FAILED", "FOLLOW_UP_OVERDUE"],
+    );
   });
 });
 
@@ -635,8 +819,8 @@ describe("supersededNotificationCopies", () => {
 
   it("withdraws the older copies of one fact and keeps the newest", () => {
     // Two texts on one thread are two rows and one fact. The newest is the copy
-    // a list already shows, because it reads newest first and keeps the first
-    // copy's slot.
+    // a list already shows, because it shows the latest text and lists the fact
+    // by the time of the copy it shows.
     assert.deepEqual(supersededNotificationCopies([copy("n1", 0), copy("n2", 5)]), ["n1"]);
     assert.deepEqual(supersededNotificationCopies([copy("n2", 5), copy("n1", 0)]), ["n1"]);
   });
