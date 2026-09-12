@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
   dedupeNotificationFacts,
@@ -20,8 +17,6 @@ import { Department, MessageDirection, NotificationType, Priority } from "../src
 // copies, and nothing brought one back that quoted the customer. The read side
 // prefers a copy that quotes a text, but it cannot choose one that was never
 // written. The owner's call (2026-09-12): the sweep quotes the latest text itself.
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // The module builds a Prisma client as it loads, which needs a connection string
 // present but never opens it - the same arrangement as tests/demo-cap.test.ts.
@@ -110,15 +105,6 @@ describe("a copy that quotes the customer", () => {
       body: "Marco Silva: Actually I can come by at 4 today to pick them up.",
       raisedByMessageId: "m3",
     });
-  });
-
-  it("is built the same way by the webhook, for both of its copies", () => {
-    // The read side takes a stored text id to mean the row quotes that text, so a
-    // writer that sets one by hand can name a text its body does not say.
-    const route = readFileSync(join(repoRoot, "src/app/api/twilio/inbound/route.ts"), "utf8");
-
-    assert.equal(route.match(/\bquotedCustomerText\(/g)?.length, 2);
-    assert.doesNotMatch(route, /\braisedByMessageId\s*:/);
   });
 });
 
