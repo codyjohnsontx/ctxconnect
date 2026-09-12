@@ -91,9 +91,12 @@ thread holds are exactly what they were before.
   collided, because each row keeps the text it was raised from, so both rows were
   written - the webhook's at a hard-coded HIGH, the sweep's at the thread's own
   rank - and the priority-ordered scan reached the HIGH copy before the read side
-  collapsed them. That is the defect as it stood, in the past tense: every copy of
-  a fact now carries the same derived rank, so no copy outranks another and the
-  scan has nothing to pick between. See
+  collapsed them. That is the defect as it stood, in the past tense: the standing
+  copies of a fact now converge on the derived rank the next time that fact is
+  raised, and a copy resolved beforehand and revived afterwards comes back at the
+  rank it was stored with, so the scan can still find two standing copies of one
+  fact at different ranks by that route. Both limits are recorded in
+  [the PRD's Risks / Open Questions](../prds/2026-09-12-an-unowned-thread-ranks-where-the-thread-ranks.md). See
   [An Alert Ranks Where Its Subject Ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **The fact, the badge and the rail are unchanged.** Checked rather than
   assumed: the old writers and the new ones were run against the same freshly
