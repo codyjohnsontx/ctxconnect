@@ -30,7 +30,7 @@
  */
 
 import { type Department, Prisma } from "@/generated/prisma/client";
-import { NotificationStatus, NotificationType } from "@/generated/prisma/enums";
+import { NotificationStatus, NotificationType, Priority } from "@/generated/prisma/enums";
 import { canSeeAll } from "@/lib/conversation-access";
 import type { AppUser } from "@/lib/data";
 
@@ -64,6 +64,57 @@ export const followUpTypes = [
 // there. Keying on it splits one unowned thread into two alerts and one busy
 // thread into an alert per text.
 export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
+
+/**
+ * How an alert ranks, worked out from the fact rather than chosen by whoever
+ * writes it.
+ *
+ * Ranking is a property of the fact, not of the writer, and the two writers of
+ * an unowned thread proved it: the webhook hard-coded `Priority.HIGH` while the
+ * sweep passed `conversation.priority`, so a LOW thread whose text arrived at
+ * the webhook was listed HIGH - above every NORMAL and LOW alert in a rail that
+ * orders by priority and only reads so far. Wording is the writer's own, since
+ * the webhook can quote the text that just landed and the sweep has none. The
+ * rank is not, so it is decided here, once, for every writer.
+ *
+ * Two kinds of alert. Most describe a thread or a follow-up and inherit its
+ * rank, so an escalated thread's alert escalates with it. The three below carry
+ * a rank of their own because the event is the severity: a missed response
+ * clock is the dealership's worst kind of failure whatever the thread was
+ * ranked at, and a text that never reached the customer is urgent work on a
+ * thread nobody thought was urgent.
+ *
+ * That rank stands in place of the subject's, in either direction. It is a
+ * replacement rather than a floor, so it lifts a quiet subject's alert and
+ * lowers a loud one: an URGENT follow-up's alert reads URGENT while it is
+ * merely due and drops to HIGH the moment it goes late, and a failed text on an
+ * URGENT thread reads HIGH. That is what this computes today, and
+ * `tests/notification-priority.test.ts` pins both directions.
+ *
+ * That test also pins which types are which, so adding an alert type is a
+ * decision rather than a default.
+ */
+const fixedNotificationPriorities: Partial<Record<NotificationType, Priority>> = {
+  [NotificationType.SLA_MISSED]: Priority.URGENT,
+  [NotificationType.MESSAGE_FAILED]: Priority.HIGH,
+  [NotificationType.FOLLOW_UP_OVERDUE]: Priority.HIGH,
+};
+
+/**
+ * The rank of an alert of this type about a thread or follow-up ranked
+ * `subjectPriority`. Types with a rank of their own ignore the subject's.
+ */
+export function notificationPriority(
+  type: NotificationType,
+  subjectPriority: Priority,
+): Priority {
+  return fixedNotificationPriorities[type] ?? subjectPriority;
+}
+
+/** The alerts that inherit the rank of the thread or follow-up they are about. */
+export const subjectRankedNotificationTypes: NotificationType[] = Object.values(
+  NotificationType,
+).filter((type) => !(type in fixedNotificationPriorities));
 
 /**
  * The alerts that opening a conversation withdraws.
@@ -133,6 +184,55 @@ export function assigneeAddressedNotificationsWhere(conversationIds: string[]) {
     conversationId: { in: conversationIds },
     type: { in: assigneeAddressedTypes },
   } satisfies Prisma.NotificationWhereInput;
+}
+
+/**
+ * Every stored row that carries this fact, whoever it is addressed to and
+ * whatever text each was raised from.
+ *
+ * The narrower question - which single row a writer is about to duplicate - is
+ * asked with all the stored columns, because a thread alert deliberately keeps
+ * the text it was raised from and a later text is a new row
+ * (content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md).
+ * This is the wider one, and it is the scope a rank has to be corrected over: a
+ * row raised from one inbound text is never revisited by its writer - that text
+ * will not arrive again - so a thread re-ranked afterwards would leave that copy
+ * standing at the old rank forever. The rail reads rows in priority order before
+ * collapsing them, so the stale copy is the one it shows.
+ *
+ * The recipient is deliberately not part of it, and that is what makes this the
+ * whole fact rather than one person's share of it. A rank is recipient-independent
+ * by construction: `notificationPriority` is given the type and the subject's
+ * priority and never the recipient, so two copies of one fact cannot legitimately
+ * hold different ranks. Scoping the correction per recipient therefore fixed
+ * nothing and left copies that nothing would ever reach. A deactivated manager is
+ * the concrete case: `updateStaffUserStatus` resolves none of their rows, and
+ * `assigneeAddressedTypes` leaves UNASSIGNED_CONVERSATION out so coverage
+ * re-addressing never reaches them either, while the sweep raises only for active
+ * managers. That copy kept its old rank for good, and a manager's rail scope is
+ * `{}`, so the rail read it, ordered it first at the stale rank, and
+ * `dedupeNotificationFacts` handed the fact the slot of that first copy - a quiet
+ * LOW thread sitting at the top of the rail ahead of genuinely urgent work.
+ * Widening it is also strictly fewer writes: once the first recipient's raise has
+ * converged every copy, each later recipient's update in the same sweep matches
+ * nothing.
+ *
+ * `type` is matched exactly rather than through `followUpSubject`, because a
+ * follow-up that is due and one that is overdue rank differently on purpose.
+ * The message is part of the question only where it is part of the fact.
+ */
+export function sameFactNotificationsWhere(row: {
+  type: NotificationType;
+  conversationId?: string | null;
+  taskId?: string | null;
+  messageId?: string | null;
+}): Prisma.NotificationWhereInput {
+  return {
+    type: row.type,
+    conversationId: row.conversationId ?? null,
+    taskId: row.taskId ?? null,
+    ...(names(perMessageTypes).includes(row.type) ? { messageId: row.messageId ?? null } : {}),
+  };
 }
 
 /** One outstanding alert, as much of one as the rule below reads. */

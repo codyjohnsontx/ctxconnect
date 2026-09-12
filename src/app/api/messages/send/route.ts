@@ -5,7 +5,7 @@ import { getTwilioConfig } from "@/lib/env";
 import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
 import { prisma } from "@/lib/prisma";
 import { smsTooLong } from "@/lib/sms-length";
-import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, Priority } from "@/generated/prisma/client";
+import { DeliveryStatus, MessageDirection, MessageKind, NotificationType } from "@/generated/prisma/client";
 import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 import { getActiveSessionUser } from "@/lib/session";
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       conversationId: conversation.id,
       messageId: message.id,
       department: conversation.department,
-      priority: Priority.HIGH,
+      subjectPriority: conversation.priority,
     });
 
     return NextResponse.json({ error: TEXTING_NOT_CONNECTED }, { status: 503 });
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
       conversationId: conversation.id,
       messageId: message.id,
       department: conversation.department,
-      priority: Priority.HIGH,
+      subjectPriority: conversation.priority,
     });
 
     return NextResponse.json({ error: errorMessage }, { status: 502 });

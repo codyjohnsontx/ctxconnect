@@ -21,8 +21,10 @@ import { NotificationType } from "../src/generated/prisma/enums";
 // conversation, so the key stopped reading the message. These close it at the
 // write side: there is now one constructor for the columns that say what an
 // alert is about, and a writer cannot hand it a message for an alert that is
-// not about one. What is left for a writer to choose is the wording and the
-// ranking, which the two of them legitimately differ on.
+// not about one. What is left for a writer to choose is the wording, which the
+// two of them legitimately differ on. The ranking used to be theirs as well and
+// no longer is - `notificationPriority` derives it from the fact, pinned in
+// tests/notification-priority.test.ts.
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 

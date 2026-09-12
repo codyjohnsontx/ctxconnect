@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DeliveryStatus, MessageDirection, NotificationType, Priority } from "@/generated/prisma/client";
+import { DeliveryStatus, MessageDirection, NotificationType } from "@/generated/prisma/client";
 import { notifyManagersTx, resolveConversationNotificationsTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { logAuthenticatedTwilioPayloadIssue, twilioStatusMap, verifyTwilioWebhook } from "@/lib/twilio";
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
         conversationId: message.conversationId,
         messageId: message.id,
         department: message.conversation.department,
-        priority: Priority.HIGH,
+        subjectPriority: message.conversation.priority,
       });
     } else if (enteredDelivered) {
       await resolveConversationNotificationsTx(tx, message.conversationId, [NotificationType.MESSAGE_FAILED]);
