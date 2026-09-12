@@ -121,6 +121,27 @@ nothing.
   unowned LOW thread now sorts below a NORMAL one instead of above it. The
   2026-08-19 work was forbidden from making this change and filed it; this is
   the change being made deliberately and on its own terms.
+- **The rail can stop showing the customer's own words on an unowned thread.**
+  The two copies of that alert are worded differently on purpose. The webhook's
+  is titled "New unassigned customer message" and its body is what the customer
+  actually said; the sweep's is titled "Unassigned conversation" and its body is
+  the generic "X is waiting without an owner." Before this change the webhook's
+  copy was HIGH and the sweep's carried the thread's rank, so ordering by
+  priority put the customer's words first every time. Now both carry the same
+  derived rank. `representativeRank` returns an identical value for the two,
+  since neither is `FOLLOW_UP_OVERDUE` and both are addressed to the viewing
+  manager, and `dedupeNotificationFacts` keeps the first copy unless a later one
+  is strictly greater, so the tie falls through to `createdAt` descending and the
+  newer copy wins. The sweep's copy is created on the first Command Center load
+  after the text arrives, which makes it the newer one: from that load until the
+  next inbound text she reads the generic sentence, timestamped at the sweep,
+  instead of what the customer said, timestamped at the text. On a thread the
+  customer texted once and nobody answered, which is the case this alert exists
+  for, that window is the whole life of the alert. The migration makes it
+  retroactive for every already-stored webhook copy. This was not intended by
+  this change and is being recorded rather than fixed: which copy an advisor
+  reads is a product rule of the same kind as the ranking question, and it goes
+  to the owner with it.
 - **The seeded demo dataset moves with it, in two places.** The seed's
   unassigned sales lead was written HIGH by hand over a NORMAL conversation and
   now reads NORMAL. The sales advisor's "New customer message" alert on the

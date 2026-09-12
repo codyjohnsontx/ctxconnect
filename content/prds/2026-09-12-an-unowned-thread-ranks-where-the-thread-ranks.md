@@ -50,7 +50,12 @@ rail can be trusted.
 ## Non-Goals
 
 - Changing an alert's wording, its due time, or which text it previews. Those
-  stay the writer's own.
+  stay the writer's own, and no stored row's wording, due time or preview text
+  is touched by this work. What that does not cover, said plainly because the
+  sentence above reads wider than it is: converging the rank changes which copy
+  of a fact is the representative one, so the text an advisor actually reads on
+  the rail can change even though no writer changed a word of it. Recorded in
+  the decision log's Tradeoffs.
 - Changing how many rows a thread accumulates, or the read-side collapse. Those
   are settled in the 2026-08-19 decision and stay settled.
 - Any change to who a thread's alerts are addressed to. The standing-alerts-
