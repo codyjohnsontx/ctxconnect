@@ -254,7 +254,8 @@ export type OutstandingNotification = NotificationFact & {
  * The survivor is the newest copy, which is the one already on screen: a list
  * reads newest first, shows a thread's latest text over an earlier one, and
  * lists a fact by the time of the copy it shows, so withdrawing the older ones
- * changes no row a reader was looking at.
+ * changes no row a reader was looking at. Newest is `laterCopy`, the same order
+ * the rail shows copies in, so a tie is settled here the way the rail settles it.
  *
  * Withdrawn means resolved, never deleted - a resolved row is the record that
  * the alert was raised and dealt with. That record is also reversible, so a
@@ -279,7 +280,7 @@ export function supersededNotificationCopies(
       continue;
     }
 
-    if (notification.createdAt > held.createdAt) {
+    if (laterCopy(notification, held)) {
       newest.set(key, notification);
       superseded.push(held.id);
       continue;
@@ -315,7 +316,8 @@ export type ThreadNotificationType = Exclude<
  * The rail does read that provenance: of the copies of one fact, it shows one
  * that quotes a customer text over one that does not, and the latest text over
  * an earlier one (`shownInstead`). So `raisedByMessageId` names a text the
- * customer sent, whose words the row quotes, and nothing else.
+ * customer sent, whose words the row quotes - or, for a message that carried no
+ * words, whose arrival it reports - and nothing else.
  *
  * Why a thread alert still stores that text at all, rather than dropping it and
  * holding one row per recipient, is decided in
@@ -365,7 +367,7 @@ export function notificationSubjectColumns(subject: NotificationSubject) {
 }
 
 /** A text the customer sent, as much of one as an alert quotes. */
-export type CustomerText = { id: string; body: string; createdAt: Date };
+export type CustomerText = { id: string; body: string; mediaUrl: string | null; createdAt: Date };
 
 /**
  * The wording, the provenance and the time of a copy that quotes the customer,
@@ -383,10 +385,26 @@ export type CustomerText = { id: string; body: string; createdAt: Date };
  */
 export function quotedCustomerText(customerName: string, text: CustomerText) {
   return {
-    body: `${customerName}: ${text.body}`,
+    body: quotedWords(customerName, text),
     raisedByMessageId: text.id,
     createdAt: text.createdAt,
   };
+}
+
+// What the quote says. A picture sent with no caption arrives from the webhook
+// with an empty body, and it is still the latest thing the customer sent, so it
+// is quoted rather than skipped for older words that would misstate what they
+// said last. Quoting its words wrote "Name: " and nothing after. The inbox has no
+// wording of its own for such a message - the thread prints the empty body - so
+// this says what arrived instead.
+function quotedWords(customerName: string, text: CustomerText) {
+  if (text.body.trim()) {
+    return `${customerName}: ${text.body}`;
+  }
+
+  return text.mediaUrl
+    ? `${customerName} sent a photo or file.`
+    : `${customerName} sent a blank text.`;
 }
 
 /**
@@ -402,18 +420,21 @@ export function quotedCustomerText(customerName: string, text: CustomerText) {
  *
  * The id breaks a tie between two texts stamped the same instant. Without it
  * the answer could change from one load to the next, and the sweep would write
- * a new copy each time it did.
+ * a new copy each time it did. It is the tie `laterCopy` settles on the read
+ * side, and it is compared byte by byte (`COLLATE "C"`) because that is how
+ * JavaScript compares strings, so the two cannot disagree about which id is
+ * greater whatever collation the column has.
  */
 export function latestCustomerTextsQuery(conversationIds: string[]): Prisma.Sql {
   return Prisma.sql`
-    SELECT thread."conversationId", latest."id", latest."body", latest."createdAt"
+    SELECT thread."conversationId", latest."id", latest."body", latest."mediaUrl", latest."createdAt"
     FROM unnest(${conversationIds}::text[]) AS thread("conversationId")
     CROSS JOIN LATERAL (
-      SELECT "id", "body", "createdAt"
+      SELECT "id", "body", "mediaUrl", "createdAt"
       FROM "Message"
       WHERE "Message"."conversationId" = thread."conversationId"
         AND "direction"::text = ${MessageDirection.INBOUND}
-      ORDER BY "createdAt" DESC, "id" DESC
+      ORDER BY "createdAt" DESC, "id" COLLATE "C" DESC
       LIMIT 1
     ) AS latest
   `;
@@ -448,6 +469,31 @@ function quotedTextId(notification: NotificationFact): string | null {
 }
 
 /**
+ * Whether `candidate` comes after `held`, in the one order two copies of a fact
+ * are told apart by time: the later time, and between two copies stamped the
+ * same instant, the one quoting the greater text id.
+ *
+ * A copy that quotes a text carries that text's time, so two texts sent in the
+ * same instant leave copies that tie on it. `latestCustomerTextsQuery` calls the
+ * greater id the later text, and every place that keeps one of two copies asks
+ * this - the rail choosing which to show (`shownInstead`) and a hand-off choosing
+ * which to keep (`supersededNotificationCopies`) - so none of them can show a
+ * text the sweep would not have quoted just because a list reached it first.
+ */
+function laterCopy(
+  candidate: NotificationFact & { createdAt: Date },
+  held: NotificationFact & { createdAt: Date },
+): boolean {
+  const byTime = candidate.createdAt.getTime() - held.createdAt.getTime();
+
+  if (byTime !== 0) {
+    return byTime > 0;
+  }
+
+  return (quotedTextId(candidate) ?? "") > (quotedTextId(held) ?? "");
+}
+
+/**
  * Whether the reader should see `candidate` rather than `held`, two copies of
  * one fact. The first of these that tells them apart decides:
  *
@@ -463,7 +509,9 @@ function quotedTextId(notification: NotificationFact): string | null {
  * 3. Between copies quoting two different texts, the later text wins: what the
  *    customer said last, never what they said first. Asked of the rows' times
  *    rather than the order they arrived in, because a list orders by rank before
- *    time and a revived copy can stand at a rank its thread has since left.
+ *    time and a revived copy can stand at a rank its thread has since left. Two
+ *    texts sent in the same instant are settled by `laterCopy`, the way the
+ *    sweep's query settles them.
  * 4. Otherwise - one text copied to several recipients, or generic copies - the
  *    row addressed to the reader beats a copy addressed to somebody else,
  *    because hers is worded for her.
@@ -490,7 +538,7 @@ function shownInstead(
   }
 
   if (candidateText !== heldText) {
-    return candidate.createdAt > held.createdAt;
+    return laterCopy(candidate, held);
   }
 
   const addressedToViewer = (notification: NotificationCopy) =>

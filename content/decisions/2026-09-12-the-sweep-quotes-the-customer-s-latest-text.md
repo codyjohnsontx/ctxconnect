@@ -67,7 +67,11 @@ writing nothing. So the change was held to three rules.
   match stable from one load to the next. On a thread the webhook raised, it
   matches the webhook's own row, so the sweep no longer adds its generic line
   beside it. Two texts stamped the same instant are ordered by id, so the answer
-  cannot flip between loads.
+  cannot flip between loads. The rail and a hand-off settle that same tie the
+  same way (`laterCopy`), and the query compares ids byte by byte as JavaScript
+  does, so a copy dated by its text never shows a text the sweep would not have
+  quoted. Found by a second review, after dating copies by their text made such
+  ties reachable.
 - **One constructor for a quote.** `quotedCustomerText` builds the quoted body,
   the text it names and that text's time together, and the webhook and the sweep
   both use it. The rail takes a stored text id to mean the row quotes that text,
@@ -101,6 +105,12 @@ writing nothing. So the change was held to three rules.
   rank, as the webhook's copy of that text already did. On a rank with more than
   60 newer rows it can sit behind the rail's "more in Command Center" row, which
   is the scan-limit issue filed separately.
+- A picture sent with no caption is still the latest thing the customer sent,
+  so it is what the alert reports: "Marco Silva sent a photo or file." A message
+  that is only whitespace reads "sent a blank text." Skipping past it to older
+  words would misstate what the customer said last, and quoting its empty body
+  wrote "Marco Silva: " with nothing after it. The inbox had no wording of its
+  own for such a message to reuse. Found by the same second review.
 - The seeded demo moves. Its unassigned sales lead now shows the customer's own
   question instead of a generic line.
 - The suite has no database, so it cannot prove the query. The unit tests run the

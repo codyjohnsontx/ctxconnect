@@ -4,6 +4,7 @@ import {
   dedupeNotificationFacts,
   notificationSubjectColumns,
   quotedCustomerText,
+  supersededNotificationCopies,
   type CustomerText,
 } from "../src/lib/notification-facts";
 import { Department, NotificationType, Priority } from "../src/generated/prisma/enums";
@@ -49,11 +50,13 @@ const thread = {
 const earlierText = {
   id: "m2",
   body: "Do you have front pads for the Tracer 9 in stock?",
+  mediaUrl: null,
   createdAt: after(now, -90 * 60_000),
 };
 const latestText = {
   id: "m3",
   body: "Actually I can come by at 4 today to pick them up.",
+  mediaUrl: null,
   createdAt: after(now, -5 * 60_000),
 };
 
@@ -142,6 +145,28 @@ describe("a copy that quotes the customer", () => {
 
     assert.deepEqual(row.createdAt, latestText.createdAt);
   });
+
+  it("never writes a blank quote for a message with no words", async () => {
+    // A picture texted with no caption arrives from the webhook with an empty
+    // body, and it is still the latest thing the customer sent, so the sweep
+    // picks it. Quoting its words gave "Marco Silva: " and nothing after.
+    const { unassignedConversationAlert } = await loadNotifications();
+    const photo = {
+      id: "m4",
+      body: "",
+      mediaUrl: "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages/MM1/Media/ME1",
+      createdAt: after(now, -2 * 60_000),
+    };
+    const blank = { ...photo, id: "m5", body: "   ", mediaUrl: null };
+
+    assert.deepEqual(quotedCustomerText("Marco Silva", photo), {
+      body: "Marco Silva sent a photo or file.",
+      raisedByMessageId: "m4",
+      createdAt: photo.createdAt,
+    });
+    assert.equal(quotedCustomerText("Marco Silva", blank).body, "Marco Silva sent a blank text.");
+    assert.equal(unassignedConversationAlert(thread, photo, now).body, "Marco Silva sent a photo or file.");
+  });
 });
 
 describe("an older quote written after a newer one", () => {
@@ -166,6 +191,39 @@ describe("an older quote written after a newer one", () => {
 
       assert.equal(kept.length, 1);
       assert.equal(kept[0].messageId, "m3");
+    }
+  });
+});
+
+describe("two texts stamped the same instant", () => {
+  it("shows and keeps the text the sweep would quote, whichever copy is read first", async () => {
+    // Each copy carries its text's time, so two texts sent in the same instant
+    // leave copies that tie on it. The sweep's query settles the tie on the text
+    // id, the greater one being the later text, so the rail and the hand-off must
+    // settle it the same way - or the manager reads the text the sweep would not
+    // have quoted, depending only on which copy a list happened to reach first.
+    const instant = after(now, -10 * 60_000);
+    const first = { id: "m2", body: "Are the pads in?", mediaUrl: null, createdAt: instant };
+    const second = { id: "m3", body: "I can come by at 4.", mediaUrl: null, createdAt: instant };
+    const rows = [
+      await stored(webhookAlert(first), managerA),
+      await stored(webhookAlert(second), managerA),
+    ];
+    const handedOver = [first, second].map((text) => ({
+      id: `alert-${text.id}`,
+      type: NotificationType.NEW_INBOUND_MESSAGE,
+      conversationId: thread.id,
+      taskId: null,
+      messageId: text.id,
+      createdAt: text.createdAt,
+    }));
+
+    for (const order of [rows, [...rows].reverse()]) {
+      assert.equal(dedupeNotificationFacts(order, managerA)[0].messageId, "m3");
+    }
+
+    for (const order of [handedOver, [...handedOver].reverse()]) {
+      assert.deepEqual(supersededNotificationCopies(order), ["alert-m2"]);
     }
   });
 });

@@ -403,7 +403,9 @@ async function latestCustomerTexts(conversationIds: string[]) {
     latestCustomerTextsQuery(conversationIds),
   );
 
-  return new Map(rows.map(({ conversationId, id, body, createdAt }) => [conversationId, { id, body, createdAt }]));
+  return new Map(
+    rows.map(({ conversationId, id, body, mediaUrl, createdAt }) => [conversationId, { id, body, mediaUrl, createdAt }]),
+  );
 }
 
 /**
