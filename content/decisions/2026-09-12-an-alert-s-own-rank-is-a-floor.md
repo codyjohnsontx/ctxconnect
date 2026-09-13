@@ -79,8 +79,12 @@ subject rank: none ranks below its subject.
 - **Standing rows are corrected in two ways.** The sweep raises
   `FOLLOW_UP_OVERDUE` for every open overdue follow-up on each Command Center
   load, and a raise re-ranks every standing copy of its fact, so those converge on
-  the next load. A migration lifts what the sweep does not reach: failed texts
-  older than the 25 it reads, and resolved rows.
+  the next load. A one-off migration lifts rows stored before this change that
+  rank below their subject: failed texts older than the 25 the sweep reads, and
+  resolved rows. It does not cover a thread whose priority is edited afterwards -
+  a failed text's alert outside those 25 keeps the rank it had, the known
+  limitation recorded under "The re-rank reaches a fact only when a writer raises
+  it again" in [an alert ranks where its subject ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **The demo rail changes where a subject is URGENT.** The seed ranks its own
   rows through `notificationPriority`, and none of its hand-written fixed-rank
   rows sit on an URGENT subject, so they are unchanged. The sweep-raised overdue
