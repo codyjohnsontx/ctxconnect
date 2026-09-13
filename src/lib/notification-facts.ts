@@ -457,8 +457,9 @@ const notificationFactKeySql = Prisma.sql`
 export type NotificationCopy = NotificationFact & { createdAt: Date; priority: string };
 
 // The customer text a copy quotes, if it quotes one. A thread alert records a
-// text only when its wording is that text - `quotedCustomerText` builds the two
-// together, for the webhook and for the sweep alike - so the stored column says
+// text only when its wording quotes that text, or reports its arrival where it
+// carried no words - `quotedCustomerText` builds the two together, for the
+// webhook and for the sweep alike - so the stored column says
 // what the wording only says in prose, and it goes on saying it when the wording
 // changes. A per-message alert's message is the fact itself, shared by every
 // copy, so it quotes nothing here.
