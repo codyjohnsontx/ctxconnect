@@ -567,11 +567,12 @@ function shownInstead(
  *
  * Rows arrive by rank and then newest first. A fact keeps the rank of its first
  * copy, because choosing a copy to show must not re-rank the alert: a thread's
- * alert raised from a text while the thread was URGENT, beside one raised from a
- * later text after it was set NORMAL, shows the later text and still lists among
- * the URGENT alerts. Within that rank it is listed by the time of the copy it
- * shows, so the time printed beside it agrees with its place. Ranks keep the order they
- * arrived in, so no rank order is written down here, and ties keep theirs.
+ * alert raised from a text while the thread was URGENT and revived after it was
+ * set NORMAL, beside one raised from a later text in between, shows the later
+ * text and still lists among the URGENT alerts. Within that rank it is listed by
+ * the time of the copy it shows, so the time printed beside it agrees with its
+ * place. Ranks keep the order they arrived in, so no rank order is written down
+ * here, and ties keep theirs.
  */
 export function dedupeNotificationFacts<T extends NotificationCopy>(
   notifications: T[],
