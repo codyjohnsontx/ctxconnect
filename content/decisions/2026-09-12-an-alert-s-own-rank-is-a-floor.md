@@ -86,8 +86,10 @@ subject rank: none ranks below its subject.
   limitation recorded under "The re-rank reaches a fact only when a writer raises
   it again" in [an alert ranks where its subject ranks](./2026-09-12-an-alert-ranks-where-its-subject-ranks.md).
 - **The demo rail changes where a subject is URGENT.** The seed ranks its own
-  rows through `notificationPriority`, and none of its hand-written fixed-rank
-  rows sit on an URGENT subject, so they are unchanged. The sweep-raised overdue
+  rows through `notificationPriority`, and its hand-written rows with a floor are
+  unchanged: the overdue follow-up and the failed text sit on HIGH and NORMAL
+  subjects, and the missed response clock on the URGENT Panigale thread was
+  URGENT already. The sweep-raised overdue
   alert on the URGENT warranty-claim follow-up now reads URGENT.
 - **The rule compares ranks by the enum's declared order.** That is the order
   Postgres sorts the column in, so it is the order the rail already reads. The
