@@ -169,7 +169,10 @@ nothing.
   while it is merely due and drops to HIGH the moment it goes late. That is the
   behaviour as it stood before this change, carried across unchanged and now
   pinned in both directions rather than left to be discovered. Whether the drop
-  is right is a product question and is filed on its own.
+  is right is a product question and is filed on its own. **Decided on
+  2026-09-12:** it is not. The event's rank is a floor under the subject's,
+  never a replacement, so an alert never ranks below the thread or follow-up it
+  is about - see [an alert's own rank is a floor](./2026-09-12-an-alert-s-own-rank-is-a-floor.md).
 - **The re-rank reaches a fact only when a writer raises it again**, and only
   over rows that are not resolved, because it lives on the create-if-missing
   path. The sweep re-raises `UNASSIGNED_CONVERSATION`, `FOLLOW_UP_DUE` and
@@ -177,8 +180,13 @@ nothing.
   `NEW_INBOUND_MESSAGE`, `CONVERSATION_ASSIGNED` and `CONVERSATION_REASSIGNED`
   have no such writer, and `updateConversation` raises nothing on a priority
   edit, so one of those standing on a thread re-ranked afterwards keeps its old
-  rank. Putting the re-rank where a thread's priority is edited would close it
-  and is a write path this change deliberately does not add.
+  rank. `MESSAGE_FAILED` joins them once its failed text has left the newest 25
+  failed messages the sweep re-raises. Since its own rank became a floor it
+  follows an URGENT thread, so such a copy can stay URGENT on a thread later
+  lowered, or stay HIGH on a thread later raised to URGENT, until a delivered
+  status callback or closing the thread resolves it. Putting the re-rank where a
+  thread's priority is edited would close it and is a write path this change
+  deliberately does not add.
 - **The guard against a new writer is textual.** A scan over the alert writers
   fails on a rank handed in as a constant. It matches the code as written today
   and a sufficiently indirect writer would slip past, the same best-effort bar

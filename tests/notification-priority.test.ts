@@ -77,24 +77,51 @@ describe("how an alert ranks", () => {
     );
   });
 
-  it("lets an event's own rank lower an urgent subject as well as lift a quiet one", () => {
-    // A fixed rank replaces the subject's rather than setting a floor under it.
-    // So an URGENT follow-up's alert reads URGENT while it is merely due and
-    // HIGH once it is late: it sinks on the rail at the moment it goes late,
-    // and a failed text on an URGENT thread reads HIGH rather than URGENT.
-    // Pinned in this direction too, because it is what the rule computes today.
+  it("keeps an URGENT follow-up URGENT when it goes late", () => {
+    // The defect, as one line. An event's own rank used to replace the
+    // subject's, so this alert read URGENT while the follow-up was merely due
+    // and HIGH the moment it went late - the situation got worse and the alert
+    // sank below every URGENT alert on a rail that only reads so far.
     assert.equal(
       notificationPriority(NotificationType.FOLLOW_UP_DUE, Priority.URGENT),
       Priority.URGENT,
     );
     assert.equal(
       notificationPriority(NotificationType.FOLLOW_UP_OVERDUE, Priority.URGENT),
-      Priority.HIGH,
+      Priority.URGENT,
     );
+    // The same shape on a thread: an URGENT thread's reply that never reached
+    // the customer used to read HIGH.
     assert.equal(
       notificationPriority(NotificationType.MESSAGE_FAILED, Priority.URGENT),
-      Priority.HIGH,
+      Priority.URGENT,
     );
+  });
+
+  it("never ranks an alert below the thread or follow-up it is about", () => {
+    // An event's own rank is a floor, never a cap. Written out here rather than
+    // imported, lowest first, as prisma/schema.prisma declares the enum.
+    const order: string[] = [Priority.LOW, Priority.NORMAL, Priority.HIGH, Priority.URGENT];
+
+    for (const type of Object.values(NotificationType)) {
+      for (const subjectPriority of Object.values(Priority)) {
+        const rank = notificationPriority(type, subjectPriority);
+
+        assert.ok(
+          order.indexOf(rank) >= order.indexOf(subjectPriority),
+          `${type} about a ${subjectPriority} subject ranks ${rank}`,
+        );
+      }
+    }
+
+    // And going late never quiets a follow-up.
+    for (const subjectPriority of Object.values(Priority)) {
+      assert.ok(
+        order.indexOf(notificationPriority(NotificationType.FOLLOW_UP_OVERDUE, subjectPriority)) >=
+          order.indexOf(notificationPriority(NotificationType.FOLLOW_UP_DUE, subjectPriority)),
+        `a ${subjectPriority} follow-up ranks lower once it is late`,
+      );
+    }
   });
 
   it("sorts every alert type into inherited or its own, so a new one is a decision", () => {

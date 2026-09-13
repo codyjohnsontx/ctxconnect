@@ -524,9 +524,9 @@ export async function syncOperationalNotifications() {
         conversationId: task.conversationId,
         department: task.department,
         // The rank belongs to the alert type rather than to this writer - see
-        // `notificationPriority`. FOLLOW_UP_OVERDUE carries a fixed HIGH that
-        // stands in place of the follow-up's own rank, so going late lifts a
-        // NORMAL follow-up's alert and drops an URGENT one.
+        // `notificationPriority`. FOLLOW_UP_OVERDUE carries a floor of HIGH
+        // under the follow-up's own rank, so going late lifts a NORMAL
+        // follow-up's alert and leaves an URGENT one URGENT.
         subjectPriority: task.priority,
         dueAt: task.dueDate,
       };

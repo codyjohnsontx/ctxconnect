@@ -77,7 +77,10 @@ rail can be trusted.
   operational sweep runs, then every standing copy of the alert reads the new
   rank.
 - Given an alert about a missed response clock, a failed text, or an overdue
-  follow-up, then it keeps its own rank whatever the thread is ranked at.
+  follow-up, then it ranks at least at its own rank and never below the thread
+  or follow-up it is about. (Changed 2026-09-12: its own rank used to replace
+  the subject's whatever that was, see
+  [An Alert's Own Rank Is a Floor](../decisions/2026-09-12-an-alert-s-own-rank-is-a-floor.md).)
 - Given rows stored at the wrong rank before this change, when the migration
   runs, then they read their conversation's rank.
 - Given an unowned conversation the customer has texted, when the sweep has

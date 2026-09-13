@@ -79,42 +79,55 @@ export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
  *
  * Two kinds of alert. Most describe a thread or a follow-up and inherit its
  * rank, so an escalated thread's alert escalates with it. The three below carry
- * a rank of their own because the event is the severity: a missed response
+ * a floor of their own because the event is the severity: a missed response
  * clock is the dealership's worst kind of failure whatever the thread was
  * ranked at, and a text that never reached the customer is urgent work on a
  * thread nobody thought was urgent.
  *
- * That rank stands in place of the subject's, in either direction. It is a
- * replacement rather than a floor, so it lifts a quiet subject's alert and
- * lowers a loud one: an URGENT follow-up's alert reads URGENT while it is
- * merely due and drops to HIGH the moment it goes late, and a failed text on an
- * URGENT thread reads HIGH. That is what this computes today, and
- * `tests/notification-priority.test.ts` pins both directions.
+ * A floor lifts a quiet subject's alert and never lowers a loud one: the alert
+ * ranks at the higher of the two. It used to stand in place of the subject's
+ * rank instead, so an URGENT follow-up's alert read URGENT while it was merely
+ * due and dropped to HIGH the moment it went late, and a text that failed on an
+ * URGENT thread read HIGH. The situation got worse and the alert got quieter, on
+ * a rail that only reads so far. No alert wants a cap either: nothing about one
+ * of these events makes it less pressing than the thread or follow-up it
+ * happened to. SLA_MISSED's floor is the top rank, so it reads URGENT whatever
+ * the subject is.
  *
- * That test also pins which types are which, so adding an alert type is a
- * decision rather than a default.
+ * `tests/notification-priority.test.ts` pins that no alert ranks below its
+ * subject, and which types carry a floor, so adding an alert type is a decision
+ * rather than a default.
  */
-const fixedNotificationPriorities: Partial<Record<NotificationType, Priority>> = {
+const notificationRankFloors: Partial<Record<NotificationType, Priority>> = {
   [NotificationType.SLA_MISSED]: Priority.URGENT,
   [NotificationType.MESSAGE_FAILED]: Priority.HIGH,
   [NotificationType.FOLLOW_UP_OVERDUE]: Priority.HIGH,
 };
 
+// Lowest first, as prisma/schema.prisma declares the enum: the order Postgres
+// sorts it in, and so the order a list of alerts is read in.
+const priorityOrder: readonly Priority[] = Object.values(Priority);
+
 /**
  * The rank of an alert of this type about a thread or follow-up ranked
- * `subjectPriority`. Types with a rank of their own ignore the subject's.
+ * `subjectPriority`: the subject's own rank, lifted to the type's floor where
+ * it has one and that floor is higher.
  */
 export function notificationPriority(
   type: NotificationType,
   subjectPriority: Priority,
 ): Priority {
-  return fixedNotificationPriorities[type] ?? subjectPriority;
+  const floor = notificationRankFloors[type];
+
+  return floor && priorityOrder.indexOf(floor) > priorityOrder.indexOf(subjectPriority)
+    ? floor
+    : subjectPriority;
 }
 
-/** The alerts that inherit the rank of the thread or follow-up they are about. */
+/** The alerts with no floor, which rank exactly where the thread or follow-up they are about ranks. */
 export const subjectRankedNotificationTypes: NotificationType[] = Object.values(
   NotificationType,
-).filter((type) => !(type in fixedNotificationPriorities));
+).filter((type) => !(type in notificationRankFloors));
 
 /**
  * The alerts that opening a conversation withdraws.
@@ -553,11 +566,13 @@ function shownInstead(
  * `shownInstead`'s to decide; where the fact is listed is decided here.
  *
  * Rows arrive by rank and then newest first. A fact keeps the rank of its first
- * copy, because choosing a copy to show must not re-rank the alert: a late
- * URGENT follow-up shows its HIGH overdue copy and still lists among the URGENT
- * alerts. Within that rank it is listed by the time of the copy it shows, so the
- * time printed beside it agrees with its place. Ranks keep the order they
- * arrived in, so no rank order is written down here, and ties keep theirs.
+ * copy, because choosing a copy to show must not re-rank the alert: a thread's
+ * alert raised from a text while the thread was URGENT and revived after it was
+ * set NORMAL, beside one raised from a later text in between, shows the later
+ * text and still lists among the URGENT alerts. Within that rank it is listed by
+ * the time of the copy it shows, so the time printed beside it agrees with its
+ * place. Ranks keep the order they arrived in, so no rank order is written down
+ * here, and ties keep theirs.
  */
 export function dedupeNotificationFacts<T extends NotificationCopy>(
   notifications: T[],

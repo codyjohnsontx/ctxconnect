@@ -385,21 +385,24 @@ describe("where a fact is listed", () => {
     }
   });
 
-  it("keeps an urgent follow-up that went late at the top of the urgent alerts", () => {
-    const followUp = { conversationId: "c1", taskId: "t1" };
+  it("keeps a revived urgent thread alert among the urgent alerts while it shows a later text", () => {
     const kept = dedupeNotificationFacts(
       [
         stored("SLA_MISSED", managerA, { conversationId: "c2" }, "URGENT", at(12, 8, 0)),
-        stored("FOLLOW_UP_DUE", advisor, followUp, "URGENT", at(12, 7, 0)),
+        stored("NEW_INBOUND_MESSAGE", advisor, { conversationId: "c1", messageId: "text-early" }, "URGENT", at(12, 7, 0)),
         stored("MESSAGE_FAILED", managerA, { conversationId: "c3", messageId: "m1" }, "HIGH", at(12, 9, 30)),
-        stored("FOLLOW_UP_OVERDUE", advisor, followUp, "HIGH", at(12, 9, 0)),
+        stored("NEW_INBOUND_MESSAGE", advisor, { conversationId: "c1", messageId: "text-late" }, "NORMAL", at(12, 9, 0)),
       ],
       advisor,
     );
 
     assert.deepEqual(
-      kept.map((row) => row.type),
-      ["FOLLOW_UP_OVERDUE", "SLA_MISSED", "MESSAGE_FAILED"],
+      kept.map((row) => [row.type, row.messageId]),
+      [
+        ["NEW_INBOUND_MESSAGE", "text-late"],
+        ["SLA_MISSED", null],
+        ["MESSAGE_FAILED", "m1"],
+      ],
     );
   });
 
