@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "prisma format --check && eslint",
     "test": "node --import tsx --test tests/*.test.ts",
     "twilio:replay": "node --import tsx scripts/twilio-replay.ts",
     "prisma:generate": "prisma generate",

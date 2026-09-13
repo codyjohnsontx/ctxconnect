@@ -127,13 +127,13 @@ enum NotificationStatus {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  name          String
-  email         String   @unique
-  passwordHash  String
-  role          Role
-  department    Department?
-  active        Boolean  @default(true)
+  id              String      @id @default(cuid())
+  name            String
+  email           String      @unique
+  passwordHash    String
+  role            Role
+  department      Department?
+  active          Boolean     @default(true)
   // The moment this account last lost its existing sessions: an admin switched
   // it off, or reset its password while it was active. Sessions minted at or
   // before it are refused for good, so neither reactivating nor carrying on
@@ -142,10 +142,10 @@ model User {
   // account it marks a reset, which is not access ending. A reset stamps it
   // only while the account is active, so resetting the password of an
   // already-deactivated account leaves its deactivation record intact.
-  accessEndedAt DateTime?
+  accessEndedAt   DateTime?
   // The last request this account was allowed through on, so an admin can see
   // that nothing succeeded after access ended. Only granted requests move it.
-  lastSeenAt    DateTime?
+  lastSeenAt      DateTime?
   // Who is holding this account's open conversations while they are away, and
   // from when. Both are set when coverage begins, or neither is: `coveredSince`
   // is the instant the return rule measures a reply against, so a cover with no
@@ -160,32 +160,32 @@ model User {
   // nothing to return.
   coveredByUserId String?
   coveredSince    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   coveredBy User?  @relation("Coverage", fields: [coveredByUserId], references: [id], onDelete: SetNull)
   covering  User[] @relation("Coverage")
 
-  coveredConversations  Conversation[] @relation("CoveredConversations")
-  assignedConversations Conversation[] @relation("AssignedConversations")
-  sentMessages          Message[]      @relation("SentMessages")
-  assignedTasks         Task[]         @relation("AssignedTasks")
-  notifications         Notification[] @relation("NotificationRecipient")
-  actorNotifications    Notification[] @relation("NotificationActor")
+  coveredConversations  Conversation[]          @relation("CoveredConversations")
+  assignedConversations Conversation[]          @relation("AssignedConversations")
+  sentMessages          Message[]               @relation("SentMessages")
+  assignedTasks         Task[]                  @relation("AssignedTasks")
+  notifications         Notification[]          @relation("NotificationRecipient")
+  actorNotifications    Notification[]          @relation("NotificationActor")
   auditLogs             AuditLog[]
   aiInsights            ConversationAiInsight[]
   productEvents         ProductEvent[]
 }
 
 model DealershipSettings {
-  id               String   @id @default("default")
-  dealershipName   String
-  salesPhone       String?
-  servicePhone     String?
-  partsPhone       String?
-  websiteUrl       String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id             String   @id @default("default")
+  dealershipName String
+  salesPhone     String?
+  servicePhone   String?
+  partsPhone     String?
+  websiteUrl     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Customer {
@@ -227,28 +227,28 @@ model CustomerVehicle {
 }
 
 model Conversation {
-  id             String             @id @default(cuid())
-  customerId     String
-  assignedUserId String?
+  id               String             @id @default(cuid())
+  customerId       String
+  assignedUserId   String?
   // The advisor this thread belongs to while somebody else is holding it. Set
   // only for coverage that can end; a permanent hand-off moves the assignee and
   // leaves this null, because there is nobody for it to go back to.
   coveredForUserId String?
-  department     Department
-  status         ConversationStatus @default(OPEN)
-  priority       Priority           @default(NORMAL)
-  subject        String?
-  unread         Boolean            @default(false)
-  lastMessageAt  DateTime           @default(now())
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  department       Department
+  status           ConversationStatus @default(OPEN)
+  priority         Priority           @default(NORMAL)
+  subject          String?
+  unread           Boolean            @default(false)
+  lastMessageAt    DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assignedUser User?             @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  coveredFor   User?             @relation("CoveredConversations", fields: [coveredForUserId], references: [id], onDelete: SetNull)
-  messages     Message[]
-  tasks        Task[]
-  tags         ConversationTag[]
+  customer      Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedUser  User?                   @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  coveredFor    User?                   @relation("CoveredConversations", fields: [coveredForUserId], references: [id], onDelete: SetNull)
+  messages      Message[]
+  tasks         Task[]
+  tags          ConversationTag[]
   notifications Notification[]
   aiInsights    ConversationAiInsight[]
   productEvents ProductEvent[]
@@ -261,25 +261,25 @@ model Conversation {
 }
 
 model Message {
-  id             String            @id @default(cuid())
-  conversationId String
-  senderUserId   String?
-  direction      MessageDirection
-  kind           MessageKind       @default(SMS)
-  body           String
-  mediaUrl       String?
-  deliveryStatus DeliveryStatus    @default(QUEUED)
-  errorMessage   String?
-  twilioSid      String?           @unique
+  id              String           @id @default(cuid())
+  conversationId  String
+  senderUserId    String?
+  direction       MessageDirection
+  kind            MessageKind      @default(SMS)
+  body            String
+  mediaUrl        String?
+  deliveryStatus  DeliveryStatus   @default(QUEUED)
+  errorMessage    String?
+  twilioSid       String?          @unique
   /// True when Attend wrote this row itself, rather than a person typing it.
   /// Only internal notes are ever marked; it is what lets the breach rule tell
   /// "somebody did something about this customer" from its own bookkeeping.
   systemGenerated Boolean          @default(false)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User?        @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+  conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender        User?          @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
   notifications Notification[]
 
   @@index([conversationId, createdAt])
@@ -312,9 +312,9 @@ model Task {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  assignedUser User?         @relation("AssignedTasks", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversation  Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  assignedUser  User?          @relation("AssignedTasks", fields: [assignedUserId], references: [id], onDelete: SetNull)
   notifications Notification[]
 
   @@index([assignedUserId])
@@ -324,11 +324,11 @@ model Task {
 }
 
 model Tag {
-  id        String            @id @default(cuid())
-  name      String            @unique
-  color     String
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id            String            @id @default(cuid())
+  name          String            @unique
+  color         String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
   conversations ConversationTag[]
 }
 
@@ -371,22 +371,22 @@ model OptInEvent {
 }
 
 model Notification {
-  id             String             @id @default(cuid())
-  type           NotificationType
-  status         NotificationStatus @default(UNREAD)
-  title          String
-  body           String?
+  id              String             @id @default(cuid())
+  type            NotificationType
+  status          NotificationStatus @default(UNREAD)
+  title           String
+  body            String?
   recipientUserId String?
-  actorUserId    String?
-  conversationId String?
-  taskId         String?
-  messageId      String?
-  department     Department?
-  priority       Priority           @default(NORMAL)
-  dueAt          DateTime?
-  resolvedAt     DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  actorUserId     String?
+  conversationId  String?
+  taskId          String?
+  messageId       String?
+  department      Department?
+  priority        Priority           @default(NORMAL)
+  dueAt           DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   recipientUser User?         @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
   actorUser     User?         @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -402,7 +402,7 @@ model Notification {
 }
 
 model ConversationAiInsight {
-  id                    String     @id @default(cuid())
+  id                    String      @id @default(cuid())
   conversationId        String
   requestedByUserId     String?
   model                 String
@@ -410,14 +410,14 @@ model ConversationAiInsight {
   customerNeed          String
   riskLevel             Priority
   riskReasons           Json
-  escalationRecommended Boolean    @default(false)
+  escalationRecommended Boolean     @default(false)
   escalationReason      String?
   suggestedDepartment   Department?
   suggestedNextAction   String
   suggestedReply        String?
   suggestedTaskTitle    String?
   confidence            Int
-  createdAt             DateTime   @default(now())
+  createdAt             DateTime    @default(now())
   acceptedAt            DateTime?
   dismissedAt           DateTime?
 
@@ -442,8 +442,8 @@ model ProductEvent {
   conversation Conversation?          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   aiInsight    ConversationAiInsight? @relation(fields: [aiInsightId], references: [id], onDelete: Cascade)
 
+  @@unique([type, aiInsightId])
   @@index([type, createdAt])
   @@index([conversationId, createdAt])
   @@index([aiInsightId])
-  @@unique([type, aiInsightId])
 }

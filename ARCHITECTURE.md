@@ -13,14 +13,14 @@ Every UI page requires an authenticated staff session, except `/login`,
 A staff session is a 30-day JWT, so holding one is not enough on its own. Every
 authenticated page, server action, and route handler resolves the caller through
 `src/lib/session.ts`, which re-reads the account row on each request and refuses
-the request when the account is missing, `active` is false, the session was
-minted at or before the account's `accessEndedAt` cutoff, or the session carries
-no `signedInAt` claim at all. Deactivating a staff account therefore cuts off
+the request when the account is missing, `active` is false, the session carries
+no `signedInAt` claim at all, or the session was minted at or before the
+account's `accessEndedAt` cutoff. Deactivating a staff account therefore cuts off
 access on that person's next request rather than when the token expires, on
 every device it is signed in on, and the cutoff outlives reactivation: a
 reactivated staff member signs in again.
 
-That last rule is the one with an operational consequence. Sessions minted
+The missing-claim rule is the one with an operational consequence. Sessions minted
 before `signedInAt` existed carry no evidence of when they began, so they cannot
 be shown to postdate a cutoff and are refused rather than guessed at - which
 means **the deploy that ships this signs every staff member out once**, on
