@@ -53,6 +53,8 @@ type NotificationDetails = {
   /** How the thread or follow-up this alert is about is ranked, not the alert. */
   subjectPriority: Priority;
   dueAt?: Date | null;
+  /** When what the alert reports happened, where that is not when the row is written - see `quotedCustomerText`. */
+  createdAt?: Date;
 };
 
 type NotificationDraft = NotificationSubject & NotificationDetails;
@@ -63,9 +65,9 @@ type AddressedNotificationDraft = NotificationDraft & { recipientUserId: string 
  * so a writer cannot reach past the draft into a column this module has not
  * agreed to.
  */
-function notificationRow(
+export function notificationRow(
   draft: AddressedNotificationDraft,
-): Prisma.NotificationUncheckedCreateInput & { priority: Priority } {
+): Prisma.NotificationUncheckedCreateInput & { priority: Priority; createdAt?: Date } {
   return {
     ...notificationSubjectColumns(draft),
     recipientUserId: draft.recipientUserId,
@@ -75,6 +77,7 @@ function notificationRow(
     department: draft.department,
     priority: notificationPriority(draft.type, draft.subjectPriority),
     dueAt: draft.dueAt,
+    createdAt: draft.createdAt,
   };
 }
 
@@ -400,7 +403,7 @@ async function latestCustomerTexts(conversationIds: string[]) {
     latestCustomerTextsQuery(conversationIds),
   );
 
-  return new Map(rows.map(({ conversationId, id, body }) => [conversationId, { id, body }]));
+  return new Map(rows.map(({ conversationId, id, body, createdAt }) => [conversationId, { id, body, createdAt }]));
 }
 
 /**

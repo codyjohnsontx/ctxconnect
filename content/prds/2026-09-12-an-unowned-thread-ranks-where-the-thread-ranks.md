@@ -144,11 +144,15 @@ rail can be trusted.
   per manager beside each generic copy, and the rail shows the quoting one. The
   cost, and why it is one statement rather than a Prisma `include`, is in the
   [decision log](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
-- **The time beside a quoted unowned alert is when the copy was written, not
-  when the customer texted.** On a thread set unassigned hours after the
-  customer's last text, the Command Center shows the quote with the time the
-  sweep raised it. Which time that line should carry is an open product
-  question, recorded here and not changed.
+- **A quoted unowned alert prints and lists by when the customer sent the text,
+  not when the copy was written.** Settled after a race: the sweep could write
+  its copy of an older text after the webhook wrote its copy of a newer one, and
+  the rail, which shows the later of two copies quoting different texts, kept
+  the older words. Dated by their texts, the newer text wins whichever copy is
+  written last. So an alert the sweep raises hours after the customer's last
+  text prints that text's age, and a generic copy keeps the time it was written.
+  See the
+  [decision log](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
 
 ## Portfolio Notes
 

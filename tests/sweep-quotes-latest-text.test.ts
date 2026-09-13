@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   dedupeNotificationFacts,
-  latestCustomerTextsQuery,
-  notificationPriority,
   notificationSubjectColumns,
   quotedCustomerText,
+  type CustomerText,
 } from "../src/lib/notification-facts";
-import { Department, MessageDirection, NotificationType, Priority } from "../src/generated/prisma/enums";
+import { Department, NotificationType, Priority } from "../src/generated/prisma/enums";
 
 // The operational sweep raises an unowned thread's alert on every Command Center
 // load, and it used to have no text to give it, so it said "X is waiting without
@@ -17,6 +16,10 @@ import { Department, MessageDirection, NotificationType, Priority } from "../src
 // copies, and nothing brought one back that quoted the customer. The read side
 // prefers a copy that quotes a text, but it cannot choose one that was never
 // written. The owner's call (2026-09-12): the sweep quotes the latest text itself.
+//
+// Which text the sweep's one statement returns - the newest of several - is a
+// question for Postgres, which this suite cannot ask; it was checked against a
+// real one.
 
 // The module builds a Prisma client as it loads, which needs a connection string
 // present but never opens it - the same arrangement as tests/demo-cap.test.ts.
@@ -34,6 +37,7 @@ type SweepDraft = ReturnType<
 const managerA = "manager-a";
 const managerB = "manager-b";
 const now = new Date(Date.UTC(2026, 8, 12, 15, 0));
+const after = (instant: Date, ms: number) => new Date(instant.getTime() + ms);
 
 const thread = {
   id: "c1",
@@ -42,17 +46,37 @@ const thread = {
   customer: { name: "Marco Silva" },
 };
 
-const latestText = { id: "m3", body: "Actually I can come by at 4 today to pick them up." };
+const earlierText = {
+  id: "m2",
+  body: "Do you have front pads for the Tracer 9 in stock?",
+  createdAt: after(now, -90 * 60_000),
+};
+const latestText = {
+  id: "m3",
+  body: "Actually I can come by at 4 today to pick them up.",
+  createdAt: after(now, -5 * 60_000),
+};
 
-// One manager's stored copy of a draft, as far as the rail reads one.
-function stored(draft: SweepDraft, recipientUserId: string) {
+// The copy src/app/api/twilio/inbound/route.ts raises on an unowned thread as a
+// text lands.
+function webhookAlert(text: CustomerText): SweepDraft {
   return {
-    ...notificationSubjectColumns(draft),
-    recipientUserId,
-    body: draft.body ?? null,
-    priority: notificationPriority(draft.type, draft.subjectPriority),
-    createdAt: now,
+    type: NotificationType.UNASSIGNED_CONVERSATION,
+    title: "New unassigned customer message",
+    ...quotedCustomerText(thread.customer.name, text),
+    conversationId: thread.id,
+    department: thread.department,
+    subjectPriority: thread.priority,
   };
+}
+
+// One manager's stored copy of a draft, as far as the rail reads one. A row its
+// draft does not date is stamped as it is written.
+async function stored(draft: SweepDraft, recipientUserId: string, writtenAt = now) {
+  const { notificationRow } = await loadNotifications();
+  const row = notificationRow({ ...draft, recipientUserId });
+
+  return { ...row, createdAt: row.createdAt ?? writtenAt };
 }
 
 describe("the sweep's copy of an unowned thread's alert", () => {
@@ -62,19 +86,30 @@ describe("the sweep's copy of an unowned thread's alert", () => {
     const { unassignedConversationAlert } = await loadNotifications();
     const draft = unassignedConversationAlert(thread, latestText, now);
 
-    const kept = dedupeNotificationFacts([stored(draft, managerA), stored(draft, managerB)], managerA);
+    const kept = dedupeNotificationFacts(
+      [await stored(draft, managerA), await stored(draft, managerB)],
+      managerA,
+    );
 
     assert.equal(kept.length, 1);
     assert.equal(kept[0].body, "Marco Silva: Actually I can come by at 4 today to pick them up.");
     assert.equal(kept[0].messageId, "m3");
   });
 
-  it("keeps the generic line on a thread the customer has never texted", async () => {
+  it("is dated when the customer sent the text it quotes, not when the sweep wrote it", async () => {
+    const { unassignedConversationAlert } = await loadNotifications();
+    const row = await stored(unassignedConversationAlert(thread, latestText, now), managerA, now);
+
+    assert.deepEqual(row.createdAt, latestText.createdAt);
+  });
+
+  it("keeps the generic line, dated when it is written, on a thread the customer has never texted", async () => {
     const { unassignedConversationAlert } = await loadNotifications();
     const draft = unassignedConversationAlert(thread, undefined, now);
 
     assert.equal(draft.body, "Marco Silva is waiting without an owner.");
     assert.equal(notificationSubjectColumns(draft).messageId, null);
+    assert.deepEqual((await stored(draft, managerA, now)).createdAt, now);
   });
 
   it("stores the row it stored last time, and the row the webhook stored for that text", async () => {
@@ -85,48 +120,52 @@ describe("the sweep's copy of an unowned thread's alert", () => {
     // the webhook's row - it used to add its generic line beside it, once per
     // manager.
     const { unassignedConversationAlert } = await loadNotifications();
-    const lastLoad = unassignedConversationAlert(thread, latestText, new Date(now.getTime() - 60_000));
+    const lastLoad = unassignedConversationAlert(thread, latestText, after(now, -60_000));
     const thisLoad = unassignedConversationAlert(thread, latestText, now);
-    // As src/app/api/twilio/inbound/route.ts raised it when the text landed.
-    const webhook = {
-      type: NotificationType.UNASSIGNED_CONVERSATION,
-      conversationId: thread.id,
-      raisedByMessageId: latestText.id,
-    };
 
     assert.deepEqual(notificationSubjectColumns(thisLoad), notificationSubjectColumns(lastLoad));
-    assert.deepEqual(notificationSubjectColumns(thisLoad), notificationSubjectColumns(webhook));
+    assert.deepEqual(notificationSubjectColumns(thisLoad), notificationSubjectColumns(webhookAlert(latestText)));
   });
 });
 
 describe("a copy that quotes the customer", () => {
-  it("names the very text its words are taken from", () => {
+  it("names the very text its words are taken from, and when it was sent", () => {
     assert.deepEqual(quotedCustomerText("Marco Silva", latestText), {
       body: "Marco Silva: Actually I can come by at 4 today to pick them up.",
       raisedByMessageId: "m3",
+      createdAt: latestText.createdAt,
     });
+  });
+
+  it("is dated by the text that just landed when the webhook raises it", async () => {
+    const row = await stored(webhookAlert(latestText), managerA, after(latestText.createdAt, 40));
+
+    assert.deepEqual(row.createdAt, latestText.createdAt);
   });
 });
 
-// This suite has no database, so these pin the question the SQL asks. What
-// Postgres answers - the newest of several texts, one row per thread - was
-// checked against a real one.
-describe("which text the sweep quotes", () => {
-  const threads = ["c1", "c2", "c3"];
-  const query = latestCustomerTextsQuery(threads);
+describe("an older quote written after a newer one", () => {
+  it("still shows the customer's newer text", async () => {
+    // The sweep read the thread just before m3 landed, so it quotes m2, and its
+    // write reaches the database after the webhook's copy quoting m3. Every later
+    // sweep quotes m3, finds the webhook's row and writes nothing, so what the
+    // rail shows here it goes on showing.
+    const { unassignedConversationAlert } = await loadNotifications();
+    const webhook = await stored(webhookAlert(latestText), managerA, after(latestText.createdAt, 40));
+    const sweep = await stored(
+      unassignedConversationAlert(thread, earlierText, now),
+      managerA,
+      after(latestText.createdAt, 2_000),
+    );
 
-  it("asks about every unowned thread in one statement", () => {
-    assert.ok(query.values.some((value) => value === threads));
-    assert.equal(query.values.includes("c1"), false, "a thread id bound on its own is a query shaped per thread");
-  });
+    for (const rows of [
+      [webhook, sweep],
+      [sweep, webhook],
+    ]) {
+      const kept = dedupeNotificationFacts(rows, managerA);
 
-  it("reads only what the customer sent", () => {
-    assert.ok(query.values.includes(MessageDirection.INBOUND));
-  });
-
-  it("takes each thread's most recent text, never its first", () => {
-    assert.match(query.sql, /ORDER BY "createdAt" DESC\b/);
-    assert.match(query.sql, /LIMIT 1\b/);
-    assert.doesNotMatch(query.sql, /"createdAt" ASC\b/);
+      assert.equal(kept.length, 1);
+      assert.equal(kept[0].messageId, "m3");
+    }
   });
 });

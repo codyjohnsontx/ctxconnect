@@ -46,7 +46,8 @@ Option 1 leaves a manager reading "waiting without an owner" on the thread a
 colleague has just handed back, when what the customer asked is the thing that
 decides who picks it up. Option 2 also closes the scan-limit gap without touching
 the read side: once the sweep's own copy quotes the customer, it no longer
-matters whether the webhook's copy made it into the scan.
+matters whether the webhook's copy made it into the scan. Rows written before the
+change are the exception, see Tradeoffs.
 
 The cost lands on the busiest path in the app. The sweep runs on every Command
 Center load, and the rank decision earlier that day relied on its steady state
@@ -67,10 +68,11 @@ writing nothing. So the change was held to three rules.
   matches the webhook's own row, so the sweep no longer adds its generic line
   beside it. Two texts stamped the same instant are ordered by id, so the answer
   cannot flip between loads.
-- **One constructor for a quote.** `quotedCustomerText` builds the quoted body
-  and the text it names together, and the webhook and the sweep both use it. The
-  rail takes a stored text id to mean the row quotes that text, so the two must
-  not be set apart.
+- **One constructor for a quote.** `quotedCustomerText` builds the quoted body,
+  the text it names and that text's time together, and the webhook and the sweep
+  both use it. The rail takes a stored text id to mean the row quotes that text,
+  so the two must not be set apart, and it orders copies by their time, so the
+  time comes from the same text.
 
 ## Tradeoffs
 
@@ -79,17 +81,35 @@ writing nothing. So the change was held to three rules.
 - Rows written before the change keep their generic wording. On a thread the
   customer has texted, the first load after the change writes a quoting copy per
   manager beside each generic copy, once. The rail shows the quoting copy. The
-  generic rows are resolved by whatever ends the alert, not here.
-- The time printed beside the alert is when its copy was written. On a thread set
-  unassigned hours after the customer's last text, the Command Center shows the
-  quote with the time the sweep raised it, not the time of the text. Which time
-  that line should carry is a product question, recorded rather than changed.
+  generic rows are resolved by whatever ends the alert, not here. Because the
+  quoting copy is dated by its text (below), it sorts behind the newer generic
+  copy, so on those threads the earlier scan-limit gap still applies: enough
+  same-rank rows can push the quoting copy past the rows a list reads (60 on the
+  rail, 300 on the Command Center) and bring the generic line back, until the
+  alert ends. After the change the sweep writes a generic copy only for a thread
+  the customer has never texted, so no new pair arises.
+- A copy that quotes a text prints and orders by that text's time, not by when
+  the row was written. A generic copy keeps its write time. This was first left
+  open as a product question and was settled by a race found in review. The
+  sweep reads a thread, a new text lands and the webhook writes its copy quoting
+  it, and then the sweep writes its copy quoting the older text. The rail shows
+  the later of two copies quoting different texts, so dated by their writes the
+  older quote won, and every later sweep matched the webhook's row and wrote
+  nothing to correct it. Dated by their texts, the older quote is the earlier row
+  whichever copy is written last. The cost is that an alert the sweep raises
+  hours after the last text prints that text's age and lists by it within its
+  rank, as the webhook's copy of that text already did. On a rank with more than
+  60 newer rows it can sit behind the rail's "more in Command Center" row, which
+  is the scan-limit issue filed separately.
 - The seeded demo moves. Its unassigned sales lead now shows the customer's own
   question instead of a generic line.
-- The suite has no database, so it cannot prove the query. The unit tests pin the
-  draft, the constructor and the shape of the SQL. That Postgres returns the
-  newest of several texts, and that a steady-state load writes nothing, was
-  checked against a real local Postgres.
+- The suite has no database, so it cannot prove the query. The unit tests run the
+  sweep's draft, the quote constructor, the row a draft becomes, and which copy
+  the rail shows when an older quote is written after a newer one. Three things
+  only a real local Postgres proved, because the suite cannot observe them: that
+  the statement returns the newest of several texts, that a steady-state load
+  writes nothing, and the race order end to end. That gap is filed as
+  ctx-no-way-to-test-database-semantics.
 
 ## Portfolio Notes
 

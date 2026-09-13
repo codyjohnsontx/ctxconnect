@@ -365,22 +365,27 @@ export function notificationSubjectColumns(subject: NotificationSubject) {
 }
 
 /** A text the customer sent, as much of one as an alert quotes. */
-export type CustomerText = { id: string; body: string };
+export type CustomerText = { id: string; body: string; createdAt: Date };
 
 /**
- * The wording and the provenance of a copy that quotes the customer, built
- * together.
+ * The wording, the provenance and the time of a copy that quotes the customer,
+ * built together.
  *
  * The rail takes the text a row names to mean the row quotes it (`quotedTextId`
  * below), and prefers that row over a generic one. A writer setting
  * `raisedByMessageId` on its own could name a text its body never says, and the
  * rail would choose it for words it does not show. So the inbound webhook and
  * the operational sweep both quote through this, and neither sets it by hand.
+ *
+ * The copy is dated when the customer sent the text rather than when the row is
+ * written, so copies quoting two different texts order by which the customer
+ * said last (`shownInstead`), whichever of them was written last.
  */
 export function quotedCustomerText(customerName: string, text: CustomerText) {
   return {
     body: `${customerName}: ${text.body}`,
     raisedByMessageId: text.id,
+    createdAt: text.createdAt,
   };
 }
 
@@ -401,10 +406,10 @@ export function quotedCustomerText(customerName: string, text: CustomerText) {
  */
 export function latestCustomerTextsQuery(conversationIds: string[]): Prisma.Sql {
   return Prisma.sql`
-    SELECT thread."conversationId", latest."id", latest."body"
+    SELECT thread."conversationId", latest."id", latest."body", latest."createdAt"
     FROM unnest(${conversationIds}::text[]) AS thread("conversationId")
     CROSS JOIN LATERAL (
-      SELECT "id", "body"
+      SELECT "id", "body", "createdAt"
       FROM "Message"
       WHERE "Message"."conversationId" = thread."conversationId"
         AND "direction"::text = ${MessageDirection.INBOUND}
