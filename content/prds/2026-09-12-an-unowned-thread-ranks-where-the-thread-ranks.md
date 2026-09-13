@@ -141,8 +141,13 @@ rail can be trusted.
   threads and none when there are none, and it adds no writes in the steady
   state. Rows written before the change keep their generic wording, so on a
   thread the customer has texted the first load after it writes a quoting copy
-  per manager beside each generic copy, and the rail shows the quoting one. The
-  cost, and why it is one statement rather than a Prisma `include`, is in the
+  per manager beside each generic copy, and the rail shows the quoting one while
+  both are among the rows it reads. Dated by its text, that quoting copy sorts
+  behind the newer generic copy, so enough same-rank rows between them (past 60
+  on the rail, 300 on the Command Center) bring the generic line back until the
+  alert ends. No new pair arises after the change, because the sweep writes a
+  generic copy only for a thread the customer has never texted. The cost, and
+  why it is one statement rather than a Prisma `include`, is in the
   [decision log](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
 - **A quoted unowned alert prints and lists by when the customer sent the text,
   not when the copy was written.** Settled after a race: the sweep could write
