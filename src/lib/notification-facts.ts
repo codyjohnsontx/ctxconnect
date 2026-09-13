@@ -30,7 +30,7 @@
  */
 
 import { type Department, Prisma } from "@/generated/prisma/client";
-import { NotificationStatus, NotificationType, Priority } from "@/generated/prisma/enums";
+import { MessageDirection, NotificationStatus, NotificationType, Priority } from "@/generated/prisma/enums";
 import { canSeeAll } from "@/lib/conversation-access";
 import type { AppUser } from "@/lib/data";
 
@@ -73,9 +73,9 @@ export const perMessageTypes = [NotificationType.MESSAGE_FAILED] as const;
  * an unowned thread proved it: the webhook hard-coded `Priority.HIGH` while the
  * sweep passed `conversation.priority`, so a LOW thread whose text arrived at
  * the webhook was listed HIGH - above every NORMAL and LOW alert in a rail that
- * orders by priority and only reads so far. Wording is the writer's own, since
- * the webhook can quote the text that just landed and the sweep has none. The
- * rank is not, so it is decided here, once, for every writer.
+ * orders by priority and only reads so far. Wording is the writer's own - the
+ * webhook's copy announces a text that just landed, the sweep's a thread that is
+ * still waiting. The rank is not, so it is decided here, once, for every writer.
  *
  * Two kinds of alert. Most describe a thread or a follow-up and inherit its
  * rank, so an escalated thread's alert escalates with it. The three below carry
@@ -254,7 +254,8 @@ export type OutstandingNotification = NotificationFact & {
  * The survivor is the newest copy, which is the one already on screen: a list
  * reads newest first, shows a thread's latest text over an earlier one, and
  * lists a fact by the time of the copy it shows, so withdrawing the older ones
- * changes no row a reader was looking at.
+ * changes no row a reader was looking at. Newest is `laterCopy`, the same order
+ * the rail shows copies in, so a tie is settled here the way the rail settles it.
  *
  * Withdrawn means resolved, never deleted - a resolved row is the record that
  * the alert was raised and dealt with. That record is also reversible, so a
@@ -279,7 +280,7 @@ export function supersededNotificationCopies(
       continue;
     }
 
-    if (notification.createdAt > held.createdAt) {
+    if (laterCopy(notification, held)) {
       newest.set(key, notification);
       superseded.push(held.id);
       continue;
@@ -306,16 +307,17 @@ export type ThreadNotificationType = Exclude<
  *
  * A per-message alert is about one text, a follow-up is about one task, and
  * every other alert is about one thread. A thread alert may still record the
- * text it happened to be raised from - the sweep has none to give, the webhook
- * does - but it names it `raisedByMessageId`, because that is provenance and
- * the key does not read it. `messageId` on a thread alert is a compile error,
+ * text it quotes - the webhook's copy the text that just landed, the sweep's the
+ * latest one on the thread - but it names it `raisedByMessageId`, because that
+ * is provenance and the key does not read it. `messageId` on a thread alert is a compile error,
  * which is what stops one unowned thread being written under two keys and
  * listed twice.
  *
  * The rail does read that provenance: of the copies of one fact, it shows one
  * that quotes a customer text over one that does not, and the latest text over
  * an earlier one (`shownInstead`). So `raisedByMessageId` names a text the
- * customer sent, whose words the row quotes, and nothing else.
+ * customer sent, whose words the row quotes - or, for a message that carried no
+ * words, whose arrival it reports - and nothing else.
  *
  * Why a thread alert still stores that text at all, rather than dropping it and
  * holding one row per recipient, is decided in
@@ -364,6 +366,80 @@ export function notificationSubjectColumns(subject: NotificationSubject) {
   };
 }
 
+/** A text the customer sent, as much of one as an alert quotes. */
+export type CustomerText = { id: string; body: string; mediaUrl: string | null; createdAt: Date };
+
+/**
+ * The wording, the provenance and the time of a copy that quotes the customer,
+ * built together.
+ *
+ * The rail takes the text a row names to mean the row quotes it (`quotedTextId`
+ * below), and prefers that row over a generic one. A writer setting
+ * `raisedByMessageId` on its own could name a text its body never says, and the
+ * rail would choose it for words it does not show. So the inbound webhook and
+ * the operational sweep both quote through this, and neither sets it by hand.
+ *
+ * The copy is dated when the customer sent the text rather than when the row is
+ * written, so copies quoting two different texts order by which the customer
+ * said last (`shownInstead`), whichever of them was written last.
+ */
+export function quotedCustomerText(customerName: string, text: CustomerText) {
+  return {
+    body: quotedWords(customerName, text),
+    raisedByMessageId: text.id,
+    createdAt: text.createdAt,
+  };
+}
+
+// What the quote says. A picture sent with no caption arrives from the webhook
+// with an empty body, and it is still the latest thing the customer sent, so it
+// is quoted rather than skipped for older words that would misstate what they
+// said last. Quoting its words wrote "Name: " and nothing after. The inbox has no
+// wording of its own for such a message - the thread prints the empty body - so
+// this says what arrived instead.
+function quotedWords(customerName: string, text: CustomerText) {
+  if (text.body.trim()) {
+    return `${customerName}: ${text.body}`;
+  }
+
+  return text.mediaUrl
+    ? `${customerName} sent a photo or file.`
+    : `${customerName} sent a blank text.`;
+}
+
+/**
+ * The newest text the customer sent on each of these threads: one statement
+ * however many threads, and a row back for each thread that has a text at all.
+ *
+ * The sweep asks this on every Command Center load, so the shape is the point. A
+ * Prisma `include` with `take: 1` would read every message on every one of the
+ * threads and trim them in memory - the client binds no LIMIT on a nested take,
+ * which is how the sweep's twelve-message window is already read. This walks
+ * each thread's `(conversationId, createdAt)` index from the newest end and
+ * stops at the first text the customer sent.
+ *
+ * The id breaks a tie between two texts stamped the same instant. Without it
+ * the answer could change from one load to the next, and the sweep would write
+ * a new copy each time it did. It is the tie `laterCopy` settles on the read
+ * side, and it is compared byte by byte (`COLLATE "C"`) because that is how
+ * JavaScript compares strings, so the two cannot disagree about which id is
+ * greater whatever collation the column has.
+ */
+export function latestCustomerTextsQuery(conversationIds: string[]): Prisma.Sql {
+  return Prisma.sql`
+    SELECT thread."conversationId", latest."id", latest."body", latest."mediaUrl", latest."createdAt"
+    FROM unnest(${conversationIds}::text[]) AS thread("conversationId")
+    CROSS JOIN LATERAL (
+      SELECT "id", "body", "mediaUrl", "createdAt"
+      FROM "Message"
+      WHERE "Message"."conversationId" = thread."conversationId"
+        AND "direction"::text = ${MessageDirection.INBOUND}
+      ORDER BY "createdAt" DESC, "id" COLLATE "C" DESC
+      LIMIT 1
+    ) AS latest
+  `;
+}
+
 /**
  * The same key, written out for the database and from the same two lists: the
  * four parts in the order `notificationFactKey` joins them. It is what the
@@ -380,16 +456,42 @@ const notificationFactKeySql = Prisma.sql`
 /** One copy of a fact, as much of one as choosing which copy to show, and where to list it, reads. */
 export type NotificationCopy = NotificationFact & { createdAt: Date; priority: string };
 
-// The customer text a copy quotes, if it quotes one. Only the inbound webhook
-// raises a thread alert with a text to record, and its wording is what the
-// customer sent; the sweep raises the same fact with nothing to quote. So the
-// stored column says what the wording only says in prose, and it goes on saying
-// it when the wording changes. A per-message alert's message is the fact itself,
-// shared by every copy, so it quotes nothing here.
+// The customer text a copy quotes, if it quotes one. A thread alert records a
+// text only when its wording quotes that text, or reports its arrival where it
+// carried no words - `quotedCustomerText` builds the two together, for the
+// webhook and for the sweep alike - so the stored column says
+// what the wording only says in prose, and it goes on saying it when the wording
+// changes. A per-message alert's message is the fact itself, shared by every
+// copy, so it quotes nothing here.
 function quotedTextId(notification: NotificationFact): string | null {
   return names(perMessageTypes).includes(notification.type)
     ? null
     : (notification.messageId ?? null);
+}
+
+/**
+ * Whether `candidate` comes after `held`, in the one order two copies of a fact
+ * are told apart by time: the later time, and between two copies stamped the
+ * same instant, the one quoting the greater text id.
+ *
+ * A copy that quotes a text carries that text's time, so two texts sent in the
+ * same instant leave copies that tie on it. `latestCustomerTextsQuery` calls the
+ * greater id the later text, and every place that keeps one of two copies asks
+ * this - the rail choosing which to show (`shownInstead`) and a hand-off choosing
+ * which to keep (`supersededNotificationCopies`) - so none of them can show a
+ * text the sweep would not have quoted just because a list reached it first.
+ */
+function laterCopy(
+  candidate: NotificationFact & { createdAt: Date },
+  held: NotificationFact & { createdAt: Date },
+): boolean {
+  const byTime = candidate.createdAt.getTime() - held.createdAt.getTime();
+
+  if (byTime !== 0) {
+    return byTime > 0;
+  }
+
+  return (quotedTextId(candidate) ?? "") > (quotedTextId(held) ?? "");
 }
 
 /**
@@ -399,14 +501,18 @@ function quotedTextId(notification: NotificationFact): string | null {
  * 1. The row that describes the follow-up's current state beats the one it
  *    superseded.
  * 2. A copy that quotes the customer's text beats one that does not. The
- *    sweep's "is waiting without an owner" copy is written on the next Command
- *    Center load after the text, so it is the newer row and used to hold the
- *    alert for its whole life. What she reads is the customer's own words - the
+ *    sweep's "is waiting without an owner" copy used to be written on the next
+ *    Command Center load after the text, so it was the newer row and held the
+ *    alert for its whole life. The sweep quotes the latest text now, so a generic
+ *    copy beside a quoting one was written before the customer's first text or
+ *    before that change. What she reads is the customer's own words - the
  *    owner's call on 2026-09-12.
  * 3. Between copies quoting two different texts, the later text wins: what the
  *    customer said last, never what they said first. Asked of the rows' times
  *    rather than the order they arrived in, because a list orders by rank before
- *    time and a revived copy can stand at a rank its thread has since left.
+ *    time and a revived copy can stand at a rank its thread has since left. Two
+ *    texts sent in the same instant are settled by `laterCopy`, the way the
+ *    sweep's query settles them.
  * 4. Otherwise - one text copied to several recipients, or generic copies - the
  *    row addressed to the reader beats a copy addressed to somebody else,
  *    because hers is worded for her.
@@ -433,7 +539,7 @@ function shownInstead(
   }
 
   if (candidateText !== heldText) {
-    return candidate.createdAt > held.createdAt;
+    return laterCopy(candidate, held);
   }
 
   const addressedToViewer = (notification: NotificationCopy) =>

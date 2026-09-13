@@ -11,6 +11,7 @@ import {
   PreferredContactMethod,
 } from "@/generated/prisma/client";
 import { placeholderCustomerName } from "@/lib/customer-identity";
+import { quotedCustomerText } from "@/lib/notification-facts";
 import { isStartMessage, isStopMessage, normalizePhone } from "@/lib/phone";
 import { notifyAssigneeTx, notifyManagersTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
@@ -152,10 +153,9 @@ export async function POST(request: Request) {
         await notifyAssigneeTx(tx, {
           type: NotificationType.NEW_INBOUND_MESSAGE,
           title: "New customer message",
-          body: `${customer.name}: ${body}`,
+          ...quotedCustomerText(customer.name, message),
           recipientUserId: conversation.assignedUserId,
           conversationId: conversation.id,
-          raisedByMessageId: message.id,
           department: conversation.department,
           subjectPriority: conversation.priority,
         });
@@ -163,9 +163,8 @@ export async function POST(request: Request) {
         await notifyManagersTx(tx, {
           type: NotificationType.UNASSIGNED_CONVERSATION,
           title: "New unassigned customer message",
-          body: `${customer.name}: ${body}`,
+          ...quotedCustomerText(customer.name, message),
           conversationId: conversation.id,
-          raisedByMessageId: message.id,
           department: conversation.department,
           // The thread's own rank, exactly as the sweep reads it. Hard-coding
           // HIGH here listed a LOW thread above every NORMAL alert on the rail.

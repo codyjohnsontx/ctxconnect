@@ -17,11 +17,14 @@ import { attendedSinceInbound, slaMinutesForDepartment } from "@/lib/sla";
 import {
   activeNotificationWhere,
   assigneeAddressedNotificationsWhere,
+  latestCustomerTextsQuery,
   notificationFactCountQuery,
   notificationPriority,
   notificationSubjectColumns,
+  quotedCustomerText,
   sameFactNotificationsWhere,
   supersededNotificationCopies,
+  type CustomerText,
   type NotificationSubject,
 } from "@/lib/notification-facts";
 import { labelize } from "@/lib/utils";
@@ -33,8 +36,8 @@ type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
  * writer chose, and the thread or follow-up it is raised against.
  *
  * The wording is the writer's own, and the two writers of an unowned thread
- * legitimately differ there - the webhook can quote the text that just arrived,
- * the sweep only knows the thread has been sitting there. Two things they may
+ * legitimately differ there - the webhook's copy announces a text that just
+ * arrived, the sweep's a thread that is still waiting. Two things they may
  * not differ about: the subject, which comes from `NotificationSubject`, and
  * the rank, which is not here at all. A writer supplies `subjectPriority` - how
  * the thread or follow-up behind the alert is ranked, which is a fact about the
@@ -50,6 +53,8 @@ type NotificationDetails = {
   /** How the thread or follow-up this alert is about is ranked, not the alert. */
   subjectPriority: Priority;
   dueAt?: Date | null;
+  /** When what the alert reports happened, where that is not when the row is written - see `quotedCustomerText`. */
+  createdAt?: Date;
 };
 
 type NotificationDraft = NotificationSubject & NotificationDetails;
@@ -60,9 +65,9 @@ type AddressedNotificationDraft = NotificationDraft & { recipientUserId: string 
  * so a writer cannot reach past the draft into a column this module has not
  * agreed to.
  */
-function notificationRow(
+export function notificationRow(
   draft: AddressedNotificationDraft,
-): Prisma.NotificationUncheckedCreateInput & { priority: Priority } {
+): Prisma.NotificationUncheckedCreateInput & { priority: Priority; createdAt?: Date } {
   return {
     ...notificationSubjectColumns(draft),
     recipientUserId: draft.recipientUserId,
@@ -72,6 +77,7 @@ function notificationRow(
     department: draft.department,
     priority: notificationPriority(draft.type, draft.subjectPriority),
     dueAt: draft.dueAt,
+    createdAt: draft.createdAt,
   };
 }
 
@@ -383,6 +389,60 @@ export async function resolveTaskNotifications(taskId: string) {
   });
 }
 
+/**
+ * The newest text the customer sent on each thread, by thread. One statement for
+ * the whole batch and none for an empty one, because the sweep runs on every
+ * Command Center load - see `latestCustomerTextsQuery`.
+ */
+async function latestCustomerTexts(conversationIds: string[]) {
+  if (conversationIds.length === 0) {
+    return new Map<string, CustomerText>();
+  }
+
+  const rows = await prisma.$queryRaw<Array<CustomerText & { conversationId: string }>>(
+    latestCustomerTextsQuery(conversationIds),
+  );
+
+  return new Map(
+    rows.map(({ conversationId, id, body, mediaUrl, createdAt }) => [conversationId, { id, body, mediaUrl, createdAt }]),
+  );
+}
+
+/**
+ * The sweep's copy of an unowned thread's alert, quoting the newest text the
+ * customer sent the way the webhook's copy quotes the text that just landed.
+ *
+ * On a thread texted while it had an owner and set to unassigned since, this is
+ * the only copy that can show the customer's words: those texts raised alerts
+ * addressed to the owner, and setting the thread unassigned withdrew its
+ * unowned-thread copies. Only a thread the customer has never texted keeps the
+ * generic line.
+ *
+ * Quoting the newest text is also what keeps a load where nothing happened from
+ * writing. The text is the one quoted last time, so every column
+ * `createIfMissingWithClient` matches on is too, and it finds the row it wrote -
+ * or, where the webhook raised the thread for that text, the webhook's row.
+ */
+export function unassignedConversationAlert(
+  conversation: { id: string; department: Department; priority: Priority; customer: { name: string } },
+  latestText: CustomerText | undefined,
+  now: Date,
+): NotificationDraft {
+  const customerName = conversation.customer.name;
+
+  return {
+    type: NotificationType.UNASSIGNED_CONVERSATION,
+    title: "Unassigned conversation",
+    ...(latestText
+      ? quotedCustomerText(customerName, latestText)
+      : { body: `${customerName} is waiting without an owner.` }),
+    conversationId: conversation.id,
+    department: conversation.department,
+    subjectPriority: conversation.priority,
+    dueAt: now,
+  };
+}
+
 export async function syncOperationalNotifications() {
   const now = new Date();
   // The sweep has no viewer to ask what day it is, so it asks the dealership -
@@ -430,17 +490,11 @@ export async function syncOperationalNotifications() {
     }),
   ]);
 
+  const latestTexts = await latestCustomerTexts(unassigned.map((conversation) => conversation.id));
+
   await Promise.all(
     unassigned.map((conversation) =>
-      notifyManagers({
-        type: NotificationType.UNASSIGNED_CONVERSATION,
-        title: "Unassigned conversation",
-        body: `${conversation.customer.name} is waiting without an owner.`,
-        conversationId: conversation.id,
-        department: conversation.department,
-        subjectPriority: conversation.priority,
-        dueAt: now,
-      }),
+      notifyManagers(unassignedConversationAlert(conversation, latestTexts.get(conversation.id), now)),
     ),
   );
 

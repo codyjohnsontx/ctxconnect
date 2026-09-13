@@ -59,7 +59,11 @@ rail can be trusted.
   most recent, so the rail shows the customer's latest words. It is a read-side
   rule (`shownInstead` in `src/lib/notification-facts.ts`), so it applies to rows
   already stored and needed no migration. Recorded in the decision log's
-  Tradeoffs.
+  Tradeoffs. A read-side rule can only choose between copies that exist, so the
+  owner made a second call the same day for the case it could not reach, a
+  thread texted while it had an owner and set to unassigned since: the
+  operational sweep now quotes the customer's latest text itself. See
+  [The Sweep Quotes the Customer's Latest Text](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
 - Changing how many rows a thread accumulates, or the read-side collapse. Those
   are settled in the 2026-08-19 decision and stay settled.
 - Any change to who a thread's alerts are addressed to. The standing-alerts-
@@ -80,6 +84,11 @@ rail can be trusted.
   raised its generic copy of the alert since, then the rail shows what the
   customer wrote - and on a thread with several unanswered texts, the most
   recent one. (Added 2026-09-12 with the owner's decision above.)
+- Given a conversation the customer texted while it had an owner, when a manager
+  sets it unassigned and the operational sweep runs, then the rail shows the
+  customer's most recent text rather than "is waiting without an owner." And
+  given nothing has changed since, when the Command Center loads again, then the
+  sweep writes no alert row. (Added 2026-09-12 with the sweep change.)
 
 ## Risks / Open Questions
 
@@ -127,6 +136,28 @@ rail can be trusted.
   own piece of work.
 - The guard against a future writer ranking an alert itself is a textual scan
   over the writers, which is best-effort rather than a proof.
+- **The sweep now reads one more statement on every Command Center load**, to
+  quote an unowned thread's latest text. It is one statement for all the unowned
+  threads and none when there are none, and it adds no writes in the steady
+  state. Rows written before the change keep their generic wording, so on a
+  thread the customer has texted the first load after it writes a quoting copy
+  per manager beside each generic copy, and the rail shows the quoting one while
+  both are among the rows it reads. Dated by its text, that quoting copy sorts
+  behind the newer generic copy, so enough same-rank rows between them (past 60
+  on the rail, 300 on the Command Center) bring the generic line back until the
+  alert ends. No new pair arises after the change, because the sweep writes a
+  generic copy only for a thread the customer has never texted. The cost, and
+  why it is one statement rather than a Prisma `include`, is in the
+  [decision log](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
+- **A quoted unowned alert prints and lists by when the customer sent the text,
+  not when the copy was written.** Settled after a race: the sweep could write
+  its copy of an older text after the webhook wrote its copy of a newer one, and
+  the rail, which shows the later of two copies quoting different texts, kept
+  the older words. Dated by their texts, the newer text wins whichever copy is
+  written last. So an alert the sweep raises hours after the customer's last
+  text prints that text's age, and a generic copy keeps the time it was written.
+  See the
+  [decision log](../decisions/2026-09-12-the-sweep-quotes-the-customer-s-latest-text.md).
 
 ## Portfolio Notes
 
