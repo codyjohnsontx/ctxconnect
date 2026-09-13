@@ -454,9 +454,11 @@ function quotedTextId(notification: NotificationFact): string | null {
  * 1. The row that describes the follow-up's current state beats the one it
  *    superseded.
  * 2. A copy that quotes the customer's text beats one that does not. The
- *    sweep's "is waiting without an owner" copy is written on the next Command
- *    Center load after the text, so it is the newer row and used to hold the
- *    alert for its whole life. What she reads is the customer's own words - the
+ *    sweep's "is waiting without an owner" copy used to be written on the next
+ *    Command Center load after the text, so it was the newer row and held the
+ *    alert for its whole life. The sweep quotes the latest text now, so a generic
+ *    copy beside a quoting one was written before the customer's first text or
+ *    before that change. What she reads is the customer's own words - the
  *    owner's call on 2026-09-12.
  * 3. Between copies quoting two different texts, the later text wins: what the
  *    customer said last, never what they said first. Asked of the rows' times
