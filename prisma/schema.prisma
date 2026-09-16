@@ -370,6 +370,11 @@ model OptInEvent {
   @@index([customerId, createdAt])
 }
 
+// One recipient holds at most one active (UNREAD or READ) copy of an alert. That
+// is a unique index Prisma's schema language cannot express - partial, over
+// COALESCEd columns - so it lives only in
+// migrations/20260916090000_one_active_copy_of_an_alert, and `migrate diff`
+// ignores it. `createIfMissingWithClient` in src/lib/notifications.ts relies on it.
 model Notification {
   id              String             @id @default(cuid())
   type            NotificationType

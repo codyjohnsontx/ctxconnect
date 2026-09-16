@@ -17,7 +17,6 @@ import {
   ProductEventType,
   TaskStatus,
   NotificationType,
-  NotificationStatus,
   Role,
 } from "@/generated/prisma/client";
 import {
@@ -25,6 +24,7 @@ import {
   notifyManagers,
   readdressAssigneeNotificationsTx,
   reopenConversationNotifications,
+  reopenTaskNotifications,
   resolveConversationNotifications,
   resolveConversationNotificationsTx,
   resolveTaskNotifications,
@@ -529,10 +529,7 @@ export async function updateTaskStatus(formData: FormData) {
   if (status === TaskStatus.DONE || status === TaskStatus.CANCELED) {
     await resolveTaskNotifications(taskId);
   } else {
-    await prisma.notification.updateMany({
-      where: { taskId, status: NotificationStatus.RESOLVED },
-      data: { status: NotificationStatus.UNREAD, resolvedAt: null },
-    });
+    await reopenTaskNotifications(taskId);
   }
 
   await prisma.auditLog.create({

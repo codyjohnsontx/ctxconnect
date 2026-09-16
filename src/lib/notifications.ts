@@ -8,7 +8,7 @@ import {
   Priority,
   Role,
   TaskStatus,
-  type Prisma,
+  Prisma,
 } from "@/generated/prisma/client";
 import type { AppUser } from "@/lib/data";
 import { endOfDealershipDay } from "@/lib/dealership-day";
@@ -163,22 +163,15 @@ async function createIfMissingWithClient(
     data: { priority },
   });
 
-  const existing = await client.notification.findFirst({
-    where: {
-      type: data.type,
-      recipientUserId: data.recipientUserId ?? null,
-      conversationId: data.conversationId ?? null,
-      taskId: data.taskId ?? null,
-      messageId: data.messageId ?? null,
-      ...activeNotificationWhere,
-    },
-  });
-
-  if (existing) {
-    return existing;
-  }
-
-  return client.notification.create({ data });
+  // Insert-if-absent, decided by the database rather than by looking first.
+  // Looking first is how concurrent Command Center loads each found the alert
+  // missing and each wrote it. The unique index in
+  // prisma/migrations/20260916090000_one_active_copy_of_an_alert keys an active
+  // row on exactly the columns stored here, and `skipDuplicates` is
+  // `ON CONFLICT DO NOTHING`: a writer that loses the race writes nothing and
+  // reports nothing, and it does so without aborting a caller's transaction,
+  // which catching a failed `create` would.
+  await client.notification.createMany({ data: [data], skipDuplicates: true });
 }
 
 async function notifyManagersWithClient(client: NotificationDbClient, draft: NotificationDraft) {
@@ -240,17 +233,94 @@ export async function reopenConversationNotifications(
   conversationId: string,
   types?: NotificationType[],
 ) {
-  await prisma.notification.updateMany({
-    where: {
-      conversationId,
-      status: NotificationStatus.RESOLVED,
-      ...(types ? { type: { in: types } } : {}),
-    },
-    data: {
-      status: NotificationStatus.UNREAD,
-      resolvedAt: null,
+  await reviveNotifications({
+    conversationId,
+    ...(types ? { type: { in: types } } : {}),
+  });
+}
+
+/** The same for a follow-up moved back to open: its alerts stand again. */
+export async function reopenTaskNotifications(taskId: string) {
+  await reviveNotifications({ taskId });
+}
+
+/**
+ * Puts resolved alerts back on the rail, one per recipient per alert.
+ *
+ * A fact collects several resolved rows over its life - a follow-up that went
+ * overdue and was moved back to today, a thread unassigned twice, the copies a
+ * hand-off or the one-active-copy migration withdrew - and reviving all of them
+ * would stand the same alert up several times over. The unique index refuses
+ * that, so this revives only the newest resolved row of each key, and only
+ * where no active row already carries it.
+ *
+ * Row by row, each guarded in the statement that writes it, so the check sees
+ * whatever committed a moment earlier. A writer that commits the same alert
+ * between that check and this row's write still wins, and losing to it is the
+ * outcome wanted - the alert stands - so that refusal is taken as success.
+ */
+async function reviveNotifications(where: Prisma.NotificationWhereInput) {
+  const resolved = await prisma.notification.findMany({
+    where: { ...where, status: NotificationStatus.RESOLVED },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      type: true,
+      recipientUserId: true,
+      conversationId: true,
+      taskId: true,
+      messageId: true,
     },
   });
+
+  const newestPerKey = new Map<string, string>();
+
+  for (const row of resolved) {
+    const key = [row.type, row.recipientUserId, row.conversationId, row.taskId, row.messageId].join(" ");
+
+    if (!newestPerKey.has(key)) {
+      newestPerKey.set(key, row.id);
+    }
+  }
+
+  await Promise.all(
+    [...newestPerKey.values()].map(async (id) => {
+      try {
+        await prisma.$executeRaw`
+          UPDATE "Notification" AS n
+          SET "status" = 'UNREAD', "resolvedAt" = NULL, "updatedAt" = now()
+          WHERE n."id" = ${id}
+            AND n."status" = 'RESOLVED'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM "Notification" AS a
+              WHERE a."status" <> 'RESOLVED'
+                AND a."type" = n."type"
+                AND COALESCE(a."recipientUserId", '') = COALESCE(n."recipientUserId", '')
+                AND COALESCE(a."conversationId", '') = COALESCE(n."conversationId", '')
+                AND COALESCE(a."taskId", '') = COALESCE(n."taskId", '')
+                AND COALESCE(a."messageId", '') = COALESCE(n."messageId", '')
+            )
+        `;
+      } catch (error) {
+        if (!isUniqueViolation(error)) {
+          throw error;
+        }
+      }
+    }),
+  );
+}
+
+// A raw statement reports Postgres' refusal as P2010 with the SQLSTATE inside;
+// only a model query translates it to P2002.
+function isUniqueViolation(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  const cause = (error.meta?.driverAdapterError as { cause?: { originalCode?: string } } | undefined)?.cause;
+
+  return error.code === "P2002" || cause?.originalCode === "23505";
 }
 
 export async function notifyManagersTx(client: Prisma.TransactionClient, draft: NotificationDraft) {
@@ -329,8 +399,9 @@ export async function resolveConversationNotificationsTx(
  *
  * The copies are resolved, never deleted, like every other withdrawal here.
  * Which means it is reversible, and honestly so: `reopenConversationNotifications`
- * revives every resolved row on the thread, so marking it unread brings the
- * copies back and the thread holds one alert per inbound text again. That is
+ * revives the newest resolved row of each alert on the thread, so marking it
+ * unread brings the copies back and the thread holds one alert per inbound
+ * text again. That is
  * where any long-lived thread already stands and is not something a hand-off
  * creates - see `notificationScanLimit` for where the bound belongs and why it
  * is filed separately.
@@ -346,14 +417,11 @@ export async function readdressAssigneeNotificationsTx(
 
   const onTheseThreads = assigneeAddressedNotificationsWhere(conversationIds);
 
-  await client.notification.updateMany({
-    where: { ...onTheseThreads, recipientUserId: { not: to } },
-    data: { recipientUserId: to },
-  });
-
-  // Hers now, whichever way they got here. Read inside the caller's
-  // transaction, so a row raised between the move and the write below cannot be
-  // missed by it.
+  // Withdraw the copies before moving anything. Which copies stand does not
+  // depend on who holds them - the fact key leaves the recipient out - so the
+  // answer is the same before the move as after it, and doing it first is what
+  // lets the move through: two active copies of one alert moved onto the same
+  // recipient are exactly what the one-active-copy index refuses.
   const outstanding = await client.notification.findMany({
     where: { ...onTheseThreads, ...activeNotificationWhere },
     select: {
@@ -374,6 +442,12 @@ export async function readdressAssigneeNotificationsTx(
       data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
     });
   }
+
+  // Hers now, whichever way they got here.
+  await client.notification.updateMany({
+    where: { ...onTheseThreads, recipientUserId: { not: to } },
+    data: { recipientUserId: to },
+  });
 }
 
 export async function resolveTaskNotifications(taskId: string) {
