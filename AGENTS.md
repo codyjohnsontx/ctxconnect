@@ -1217,7 +1217,8 @@ next build`, so it wants a real Postgres and `DATABASE_URL` in the environment.
 
 CI is [`.github/workflows/ci.yml`](./.github/workflows/ci.yml), on pull requests and pushes
 to `main`: a `verify` job (lint, typecheck, test) and a `build` job that runs the real build
-script against a throwaway Postgres service container. Add a check there rather than
+script against a throwaway Postgres service container, then the whole test suite against
+that database. Add a check there rather than
 inventing a second pipeline.
 
 ## Final Response After Work

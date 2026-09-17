@@ -493,9 +493,10 @@ async function latestCustomerTexts(conversationIds: string[]) {
  * generic line.
  *
  * Quoting the newest text is also what keeps a load where nothing happened from
- * writing. The text is the one quoted last time, so every column
- * `createIfMissingWithClient` matches on is too, and it finds the row it wrote -
- * or, where the webhook raised the thread for that text, the webhook's row.
+ * writing. The text is the one quoted last time, so every column the
+ * one-active-copy index keys on is too, and the index refuses the insert in
+ * favour of the row it wrote - or, where the webhook raised the thread for that
+ * text, the webhook's row.
  */
 export function unassignedConversationAlert(
   conversation: { id: string; department: Department; priority: Priority; customer: { name: string } },
