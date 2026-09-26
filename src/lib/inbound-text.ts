@@ -23,10 +23,7 @@ export type InboundText = {
   numMedia: number;
 };
 
-/**
- * Where a caller may hold the transaction to force an interleaving. Only the
- * database-backed consent suite passes one; the webhook never does.
- */
+/** Exists only for the race test in tests/consent-cache.test.ts; the webhook never passes it. */
 export type InboundTextPause = (point: "before-consent-lock" | "after-consent-lock") => Promise<void>;
 
 /**
