@@ -157,27 +157,28 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
         'STOP', 'STOPALL', 'UNSUBSCRIBE', 'REVOKE', 'OPTOUT', 'OPT OUT',
         'DONT TEXT', 'DON''T TEXT', 'DO NOT TEXT', 'NO MORE TEXTS', 'REMOVE ME', 'TAKE ME OFF', 'WRONG NUMBER'
       ]) AS review(phrase)
-      WHERE position(
-        ' ' || review.phrase || ' ' IN
-        ' ' || regexp_replace(
-          regexp_replace(
-            regexp_replace(
-              replace(regexp_replace(n.upper_body, '\s+', ' ', 'g'), '’', ''''),
-              '(?<![A-Z0-9''])(?:STOP BY|STOP IN|STOP AT|STOP OVER|WON''T STOP|WONT STOP|WILL NOT STOP)(?![A-Z0-9''])', 'x', 'g'
-            ),
-            '[^A-Z0-9''x ]+', ' ', 'g'
-          ),
-          ' +', ' ', 'g'
-        ) || ' '
-      ) > 0
+      WHERE position(' ' || review.phrase || ' ' IN n.padded) > 0
     ) THEN 'REVIEW'
     ELSE 'NONE'
   END
   FROM (
-    SELECT u.upper_body, btrim(regexp_replace(regexp_replace(u.upper_body, '[\s_-]+', ' ', 'g'), '[\s.,!?;:''"]+$', '')) AS word
-    FROM (
-      SELECT upper(regexp_replace(coalesce(body, ''), '[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', ' ', 'g')) AS upper_body
-    ) u
+    SELECT
+      btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+        q.body,
+        '''(?![A-Z0-9])|(?<![A-Z0-9])''', ' ', 'g'),
+        '[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', ' ', 'g'),
+        '[\s_-]+', ' ', 'g'),
+        '[\s.,!?;:''"]+$', '')) AS word,
+      ' ' || regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+        q.body,
+        '''(?![A-Z0-9])|(?<![A-Z0-9])''', ',', 'g'),
+        '[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+', ' ', 'g'),
+        '(?<![A-Z0-9''])(?:STOP BY|STOP IN|STOP OVER|WON''T STOP|WONT STOP|WILL NOT STOP)(?![A-Z0-9''])'
+          '(?!(?:[^A-Z0-9'']+[A-Z0-9'']+){0,2}[^A-Z0-9'']+'
+          '(?:TEXT|TEXTS|TEXTING|TXT|MESSAGE|MESSAGES|MESSAGING|MSG|SMS|CONTACT|CONTACTING|CALL|CALLING|CALLS)(?![A-Z0-9'']))', 'x', 'g'),
+        '[^A-Z0-9''x ]+', ' ', 'g'),
+        ' +', ' ', 'g') || ' ' AS padded
+    FROM (SELECT regexp_replace(upper(coalesce(body, '')), '[‘’]', '''', 'g') AS body) q
   ) n
 $$;
 

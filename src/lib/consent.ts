@@ -265,24 +265,54 @@ export const REVIEW_PHRASES: readonly string[] = [
 /**
  * Everyday phrasings with STOP in them. Only the STOP inside each one is passed
  * over by the review scan, so "stop by later, and stop texting me" still asks
- * for a person.
+ * for a person. A phrase is not passed over when one of the next three words
+ * is a contact word ("you won't stop texting me"), and its words count as one
+ * phrase only with spaces or tabs between them, never punctuation or a line
+ * break ("Stop. In future call me").
  */
 export const EVERYDAY_STOP_PHRASES: readonly string[] = [
   "STOP BY",
   "STOP IN",
-  "STOP AT",
   "STOP OVER",
   "WON'T STOP",
   "WONT STOP",
   "WILL NOT STOP",
 ];
 
-const everydayStopPattern = new RegExp(`(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])`, "g");
+export const EVERYDAY_STOP_CONTACT_WORDS: readonly string[] = [
+  "TEXT",
+  "TEXTS",
+  "TEXTING",
+  "TXT",
+  "MESSAGE",
+  "MESSAGES",
+  "MESSAGING",
+  "MSG",
+  "SMS",
+  "CONTACT",
+  "CONTACTING",
+  "CALL",
+  "CALLING",
+  "CALLS",
+];
+
+const everydayStopPattern = new RegExp(
+  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])` +
+    `(?!(?:[^A-Z0-9']+[A-Z0-9']+){0,2}[^A-Z0-9']+(?:${EVERYDAY_STOP_CONTACT_WORDS.join("|")})(?![A-Z0-9']))`,
+  "g",
+);
+
+// An apostrophe is part of a word only between two letters or digits, as in
+// DON'T; anywhere else it is a quotation mark.
+const quotationApostrophe = /'(?![A-Z0-9])|(?<![A-Z0-9])'/g;
+
+function foldApostrophes(upperCased: string) {
+  return upperCased.replace(/[‘’]/g, "'");
+}
 
 export function normalizeConsentReply(body: string) {
-  return body
-    .trim()
-    .toUpperCase()
+  return foldApostrophes(body.trim().toUpperCase())
+    .replace(quotationApostrophe, " ")
     .replace(/[\s_-]+/g, " ")
     .replace(/[\s.,!?;:'"]+$/, "")
     .trim();
@@ -304,11 +334,14 @@ export function classifyConsentReply(body: string): ConsentKeyword {
   }
 
   // Word boundaries on the padded text, so "STOPPED BY" and "NONSTOP" do not
-  // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't".
-  // An everyday phrase is matched before any punctuation is folded, so "stop -
-  // at once" is not "stop at", and is marked with a lower-case x, which no
-  // upper-cased text contains and no list word matches.
-  const marked = body.toUpperCase().replace(/\s+/g, " ").replace(/’/g, "'").replace(everydayStopPattern, "x");
+  // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't",
+  // and a quotation mark is punctuation, so "I said 'stop'" finds STOP. An
+  // everyday phrase is matched before punctuation is folded and is marked with
+  // a lower-case x, which no upper-cased text contains and no list word matches.
+  const marked = foldApostrophes(body.toUpperCase())
+    .replace(quotationApostrophe, ",")
+    .replace(/[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+/g, " ")
+    .replace(everydayStopPattern, "x");
   const padded = ` ${marked.replace(/[^A-Z0-9'x ]+/g, " ").replace(/ +/g, " ")} `;
 
   if (

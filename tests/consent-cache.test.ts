@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import {
   GRANT_KEYWORDS,
+  EVERYDAY_STOP_CONTACT_WORDS,
   EVERYDAY_STOP_PHRASES,
   REVIEW_PHRASES,
   REVIEW_WORDS,
@@ -301,10 +302,21 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
   });
 
   it("reads a text in the backfill exactly as the webhook reads it", async () => {
-    const words = [...REVOKE_KEYWORDS, ...GRANT_KEYWORDS, "YES", ...REVIEW_WORDS, ...REVIEW_PHRASES, ...EVERYDAY_STOP_PHRASES];
+    const words = [
+      ...REVOKE_KEYWORDS,
+      ...GRANT_KEYWORDS,
+      "YES",
+      ...REVIEW_WORDS,
+      ...REVIEW_PHRASES,
+      ...EVERYDAY_STOP_PHRASES,
+      ...EVERYDAY_STOP_CONTACT_WORDS,
+    ];
     const texts = [
       ...consentReplyCases.map(([body]) => body),
       ...words.flatMap((word) => [word, word.toLowerCase(), ` ${word}. `, `please ${word.toLowerCase()} now`]),
+      ...EVERYDAY_STOP_PHRASES.flatMap((phrase) =>
+        EVERYDAY_STOP_CONTACT_WORDS.map((word) => `${phrase.toLowerCase()} and ${word.toLowerCase()}`),
+      ),
     ];
 
     const rows = await prisma.$queryRaw<Array<{ body: string; keyword: string }>>`
