@@ -305,8 +305,11 @@ export function classifyConsentReply(body: string): ConsentKeyword {
 
   // Word boundaries on the padded text, so "STOPPED BY" and "NONSTOP" do not
   // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't".
-  const folded = normalized.replace(/’/g, "'").replace(everydayStopPattern, "_");
-  const padded = ` ${folded.replace(/[^A-Z0-9'_ ]+/g, " ").replace(/ +/g, " ")} `;
+  // An everyday phrase is matched before any punctuation is folded, so "stop -
+  // at once" is not "stop at", and is marked with a lower-case x, which no
+  // upper-cased text contains and no list word matches.
+  const marked = body.toUpperCase().replace(/\s+/g, " ").replace(/’/g, "'").replace(everydayStopPattern, "x");
+  const padded = ` ${marked.replace(/[^A-Z0-9'x ]+/g, " ").replace(/ +/g, " ")} `;
 
   if (
     REVIEW_WORDS.some((word) => padded.includes(` ${word} `)) ||
