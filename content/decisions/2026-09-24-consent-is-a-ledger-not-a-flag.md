@@ -56,7 +56,9 @@ textable.
   OUT" or "Stop." is now opted out, and any customer with no text and no event
   becomes unsendable. That is the intent, and the pre-migration count in the
   PRD is how the owner sees it before it happens.
-- The demo reseed can no longer wipe consent history; each reseed appends.
+- The demo reseed can no longer wipe consent history. A seeded customer who
+  already has one keeps it exactly as it stands; only a customer with no
+  history gets the seed's events.
 
 ## Portfolio Notes
 
