@@ -21,6 +21,11 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["unstop", "GRANT"],
   ["start", "GRANT"],
   ["START.", "GRANT"],
+  // Whitespace JavaScript trims that is not ASCII: a no-break space, a byte-order mark.
+  ["STOP\u00a0", "REVOKE"],
+  ["opt\u00a0out", "REVOKE"],
+  ["\ufeffstart", "GRANT"],
+  ["please\u2028stop", "REVIEW"],
   ["yes", "YES"],
   ["Yes!", "YES"],
   // Possible stop requests in other words: a person decides.

@@ -151,7 +151,7 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
     ELSE 'NONE'
   END
   FROM (
-    SELECT btrim(regexp_replace(regexp_replace(upper(btrim(coalesce(body, ''))), '[\s_-]+', ' ', 'g'), '[\s.,!?;:''"]+$', '')) AS word
+    SELECT btrim(regexp_replace(regexp_replace(upper(regexp_replace(coalesce(body, ''), '[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', ' ', 'g')), '[\s_-]+', ' ', 'g'), '[\s.,!?;:''"]+$', '')) AS word
   ) n
 $$;
 
