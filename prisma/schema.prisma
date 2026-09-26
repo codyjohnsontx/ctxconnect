@@ -388,8 +388,8 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
-// Append-only: no writer updates or deletes a row (tests/consent-ledger.test.ts
-// scans for one). A correction is a new STAFF_CORRECTION event. Customer
+// Append-only: no writer updates or deletes a row (tests/consent.test.ts scans
+// for one). A correction is a new STAFF_CORRECTION event. Customer
 // deletion is restricted so a STOP outlives the row it was recorded against,
 // and the phone is copied on so the evidence survives a phone edit. The pairing
 // of method to kind, and the recorder and evidence a staff-recorded method

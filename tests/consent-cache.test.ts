@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { before, describe, it } from "node:test";
-import { consentState } from "../src/lib/consent";
+import { consentMethodRules, consentState } from "../src/lib/consent";
 import { ConsentEventKind, ConsentMethod, Department, Role, SmsConsentStatus } from "../src/generated/prisma/enums";
 
 // `Customer.smsConsent` is a cache of the ledger (decision 9): the badges read
@@ -29,6 +29,29 @@ async function newCustomer(label: string) {
   return prisma.customer.create({
     data: { name: `Consent ${label}`, phone: `+1999${suffix}${label.length}${Math.floor(Math.random() * 1e6)}` },
   });
+}
+
+class RolledBack extends Error {}
+
+// Writes the event and rolls it back, so the cache is never left behind the
+// ledger; only a CHECK constraint counts as a refusal.
+async function databaseAccepts(data: Parameters<Db["consentEvent"]["create"]>[0]["data"]) {
+  const outcome = await prisma
+    .$transaction(async (tx) => {
+      await tx.consentEvent.create({ data });
+      throw new RolledBack();
+    })
+    .catch((error: unknown) => error);
+
+  if (outcome instanceof RolledBack) {
+    return true;
+  }
+
+  if (/violates check constraint "ConsentEvent_/.test(String(outcome))) {
+    return false;
+  }
+
+  throw outcome;
 }
 
 async function eventsOf(customerId: string) {
@@ -122,25 +145,39 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
     assert.equal(cached.smsConsentEventId, truth.event?.id);
   });
 
-  it("is refused by the database for a staff-recorded consent with no recorder or no evidence", async () => {
+  it("is refused by the database for exactly what consentMethodRules forbids", async () => {
     const customer = await newCustomer("check");
-    const base = {
-      customerId: customer.id,
-      phone: customer.phone,
-      kind: ConsentEventKind.GRANTED,
-      occurredAt: new Date(),
-    };
+    const vouching = [
+      {},
+      { recordedByUserId: recorderId },
+      { evidence: "Signed the service form." },
+      { recordedByUserId: recorderId, evidence: "  " },
+      { recordedByUserId: recorderId, evidence: "Signed the service form." },
+    ];
 
-    await assert.rejects(
-      prisma.consentEvent.create({ data: { ...base, method: ConsentMethod.WRITTEN_FORM, evidence: "signed" } }),
-    );
-    await assert.rejects(
-      prisma.consentEvent.create({
-        data: { ...base, method: ConsentMethod.VERBAL_AT_COUNTER, recordedByUserId: recorderId, evidence: "  " },
-      }),
-    );
-    // A STOP keyword cannot grant.
-    await assert.rejects(prisma.consentEvent.create({ data: { ...base, method: ConsentMethod.KEYWORD_STOP } }));
+    for (const method of Object.values(ConsentMethod)) {
+      const rule = consentMethodRules[method];
+
+      for (const kind of Object.values(ConsentEventKind)) {
+        for (const staff of vouching) {
+          const vouched = Boolean(staff.recordedByUserId && staff.evidence?.trim());
+          const allowed = rule.kinds.includes(kind) && (!rule.staffRecorded || vouched);
+
+          assert.equal(
+            await databaseAccepts({
+              customerId: customer.id,
+              phone: customer.phone,
+              kind,
+              method,
+              occurredAt: new Date(),
+              ...staff,
+            }),
+            allowed,
+            `${method} recording ${kind} with ${JSON.stringify(staff)}`,
+          );
+        }
+      }
+    }
   });
 
   it("will not delete a customer the ledger holds evidence about", async () => {

@@ -74,7 +74,7 @@ ALTER TABLE "ConsentEvent" ADD CONSTRAINT "ConsentEvent_recordedByUserId_fkey" F
 
 -- What Prisma's schema language cannot say, and so exists only here (like the partial index in
 -- 20260916090000_one_active_copy_of_an_alert). `consentMethodRules` in src/lib/consent.ts is the
--- same table in code; tests/consent.test.ts reads this file and fails if the two disagree.
+-- same table in code; tests/consent-cache.test.ts asks the database and fails if the two disagree.
 --
 -- Which kinds each method may record.
 ALTER TABLE "ConsentEvent" ADD CONSTRAINT "ConsentEvent_method_kind_check" CHECK (

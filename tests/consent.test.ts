@@ -16,7 +16,7 @@ import { ConsentChannel, ConsentEventKind, ConsentMethod, SmsConsentStatus } fro
 
 // Consent used to be two booleans on Customer that defaulted to "consented".
 // It is now a ledger, and these pin the rule that reads it, the pairing of
-// method to kind the database enforces, and that only one writer touches it.
+// method to kind, and that only one writer touches it.
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -93,11 +93,6 @@ describe("consentState", () => {
 });
 
 describe("the methods", () => {
-  const migration = readFileSync(
-    join(repoRoot, "prisma/migrations/20260925090000_consent_ledger/migration.sql"),
-    "utf8",
-  );
-
   it("classifies every method as GRANTED-only, REVOKED-only or either", () => {
     // consentMethodRules is a Record over the enum, so a new method does not
     // compile unclassified; this also fails if one is classified as nothing.
@@ -107,30 +102,10 @@ describe("the methods", () => {
     }
   });
 
-  it("agrees with the CHECK constraint the migration puts on the database", () => {
-    for (const method of Object.values(ConsentMethod)) {
-      const line = migration.match(new RegExp(`WHEN '${method}' THEN (.+)`));
-      assert.ok(line, `the migration's method-kind check does not mention ${method}`);
-
-      const kinds = consentMethodRules[method].kinds;
-      const expected = kinds.length === 2 ? "true" : `"kind" = '${kinds[0]}'`;
-      assert.equal(line[1].trim(), expected, `${method} is paired differently in code and in the database`);
-    }
-  });
-
-  it("requires a recorder and evidence in the database for exactly the staff-recorded methods", () => {
-    const check = migration.match(/"method" NOT IN \(([^)]+)\)/);
-    assert.ok(check, "the migration's staff-evidence check is missing");
-
-    const inDatabase = check[1].split(",").map((part) => part.trim().replace(/'/g, "")).sort();
-    const inCode = Object.values(ConsentMethod)
-      .filter((method) => consentMethodRules[method].staffRecorded)
-      .sort();
-
-    assert.deepEqual(inDatabase, inCode);
-    // Decision 12: consent given at the counter or on a form needs both.
-    assert.ok(inCode.includes(ConsentMethod.VERBAL_AT_COUNTER));
-    assert.ok(inCode.includes(ConsentMethod.WRITTEN_FORM));
+  it("needs a recorder and evidence for consent given at the counter or on a form", () => {
+    // Decision 12.
+    assert.ok(consentMethodRules[ConsentMethod.VERBAL_AT_COUNTER].staffRecorded);
+    assert.ok(consentMethodRules[ConsentMethod.WRITTEN_FORM].staffRecorded);
   });
 });
 
