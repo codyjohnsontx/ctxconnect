@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, markConversationUnread, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
+import { ConsentBadge } from "@/components/consent-badge";
 import { ConversationControls } from "@/components/conversation-controls";
 import { CustomerProfile } from "@/components/customer-profile";
 import { FollowUpDueDate } from "@/components/follow-up-due-date";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
+import { cachedConsentState, consentBlockMessage, describeConsent } from "@/lib/consent";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import { isUnnamedCustomer } from "@/lib/customer-identity";
 import type { AppUser, getInboxData } from "@/lib/data";
@@ -550,9 +552,7 @@ export function InboxView({
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2">
-                <Badge variant={selectedConversation.customer.smsOptedOut ? "red" : "green"}>
-                  {selectedConversation.customer.smsOptedOut ? "SMS opted out" : "SMS ok"}
-                </Badge>
+                <ConsentBadge consent={describeConsent(cachedConsentState(selectedConversation.customer))} />
                 {/* The way to hand a thread back to the floor. Reading clears
                     the marker, so without this the advisor loses the only way
                     she has to say "someone still needs to pick this up". */}
@@ -671,7 +671,7 @@ export function InboxView({
               unit={unit}
               department={selectedConversation.department}
               templates={templates}
-              disabled={selectedConversation.customer.smsOptedOut}
+              consentBlock={consentBlockMessage(selectedConversation.customer.smsConsent)}
               demoBlocked={isDemo}
               unsentBody={lastUndeliveredOutbound(selectedConversation.messages)?.body ?? null}
             />
@@ -714,8 +714,8 @@ export function InboxView({
                     email: selectedConversation.customer.email,
                     notes: selectedConversation.customer.notes,
                     preferredContactMethod: selectedConversation.customer.preferredContactMethod,
-                    smsOptedOut: selectedConversation.customer.smsOptedOut,
                   }}
+                  consent={describeConsent(cachedConsentState(selectedConversation.customer))}
                 />
               </section>
 

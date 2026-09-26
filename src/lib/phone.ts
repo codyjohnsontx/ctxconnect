@@ -11,11 +11,3 @@ export function normalizePhone(phone: string) {
 
   return phone.startsWith("+") ? phone : `+${digits}`;
 }
-
-export function isStopMessage(body: string) {
-  return ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(body.trim().toUpperCase());
-}
-
-export function isStartMessage(body: string) {
-  return ["START", "YES", "UNSTOP"].includes(body.trim().toUpperCase());
-}

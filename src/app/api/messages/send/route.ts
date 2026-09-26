@@ -5,7 +5,8 @@ import { getTwilioConfig } from "@/lib/env";
 import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
 import { prisma } from "@/lib/prisma";
 import { smsTooLong } from "@/lib/sms-length";
-import { DeliveryStatus, MessageDirection, MessageKind, NotificationType } from "@/generated/prisma/client";
+import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, SmsConsentStatus } from "@/generated/prisma/client";
+import { consentBlockMessage } from "@/lib/consent";
 import { requireConversationAccess } from "@/lib/permissions";
 import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 import { getActiveSessionUser } from "@/lib/session";
@@ -65,8 +66,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to load conversation." }, { status: 500 });
   }
 
-  if (conversation.customer.smsOptedOut) {
-    return NextResponse.json({ error: "Customer has opted out of SMS." }, { status: 403 });
+  // Only a recorded grant sends. NONE is refused as firmly as a STOP: a row
+  // with no consent event has no reason on record to be texted. The full gate
+  // (quiet hours, the 18-month rule for texts the store starts) builds on this.
+  const consentBlock = consentBlockMessage(conversation.customer.smsConsent);
+
+  if (consentBlock) {
+    return NextResponse.json(
+      {
+        error: consentBlock,
+        reason: conversation.customer.smsConsent === SmsConsentStatus.REVOKED ? "REVOKED" : "NO_CONSENT",
+      },
+      { status: 403 },
+    );
   }
 
   const message = await prisma.message.create({

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { ConsentBadge } from "@/components/consent-badge";
+import { cachedConsentState, describeConsent } from "@/lib/consent";
 import { describeOtherDepartments } from "@/lib/conversation-access";
 import { getCustomers } from "@/lib/data";
 import { requireUser } from "@/lib/session";
@@ -22,7 +23,7 @@ export default async function CustomersPage() {
           <span>Customer</span>
           <span>Unit</span>
           <span>Latest status</span>
-          <span>Opt status</span>
+          <span>SMS consent</span>
         </div>
         {customers.map((customer) => {
           // Scoped by getCustomers to the threads this reader can open, so the
@@ -46,7 +47,7 @@ export default async function CustomersPage() {
                 ) : null}
               </div>
               <div>
-                <Badge variant={customer.smsOptedOut ? "red" : "green"}>{customer.smsOptedOut ? "Opted out" : "SMS ok"}</Badge>
+                <ConsentBadge consent={describeConsent(cachedConsentState(customer))} />
               </div>
             </>
           );

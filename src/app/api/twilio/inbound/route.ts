@@ -6,13 +6,14 @@ import {
   MessageDirection,
   MessageKind,
   NotificationType,
-  OptInEventType,
   Prisma,
   PreferredContactMethod,
 } from "@/generated/prisma/client";
+import { inboundConsentEffect } from "@/lib/consent";
+import { lockedConsentStatus, recordConsentEvent } from "@/lib/consent-ledger";
 import { placeholderCustomerName } from "@/lib/customer-identity";
 import { quotedCustomerText } from "@/lib/notification-facts";
-import { isStartMessage, isStopMessage, normalizePhone } from "@/lib/phone";
+import { normalizePhone } from "@/lib/phone";
 import { notifyAssigneeTx, notifyManagersTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { logAuthenticatedTwilioPayloadIssue, verifyTwilioWebhook } from "@/lib/twilio";
@@ -69,36 +70,8 @@ export async function POST(request: Request) {
           name: placeholderCustomerName(from),
           phone: from,
           preferredContactMethod: PreferredContactMethod.SMS,
-          smsOptedIn: true,
-          optedInAt: new Date(),
         },
       });
-
-      let optEvent: OptInEventType | null = null;
-
-      if (isStopMessage(body)) {
-        optEvent = OptInEventType.OPT_OUT;
-        await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            smsOptedIn: false,
-            smsOptedOut: true,
-            optedOutAt: new Date(),
-          },
-        });
-      }
-
-      if (isStartMessage(body)) {
-        optEvent = OptInEventType.OPT_IN;
-        await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            smsOptedIn: true,
-            smsOptedOut: false,
-            optedInAt: new Date(),
-          },
-        });
-      }
 
       const conversation =
         (await tx.conversation.findFirst({
@@ -129,14 +102,19 @@ export async function POST(request: Request) {
         },
       });
 
-      if (optEvent) {
-        await tx.optInEvent.create({
-          data: {
-            customerId: customer.id,
-            type: optEvent,
-            source: "twilio",
-            messageId: message.id,
-          },
+      // What this text says about consent, read against where the record
+      // stood before it, and written in the transaction that stores the text
+      // so the evidence and the event commit together. Attend replies to none
+      // of it: Twilio's own STOP reply is the one confirmation the FCC allows.
+      const consentEffect = inboundConsentEffect(await lockedConsentStatus(tx, customer.id), body);
+
+      if (consentEffect) {
+        await recordConsentEvent(tx, {
+          customerId: customer.id,
+          ...consentEffect,
+          messageId: message.id,
+          occurredAt: message.createdAt,
+          providerRef: twilioSid,
         });
       }
 

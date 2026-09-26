@@ -84,9 +84,35 @@ enum Priority {
   URGENT
 }
 
-enum OptInEventType {
-  OPT_IN
-  OPT_OUT
+// Consent is a ledger, not a flag. See src/lib/consent.ts, which classifies
+// every method and derives the status the Customer caches.
+enum SmsConsentStatus {
+  NONE
+  GRANTED
+  REVOKED
+}
+
+enum ConsentChannel {
+  SMS
+}
+
+enum ConsentEventKind {
+  GRANTED
+  REVOKED
+}
+
+enum ConsentMethod {
+  CUSTOMER_TEXTED_FIRST
+  KEYWORD_START
+  KEYWORD_STOP
+  STAFF_RECORDED_REQUEST
+  VERBAL_AT_COUNTER
+  WRITTEN_FORM
+  PROVIDER_BLOCK
+  STAFF_CORRECTION
+  BACKFILL_FIRST_INBOUND
+  BACKFILL_LEGACY_FLAG
+  SEED
 }
 
 enum AiInsightActionType {
@@ -169,6 +195,7 @@ model User {
   coveredConversations  Conversation[]          @relation("CoveredConversations")
   assignedConversations Conversation[]          @relation("AssignedConversations")
   sentMessages          Message[]               @relation("SentMessages")
+  recordedConsentEvents ConsentEvent[]          @relation("RecordedConsentEvents")
   assignedTasks         Task[]                  @relation("AssignedTasks")
   notifications         Notification[]          @relation("NotificationRecipient")
   actorNotifications    Notification[]          @relation("NotificationActor")
@@ -194,18 +221,21 @@ model Customer {
   phone                  String                 @unique
   email                  String?
   preferredContactMethod PreferredContactMethod @default(SMS)
-  smsOptedIn             Boolean                @default(true)
-  smsOptedOut            Boolean                @default(false)
-  optedInAt              DateTime?
-  optedOutAt             DateTime?
+  // A cache of consentState over this customer's ConsentEvent rows, written
+  // only by recordConsentEvent in src/lib/consent-ledger.ts, in the event's own
+  // transaction. NONE by default: a row created without a GRANTED event is not
+  // textable. smsConsentEventId names the event the status rests on.
+  smsConsent             SmsConsentStatus       @default(NONE)
+  smsConsentEventId      String?                @unique
   notes                  String?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  vehicles      CustomerVehicle[]
-  conversations Conversation[]
-  tasks         Task[]
-  optInEvents   OptInEvent[]
+  vehicles        CustomerVehicle[]
+  conversations   Conversation[]
+  tasks           Task[]
+  consentEvents   ConsentEvent[]    @relation("CustomerConsentEvents")
+  smsConsentEvent ConsentEvent?     @relation("CustomerCurrentConsent", fields: [smsConsentEventId], references: [id], onDelete: Restrict)
 }
 
 model CustomerVehicle {
@@ -281,6 +311,7 @@ model Message {
   conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender        User?          @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
   notifications Notification[]
+  consentEvents ConsentEvent[]
 
   @@index([conversationId, createdAt])
 }
@@ -357,17 +388,40 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
-model OptInEvent {
-  id         String         @id @default(cuid())
-  customerId String
-  type       OptInEventType
-  source     String
-  messageId  String?
-  createdAt  DateTime       @default(now())
+// Append-only: no writer updates or deletes a row (tests/consent-ledger.test.ts
+// scans for one). A correction is a new STAFF_CORRECTION event. Customer
+// deletion is restricted so a STOP outlives the row it was recorded against,
+// and the phone is copied on so the evidence survives a phone edit. The pairing
+// of method to kind, and the recorder and evidence a staff-recorded method
+// requires, are CHECK constraints that exist only in
+// migrations/20260925090000_consent_ledger (Prisma cannot express them).
+model ConsentEvent {
+  id               String           @id @default(cuid())
+  customerId       String
+  // E.164, copied at write time: consent attaches to a number.
+  phone            String
+  channel          ConsentChannel   @default(SMS)
+  kind             ConsentEventKind
+  method           ConsentMethod
+  // The inbound text that is the evidence, when there is one.
+  messageId        String?
+  // The staff member who recorded it; required for staff-recorded methods.
+  recordedByUserId String?
+  // What the customer said or signed; required for staff-recorded methods.
+  evidence         String?
+  // When the customer acted, which is what orders the ledger.
+  occurredAt       DateTime
+  createdAt        DateTime         @default(now())
+  // A Twilio message sid or OptOutType, when the provider supplied one.
+  providerRef      String?
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer  @relation("CustomerConsentEvents", fields: [customerId], references: [id], onDelete: Restrict)
+  message    Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  recordedBy User?     @relation("RecordedConsentEvents", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  currentFor Customer? @relation("CustomerCurrentConsent")
 
-  @@index([customerId, createdAt])
+  @@index([customerId, occurredAt])
+  @@index([phone, occurredAt])
 }
 
 // One recipient holds at most one active (UNREAD or READ) copy of an alert. That

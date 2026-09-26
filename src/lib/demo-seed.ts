@@ -1,18 +1,20 @@
 import { hash } from "bcryptjs";
 import {
+  ConsentEventKind,
+  ConsentMethod,
   ConversationStatus,
   DeliveryStatus,
   Department,
   MessageDirection,
   MessageKind,
   NotificationType,
-  OptInEventType,
   PreferredContactMethod,
   type Prisma,
   type PrismaClient,
   ProductEventType,
   Priority,
   Role,
+  SmsConsentStatus,
   TaskStatus,
   VehicleRelationship,
 } from "../generated/prisma/client";
@@ -29,6 +31,8 @@ import {
   isAiOpsBriefConfigured,
   redactProviderSecrets,
 } from "./ai/ops-brief";
+import { inboundConsentEffect } from "./consent";
+import { recordConsentEvent } from "./consent-ledger";
 import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
 import { notificationPriority, notificationSubjectColumns } from "./notification-facts";
 
@@ -60,20 +64,16 @@ type CustomerSeedEntry = {
   task: string;
   taskStatus?: TaskStatus;
   dueDate: Date;
-  optedInAt?: Date | null;
-  smsOptedIn?: boolean;
-  smsOptedOut?: boolean;
-  optedOutAt?: Date | null;
+  preferredContactMethod?: PreferredContactMethod;
+  // Consent a person recorded before the thread, for a customer who has not
+  // texted in. Everyone else's consent comes from their own seeded texts.
+  staffConsent?: {
+    method: typeof ConsentMethod.VERBAL_AT_COUNTER | typeof ConsentMethod.WRITTEN_FORM;
+    evidence: string;
+    occurredAt: Date;
+  };
   customerNotes?: string;
 };
-
-function requiredSeedDate(value: Date | null | undefined, message: string) {
-  if (!value) {
-    throw new Error(message);
-  }
-
-  return value;
-}
 
 async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.notification.deleteMany({
@@ -96,7 +96,9 @@ async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.task.deleteMany({ where: { customerId } });
   await prisma.conversation.deleteMany({ where: { customerId } });
   await prisma.customerVehicle.deleteMany({ where: { customerId } });
-  await prisma.optInEvent.deleteMany({ where: { customerId } });
+  // Consent events are not reset: the ledger is never deleted from, demo or
+  // not. The previous seed's events stay as history, their texts gone, and
+  // this seed's events - all dated relative to now - become the newest.
 }
 
 async function createAiInsightWithEvents(prisma: PrismaClient, input: {
@@ -276,7 +278,7 @@ async function upgradeSeededBriefsWithRealAi(prisma: PrismaClient, hasBudget: Br
           subject: conversation.subject,
           customer: {
             name: conversation.customer.name,
-            smsOptedOut: conversation.customer.smsOptedOut,
+            smsConsent: conversation.customer.smsConsent,
             notes: conversation.customer.notes,
           },
           messages: conversation.messages.map((message) => ({
@@ -540,6 +542,11 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       status: ConversationStatus.OPEN,
       tagNames: [],
       subject: "Missed call follow-up",
+      staffConsent: {
+        method: ConsentMethod.VERBAL_AT_COUNTER,
+        evidence: "Asked us to text about the Multistrada V4 when they came by the showroom.",
+        occurredAt: daysFromNow(-6),
+      },
       messages: [
         [MessageDirection.OUTBOUND, "Hi Jules, sorry we missed your call. How can we help today?", DeliveryStatus.DELIVERED],
       ] as const,
@@ -557,6 +564,11 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       status: ConversationStatus.WAITING_ON_CUSTOMER,
       tagNames: ["Pickup ready"],
       subject: "Bike ready for pickup",
+      staffConsent: {
+        method: ConsentMethod.WRITTEN_FORM,
+        evidence: "Ticked the text-updates box on the signed service ticket for the V85 TT.",
+        occurredAt: daysFromNow(-3),
+      },
       messages: [
         [MessageDirection.OUTBOUND, "Your V85 TT is ready for pickup. We are here until 6.", DeliveryStatus.DELIVERED],
         [MessageDirection.INTERNAL, "RO paid. Bike parked in service delivery row.", DeliveryStatus.INTERNAL],
@@ -706,10 +718,7 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       status: ConversationStatus.WAITING_ON_STAFF,
       tagNames: [],
       subject: "Accessory availability",
-      optedInAt: daysFromNow(-30),
-      smsOptedIn: false,
-      smsOptedOut: true,
-      optedOutAt: hoursFromNow(-2),
+      preferredContactMethod: PreferredContactMethod.PHONE,
       customerNotes: "SMS opt-out captured through seeded STOP workflow. Use phone or email for outreach.",
       messages: [
         [MessageDirection.INBOUND, "Do you have the lower Monster seat in stock?", DeliveryStatus.RECEIVED],
@@ -723,28 +732,19 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
   const seededPhones = customerData.map((entry) => entry.phone);
 
   for (const entry of customerData) {
-    const optedInAt = entry.optedInAt ?? daysFromNow(-30);
     const customer = await prisma.customer.upsert({
       where: { phone: entry.phone },
       update: {
         name: entry.name,
         email: entry.email,
-        preferredContactMethod: entry.smsOptedOut ? PreferredContactMethod.PHONE : PreferredContactMethod.SMS,
-        smsOptedIn: entry.smsOptedIn ?? true,
-        smsOptedOut: entry.smsOptedOut ?? false,
-        optedInAt,
-        optedOutAt: entry.optedOutAt ?? null,
+        preferredContactMethod: entry.preferredContactMethod ?? PreferredContactMethod.SMS,
         notes: entry.customerNotes ?? `${entry.name} is part of the ${dealershipName} demo workflow.`,
       },
       create: {
         name: entry.name,
         phone: entry.phone,
         email: entry.email,
-        preferredContactMethod: entry.smsOptedOut ? PreferredContactMethod.PHONE : PreferredContactMethod.SMS,
-        smsOptedIn: entry.smsOptedIn ?? true,
-        smsOptedOut: entry.smsOptedOut ?? false,
-        optedInAt,
-        optedOutAt: entry.optedOutAt ?? null,
+        preferredContactMethod: entry.preferredContactMethod ?? PreferredContactMethod.SMS,
         notes: entry.customerNotes ?? `${entry.name} is part of the ${dealershipName} demo workflow.`,
       },
     });
@@ -780,9 +780,11 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       },
     });
 
+    const inbound: Array<{ id: string; body: string; createdAt: Date }> = [];
+
     for (const [index, message] of entry.messages.entries()) {
       const [direction, body, deliveryStatus] = message;
-      await prisma.message.create({
+      const created = await prisma.message.create({
         data: {
           conversationId: conversation.id,
           senderUserId:
@@ -798,6 +800,10 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
           createdAt: messageTimes[index],
         },
       });
+
+      if (direction === MessageDirection.INBOUND) {
+        inbound.push(created);
+      }
     }
 
     for (const tagName of entry.tagNames) {
@@ -822,30 +828,38 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       },
     });
 
-    await prisma.optInEvent.create({
-      data: {
-        customerId: customer.id,
-        type: OptInEventType.OPT_IN,
-        source: "seed",
-        createdAt: optedInAt,
-      },
-    });
+    // Written the way the real writers write them: a person's recorded consent
+    // through the ledger, and each seeded text through the webhook's own rule,
+    // replayed from a customer Attend has not met.
+    await prisma.$transaction(async (tx) => {
+      let consent: SmsConsentStatus = SmsConsentStatus.NONE;
 
-    if (entry.smsOptedOut) {
-      const optedOutAt = requiredSeedDate(
-        entry.optedOutAt,
-        `Seeded SMS opt-out customer ${entry.name} requires a deterministic optedOutAt timestamp.`,
-      );
-
-      await prisma.optInEvent.create({
-        data: {
+      if (entry.staffConsent) {
+        const recorded = await recordConsentEvent(tx, {
           customerId: customer.id,
-          type: OptInEventType.OPT_OUT,
-          source: "seed",
-          createdAt: optedOutAt,
-        },
-      });
-    }
+          kind: ConsentEventKind.GRANTED,
+          method: entry.staffConsent.method,
+          recordedByUserId: entry.assignedUserId ?? manager.id,
+          evidence: entry.staffConsent.evidence,
+          occurredAt: entry.staffConsent.occurredAt,
+        });
+        consent = recorded.event.kind === ConsentEventKind.GRANTED ? SmsConsentStatus.GRANTED : SmsConsentStatus.REVOKED;
+      }
+
+      for (const message of inbound) {
+        const effect = inboundConsentEffect(consent, message.body);
+
+        if (effect) {
+          await recordConsentEvent(tx, {
+            customerId: customer.id,
+            ...effect,
+            messageId: message.id,
+            occurredAt: message.createdAt,
+          });
+          consent = effect.kind === ConsentEventKind.GRANTED ? SmsConsentStatus.GRANTED : SmsConsentStatus.REVOKED;
+        }
+      }
+    });
   }
 
   const seededConversations = await prisma.conversation.findMany({

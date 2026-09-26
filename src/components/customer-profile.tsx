@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { type ReactNode, useState, useTransition } from "react";
 import { Check, Loader2, UserPen } from "lucide-react";
 import { updateCustomerProfile } from "@/app/actions";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/field";
+import type { ConsentDescription } from "@/lib/consent";
 import {
   CUSTOMER_NAME_MAX_LENGTH,
   CUSTOMER_NOTES_MAX_LENGTH,
@@ -24,11 +26,12 @@ type CustomerProfileCustomer = {
   email: string | null;
   notes: string | null;
   preferredContactMethod: string;
-  smsOptedOut: boolean;
 };
 
 type CustomerProfileProps = {
   customer: CustomerProfileCustomer;
+  /** From `describeConsent`, the same description the thread header's badge shows. */
+  consent: ConsentDescription;
 };
 
 /**
@@ -37,7 +40,7 @@ type CustomerProfileProps = {
  * carrying the name the inbound webhook made up for them, because that name is
  * about to be texted back to them by every template.
  */
-export function CustomerProfile({ customer }: CustomerProfileProps) {
+export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
   const saved = customerProfileDraft(customer);
   const unnamed = isUnnamedCustomer(customer.name, customer.phone);
 
@@ -105,10 +108,7 @@ export function CustomerProfile({ customer }: CustomerProfileProps) {
         <Detail label="Phone" value={formatPhone(customer.phone)} />
         <Detail label="Email" value={customer.email ?? "No email"} />
         <Detail label="Preferred contact" value={preferredContactLabel(customer.preferredContactMethod)} />
-        <Detail
-          label="SMS consent"
-          value={customer.smsOptedOut ? "Opted out via STOP" : "Eligible to receive SMS"}
-        />
+        <Detail label="SMS consent" value={<ConsentDetail consent={consent} />} />
         <div>
           <div className="text-xs text-zinc-500 dark:text-zinc-400">Notes</div>
           <div className="whitespace-pre-wrap break-words leading-5 text-zinc-700 dark:text-zinc-300">
@@ -187,10 +187,7 @@ export function CustomerProfile({ customer }: CustomerProfileProps) {
 
       <Detail label="Phone" value={formatPhone(customer.phone)} />
       <Detail label="Preferred contact" value={preferredContactLabel(customer.preferredContactMethod)} />
-      <Detail
-        label="SMS consent"
-        value={customer.smsOptedOut ? "Opted out via STOP" : "Eligible to receive SMS"}
-      />
+      <Detail label="SMS consent" value={<ConsentDetail consent={consent} />} />
 
       <div className="flex items-center gap-2">
         <Button type="submit" variant="secondary" size="sm" disabled={!isDirty || isPending}>
@@ -228,11 +225,28 @@ export function CustomerProfile({ customer }: CustomerProfileProps) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
       <div className="break-words">{value}</div>
     </div>
+  );
+}
+
+// "Texting allowed since <when> - they texted first". The moment is printed on
+// the reader's clock, never the server's.
+function ConsentDetail({ consent }: { consent: ConsentDescription }) {
+  return (
+    <span className={consent.tone === "red" ? "text-red-700 dark:text-red-400" : undefined}>
+      {consent.label}
+      {consent.since ? (
+        <>
+          {" since "}
+          <LocalTimestamp value={consent.since} />
+        </>
+      ) : null}
+      {consent.reason ? ` - ${consent.reason}` : null}
+    </span>
   );
 }
