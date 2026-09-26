@@ -69,12 +69,18 @@ export async function POST(request: Request) {
   // Only a recorded grant sends. NONE is refused as firmly as a STOP: a row
   // with no consent event has no reason on record to be texted. The full gate
   // (quiet hours, the 18-month rule for texts the store starts) builds on this.
-  const consentBlock = consentBlockMessage(conversation.customer.smsConsent);
+  if (conversation.customer.smsConsent !== SmsConsentStatus.GRANTED) {
+    const customerTexts = await prisma.message.findMany({
+      where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
+      select: { body: true },
+    });
 
-  if (consentBlock) {
     return NextResponse.json(
       {
-        error: consentBlock,
+        error: consentBlockMessage(
+          conversation.customer.smsConsent,
+          customerTexts.map((text) => text.body),
+        ),
         reason: conversation.customer.smsConsent === SmsConsentStatus.REVOKED ? "REVOKED" : "NO_CONSENT",
       },
       { status: 403 },

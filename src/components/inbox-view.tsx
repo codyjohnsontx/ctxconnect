@@ -671,7 +671,12 @@ export function InboxView({
               unit={unit}
               department={selectedConversation.department}
               templates={templates}
-              consentBlock={consentBlockMessage(selectedConversation.customer.smsConsent)}
+              consentBlock={consentBlockMessage(
+                selectedConversation.customer.smsConsent,
+                selectedConversation.messages
+                  .filter((message) => message.direction === MessageDirection.INBOUND)
+                  .map((message) => message.body),
+              )}
               demoBlocked={isDemo}
               unsentBody={lastUndeliveredOutbound(selectedConversation.messages)?.body ?? null}
             />
