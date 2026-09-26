@@ -297,9 +297,11 @@ export const EVERYDAY_STOP_CONTACT_WORDS: readonly string[] = [
   "CALLS",
 ];
 
+// One template literal, not two joined with +: the production minifier folds
+// the joined form wrongly and drops the group's closing ")(?![A-Z0-9'])",
+// which leaves an unterminated group that throws when the module loads.
 const everydayStopPattern = new RegExp(
-  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])` +
-    `(?!(?:[^A-Z0-9']+[A-Z0-9']+){0,2}[^A-Z0-9']+(?:${EVERYDAY_STOP_CONTACT_WORDS.join("|")})(?![A-Z0-9']))`,
+  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])(?!(?:[^A-Z0-9']+[A-Z0-9']+){0,2}[^A-Z0-9']+(?:${EVERYDAY_STOP_CONTACT_WORDS.join("|")})(?![A-Z0-9']))`,
   "g",
 );
 
