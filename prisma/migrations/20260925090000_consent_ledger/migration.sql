@@ -141,8 +141,8 @@ FOR EACH STATEMENT EXECUTE FUNCTION consent_event_no_truncate();
 
 -- `classifyConsentReply` in src/lib/consent.ts, restated in SQL so the backfill reads a text
 -- exactly as the webhook does; tests/consent-cache.test.ts runs both over the same texts. Trim,
--- upper-case, fold runs of spaces, hyphens and underscores, drop trailing punctuation and match
--- the whole message against the keywords; failing that, look for a review word or phrase
+-- upper-case, fold runs of spaces, hyphens and underscores, drop the punctuation, quotes,
+-- brackets and asterisks around it and match the whole message against the keywords; failing that, look for a review word or phrase
 -- anywhere in it. That is wider than the list the webhook used until now, so a customer who
 -- texted "REVOKE", "OPT OUT" or "Stop." comes out opted out. That tightens, and it is what the
 -- FCC's per se list says.
@@ -163,12 +163,12 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
   END
   FROM (
     SELECT
-      btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+      regexp_replace(regexp_replace(regexp_replace(regexp_replace(
         q.body,
         '''(?![A-Z0-9])|(?<![A-Z0-9])''', ' ', 'g'),
         '[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', ' ', 'g'),
         '[\s_-]+', ' ', 'g'),
-        '[\s.,!?;:''"]+$', '')) AS word,
+        '^[\s.,!?;:''"“”()\[\]*]+|[\s.,!?;:''"“”()\[\]*]+$', '', 'g') AS word,
       ' ' || regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
         q.body,
         '''(?![A-Z0-9])|(?<![A-Z0-9])''', ',', 'g'),
