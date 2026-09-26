@@ -125,6 +125,20 @@ CREATE TRIGGER "ConsentEvent_append_only"
 BEFORE UPDATE OR DELETE ON "ConsentEvent"
 FOR EACH ROW EXECUTE FUNCTION consent_event_append_only();
 
+-- TRUNCATE fires no row trigger, and a TRUNCATE of "Customer" CASCADE reaches this table too, so
+-- it gets a statement trigger of its own that always refuses. Dropping the schema, which is what
+-- `prisma migrate reset` does, fires neither.
+CREATE FUNCTION consent_event_no_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'ConsentEvent is append-only: TRUNCATE refused'
+    USING ERRCODE = 'restrict_violation';
+END;
+$$;
+
+CREATE TRIGGER "ConsentEvent_no_truncate"
+BEFORE TRUNCATE ON "ConsentEvent"
+FOR EACH STATEMENT EXECUTE FUNCTION consent_event_no_truncate();
+
 -- `classifyConsentReply` in src/lib/consent.ts, restated in SQL so the backfill reads a text
 -- exactly as the webhook does; tests/consent-cache.test.ts runs both over the same texts. Trim,
 -- upper-case, fold runs of spaces, hyphens and underscores, drop trailing punctuation and match
@@ -156,46 +170,70 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
 $$;
 
 -- Backfill. Every inbound text is classified by that function.
+--
+-- Texts are put in the order the customer sent them: by their time, then - for two texts in
+-- the same millisecond - by when the old webhook recorded the opt-in or opt-out each one caused
+-- (`OptInEvent.createdAt`, which says which of a same-millisecond STOP and START it handled
+-- last), then by id. `nth` is that order, and every event below carries it through to its id,
+-- so no tie is ever left to chance.
 CREATE TEMPORARY TABLE consent_inbound AS
 SELECT
   m.id AS message_id,
   m."createdAt" AS occurred_at,
+  coalesce(legacy.recorded_at, m."createdAt") AS legacy_at,
   c."customerId" AS customer_id,
-  row_number() OVER (PARTITION BY c."customerId" ORDER BY m."createdAt", m.id) AS nth,
+  row_number() OVER (
+    PARTITION BY c."customerId"
+    ORDER BY m."createdAt", coalesce(legacy.recorded_at, m."createdAt"), m.id
+  ) AS nth,
   consent_classify_reply(m.body) AS keyword
 FROM "Message" m
 JOIN "Conversation" c ON c.id = m."conversationId"
+LEFT JOIN LATERAL (
+  SELECT min(o."createdAt") AS recorded_at FROM "OptInEvent" o WHERE o."messageId" = m.id
+) legacy ON true
 WHERE m.direction = 'INBOUND';
+
+-- Steps 1 to 3 collect the events here, with the order each takes among events at the same
+-- occurredAt, and are written together once they are all known.
+CREATE TEMPORARY TABLE consent_backfill (
+  customer_id TEXT NOT NULL,
+  kind "ConsentEventKind" NOT NULL,
+  method "ConsentMethod" NOT NULL,
+  message_id TEXT,
+  evidence TEXT,
+  occurred_at TIMESTAMP(3) NOT NULL,
+  tie_at TIMESTAMP(3) NOT NULL,
+  tie_ref TEXT NOT NULL
+);
 
 -- 1. The customer's first text is the customer texting first, as the webhook reads it. A
 --    possible stop request in other words is not consent and is passed over; the first text
 --    after it decides. If that text is itself a keyword it grants nothing here: a first-ever STOP
 --    is recorded as STOP, a first-ever START as START. A customer who only ever sent possible
 --    stop requests stays NONE.
-INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "messageId", "occurredAt")
-SELECT 'bf' || replace(gen_random_uuid()::text, '-', ''), i.customer_id, cu.phone, 'GRANTED', 'BACKFILL_FIRST_INBOUND', i.message_id, i.occurred_at
+INSERT INTO consent_backfill (customer_id, kind, method, message_id, occurred_at, tie_at, tie_ref)
+SELECT i.customer_id, 'GRANTED', 'BACKFILL_FIRST_INBOUND', i.message_id, i.occurred_at, i.legacy_at, 'm' || lpad(i.nth::text, 12, '0')
 FROM (
   SELECT DISTINCT ON (customer_id) *
   FROM consent_inbound
   WHERE keyword <> 'REVIEW'
   ORDER BY customer_id, nth
 ) i
-JOIN "Customer" cu ON cu.id = i.customer_id
 WHERE i.keyword IN ('NONE', 'YES');
 
 -- 2. Every stop word and every START or UNSTOP, with the text as evidence. YES counts only as a
 --    re-subscribe after a stop word, exactly as the webhook now reads it.
-INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "messageId", "occurredAt")
+INSERT INTO consent_backfill (customer_id, kind, method, message_id, occurred_at, tie_at, tie_ref)
 SELECT
-  'bf' || replace(gen_random_uuid()::text, '-', ''),
   i.customer_id,
-  cu.phone,
   (CASE WHEN i.keyword = 'REVOKE' THEN 'REVOKED' ELSE 'GRANTED' END)::"ConsentEventKind",
   (CASE WHEN i.keyword = 'REVOKE' THEN 'KEYWORD_STOP' ELSE 'KEYWORD_START' END)::"ConsentMethod",
   i.message_id,
-  i.occurred_at
+  i.occurred_at,
+  i.legacy_at,
+  'm' || lpad(i.nth::text, 12, '0')
 FROM consent_inbound i
-JOIN "Customer" cu ON cu.id = i.customer_id
 WHERE i.keyword IN ('REVOKE', 'GRANT')
    OR (
      i.keyword = 'YES'
@@ -214,11 +252,9 @@ WHERE i.keyword IN ('REVOKE', 'GRANT')
 -- 3. OptInEvent rows the texts above do not already carry. Rows the webhook wrote name the text
 --    they came from, so they are reproduced by step 2 while that text exists; one whose text is
 --    gone is kept, saying so. Rows the demo seed wrote name no text and become SEED.
-INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "evidence", "occurredAt")
+INSERT INTO consent_backfill (customer_id, kind, method, evidence, occurred_at, tie_at, tie_ref)
 SELECT
-  'bf' || replace(gen_random_uuid()::text, '-', ''),
   o."customerId",
-  cu.phone,
   (CASE WHEN o.type = 'OPT_OUT' THEN 'REVOKED' ELSE 'GRANTED' END)::"ConsentEventKind",
   (CASE
     WHEN o.source <> 'twilio' THEN 'SEED'
@@ -226,12 +262,29 @@ SELECT
     ELSE 'KEYWORD_START'
   END)::"ConsentMethod",
   'OptInEvent ' || o.id || ' (source ' || o.source || ', message ' || coalesce(o."messageId", 'none') || ')',
-  o."createdAt"
+  o."createdAt",
+  o."createdAt",
+  'o' || o.id
 FROM "OptInEvent" o
-JOIN "Customer" cu ON cu.id = o."customerId"
 WHERE o.source <> 'twilio'
    OR o."messageId" IS NULL
    OR NOT EXISTS (SELECT 1 FROM "Message" m WHERE m.id = o."messageId");
+
+-- Written in one statement, so every row shares the transaction's createdAt and the id alone
+-- breaks a tie at the same occurredAt, exactly as `consentState` breaks it. The ids are numbered
+-- in the order worked out above, so the later of two same-millisecond events has the larger id.
+INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "messageId", "evidence", "occurredAt")
+SELECT
+  'bf' || lpad(row_number() OVER (ORDER BY b.customer_id, b.occurred_at, b.tie_at, b.tie_ref)::text, 12, '0'),
+  b.customer_id,
+  cu.phone,
+  b.kind,
+  b.method,
+  b.message_id,
+  b.evidence,
+  b.occurred_at
+FROM consent_backfill b
+JOIN "Customer" cu ON cu.id = b.customer_id;
 
 -- The ledger's own answer per customer: latest occurredAt, then createdAt, then id - the order
 -- `consentState` uses.
@@ -247,7 +300,7 @@ ORDER BY e."customerId", e."occurredAt" DESC, e."createdAt" DESC, e.id DESC;
 --    in the evidence.
 INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "evidence", "occurredAt")
 SELECT
-  'bf' || replace(gen_random_uuid()::text, '-', ''),
+  'bl' || cu.id,
   cu.id,
   cu.phone,
   'REVOKED',
@@ -271,6 +324,7 @@ WHERE latest."customerId" = cu.id;
 
 -- 6. The flags and the old table go.
 DROP TABLE consent_inbound;
+DROP TABLE consent_backfill;
 DROP TABLE consent_latest;
 
 -- DropForeignKey

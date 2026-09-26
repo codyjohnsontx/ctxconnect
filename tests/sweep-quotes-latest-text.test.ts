@@ -60,8 +60,8 @@ const latestText = {
   createdAt: after(now, -5 * 60_000),
 };
 
-// The copy src/app/api/twilio/inbound/route.ts raises on an unowned thread as a
-// text lands.
+// The copy the inbound webhook (src/lib/inbound-text.ts) raises on an unowned
+// thread as a text lands.
 function webhookAlert(text: CustomerText): SweepDraft {
   return {
     type: NotificationType.UNASSIGNED_CONVERSATION,

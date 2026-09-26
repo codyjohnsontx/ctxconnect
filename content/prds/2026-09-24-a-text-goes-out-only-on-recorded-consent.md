@@ -192,6 +192,14 @@ owner decisions 1, 1b and 6 above.
   the ledger orders by when the customer acted.
 - A STOP and a START landing together are recorded one after the other; the
   cache is recomputed under a lock on the customer row.
+- An ordinary text racing a STOP from the same customer: the webhook takes the
+  customer's lock before it writes anything, reads the consent status under it,
+  and dates the text from the database clock under it, so whichever text takes
+  the lock first is both classified first and sorted first. The customer ends
+  opted out in every interleaving (decision 4).
+- Two legacy texts in the same millisecond: the backfill orders them by when
+  the old webhook recorded the opt-in or opt-out each one caused, then by id,
+  never by a random event id.
 
 ## Data Requirements
 
@@ -248,22 +256,27 @@ PR 1:
   method needs. The recorder's foreign key is `RESTRICT`, not `SET NULL`,
   because nulling it would break that check. A trigger refuses any update or
   delete of an event, except the `SET NULL` that clears `messageId` when the
-  evidencing text is deleted.
+  evidencing text is deleted, and a statement trigger refuses `TRUNCATE`,
+  including one cascading from `Customer`. Dropping the schema, which is what
+  a migrate reset does, is unaffected.
 - The backfill classifies every stored inbound text with the widened rule,
   restated as the SQL function `consent_classify_reply`, rather than copying
   `OptInEvent` rows, so each event names the text it rests on. As in the
   webhook, a possible stop request in other words is not texting first: the
   grant rests on the first text that is not one, and a customer who only ever
-  sent one stays `NONE`. `OptInEvent` rows the texts do not reproduce (seeded rows, or a webhook
-  row whose text is gone) are kept, saying where they came from.
+  sent one stays `NONE`. `OptInEvent` rows the texts do not reproduce (seeded
+  rows, or a webhook row whose text is gone) are kept, saying where they came
+  from. Backfilled ids are numbered in that order, so a tie at the same
+  `occurredAt` resolves the same way every time.
 - The review phrase list leaves out CANCEL, END and QUIT as words inside a
   longer text: they revoke as a whole message, but "cancel my appointment" and
   "end of the day" are a service inbox's ordinary business.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
-  the two seeded customers who never texted in. Reseeding does not delete the
-  previous seed's events; its own are dated relative to now and become the
-  newest.
+  the two seeded customers who never texted in. That happens once per
+  customer: a reseed leaves any customer who already has a consent history
+  exactly as it stands, because replaying the recreated texts would append a
+  "texted first" newer than a STOP recorded since.
 - The send route refuses anything but `GRANTED` with 403 and a `reason` of
   `REVOKED` or `NO_CONSENT`. The 18-month rule (decision 6) is PR 2's: the
   ledger already exposes when a grant was made, and the inbound-text half of

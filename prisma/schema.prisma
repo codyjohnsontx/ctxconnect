@@ -388,11 +388,11 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
-// Append-only: a trigger refuses UPDATE and DELETE, except the ON DELETE SET
-// NULL that clears messageId when the evidencing text is deleted. A correction
-// is a new STAFF_CORRECTION event. Customer deletion is restricted so a STOP
-// outlives the row it was recorded against, and the phone is copied on so the
-// evidence survives a phone edit. That trigger, the pairing of method to kind,
+// Append-only: triggers refuse UPDATE, DELETE and TRUNCATE, except the ON
+// DELETE SET NULL that clears messageId when the evidencing text is deleted. A
+// correction is a new STAFF_CORRECTION event. Customer deletion is restricted
+// so a STOP outlives the row it was recorded against, and the phone is copied
+// on so the evidence survives a phone edit. Those triggers, the pairing of method to kind,
 // and the recorder and evidence a staff-recorded method requires exist only in
 // migrations/20260925090000_consent_ledger (Prisma cannot express them).
 model ConsentEvent {

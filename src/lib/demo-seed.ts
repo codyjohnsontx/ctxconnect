@@ -32,7 +32,7 @@ import {
   redactProviderSecrets,
 } from "./ai/ops-brief";
 import { inboundConsentEffect } from "./consent";
-import { recordConsentEvent } from "./consent-ledger";
+import { lockedConsentStatus, recordConsentEvent } from "./consent-ledger";
 import { demoStaleBriefCustomerPhone } from "./demo-fixtures";
 import { notificationPriority, notificationSubjectColumns } from "./notification-facts";
 
@@ -75,6 +75,65 @@ type CustomerSeedEntry = {
   customerNotes?: string;
 };
 
+/**
+ * A seeded customer's consent, written the way the real writers write it: a
+ * person's recorded consent through the ledger, and each seeded text through
+ * the webhook's own rule, replayed from a customer Attend has not met.
+ *
+ * Only once. A reseed recreates the texts at times relative to now, and
+ * replaying them over a customer who already has a history would append a
+ * "texted first" newer than whatever that history ends in - a STOP recorded
+ * since the last seed included, which owner decision 4 says an ordinary text
+ * never undoes. The ledger is never rewritten, so an existing history is left
+ * exactly as it stands. Checked under the lock the ledger writer takes.
+ */
+export async function seedCustomerConsent(
+  prisma: PrismaClient,
+  input: {
+    customerId: string;
+    staffConsent?: NonNullable<CustomerSeedEntry["staffConsent"]> & { recordedByUserId: string };
+    inbound: ReadonlyArray<{ id: string; body: string; createdAt: Date }>;
+  },
+) {
+  return prisma.$transaction(async (tx) => {
+    await lockedConsentStatus(tx, input.customerId);
+
+    if ((await tx.consentEvent.count({ where: { customerId: input.customerId } })) > 0) {
+      return false;
+    }
+
+    let consent: SmsConsentStatus = SmsConsentStatus.NONE;
+
+    if (input.staffConsent) {
+      await recordConsentEvent(tx, {
+        customerId: input.customerId,
+        kind: ConsentEventKind.GRANTED,
+        method: input.staffConsent.method,
+        recordedByUserId: input.staffConsent.recordedByUserId,
+        evidence: input.staffConsent.evidence,
+        occurredAt: input.staffConsent.occurredAt,
+      });
+      consent = SmsConsentStatus.GRANTED;
+    }
+
+    for (const message of input.inbound) {
+      const effect = inboundConsentEffect(consent, message.body);
+
+      if (effect) {
+        await recordConsentEvent(tx, {
+          customerId: input.customerId,
+          ...effect,
+          messageId: message.id,
+          occurredAt: message.createdAt,
+        });
+        consent = effect.kind === ConsentEventKind.GRANTED ? SmsConsentStatus.GRANTED : SmsConsentStatus.REVOKED;
+      }
+    }
+
+    return true;
+  });
+}
+
 async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.notification.deleteMany({
     where: {
@@ -97,8 +156,8 @@ async function resetCustomerDemoData(prisma: PrismaClient, customerId: string) {
   await prisma.conversation.deleteMany({ where: { customerId } });
   await prisma.customerVehicle.deleteMany({ where: { customerId } });
   // Consent events are not reset: the ledger is never deleted from, demo or
-  // not. The previous seed's events stay as history, their texts gone, and
-  // this seed's events - all dated relative to now - become the newest.
+  // not. The previous seed's events stay, their texts gone, and
+  // seedCustomerConsent leaves a customer with a history alone.
 }
 
 async function createAiInsightWithEvents(prisma: PrismaClient, input: {
@@ -828,37 +887,12 @@ export async function seedDemoData(prisma: PrismaClient, hasBudget: BriefBudget 
       },
     });
 
-    // Written the way the real writers write them: a person's recorded consent
-    // through the ledger, and each seeded text through the webhook's own rule,
-    // replayed from a customer Attend has not met.
-    await prisma.$transaction(async (tx) => {
-      let consent: SmsConsentStatus = SmsConsentStatus.NONE;
-
-      if (entry.staffConsent) {
-        const recorded = await recordConsentEvent(tx, {
-          customerId: customer.id,
-          kind: ConsentEventKind.GRANTED,
-          method: entry.staffConsent.method,
-          recordedByUserId: entry.assignedUserId ?? manager.id,
-          evidence: entry.staffConsent.evidence,
-          occurredAt: entry.staffConsent.occurredAt,
-        });
-        consent = recorded.event.kind === ConsentEventKind.GRANTED ? SmsConsentStatus.GRANTED : SmsConsentStatus.REVOKED;
-      }
-
-      for (const message of inbound) {
-        const effect = inboundConsentEffect(consent, message.body);
-
-        if (effect) {
-          await recordConsentEvent(tx, {
-            customerId: customer.id,
-            ...effect,
-            messageId: message.id,
-            occurredAt: message.createdAt,
-          });
-          consent = effect.kind === ConsentEventKind.GRANTED ? SmsConsentStatus.GRANTED : SmsConsentStatus.REVOKED;
-        }
-      }
+    await seedCustomerConsent(prisma, {
+      customerId: customer.id,
+      staffConsent: entry.staffConsent
+        ? { ...entry.staffConsent, recordedByUserId: entry.assignedUserId ?? manager.id }
+        : undefined,
+      inbound,
     });
   }
 
