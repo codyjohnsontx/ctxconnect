@@ -26,7 +26,7 @@ description: How to run and drive Attend locally to verify changes end-to-end (d
 
 `DEMO_USER_EMAIL` is often set to `service@ctxchat.local` locally - the primary-user account. `isDemo` is stamped into the JWT at sign-in from that variable, so the service advisor is demo-capped and `POST /api/messages/send` returns 403 before it reaches any send logic. To exercise sending, repoint `DEMO_USER_EMAIL` at something else, then **sign out and back in** (editing `.env` alone does not restamp an existing token).
 
-Twilio is normally unconfigured locally, so a send is persisted and then marked `FAILED` with a 503 rather than reaching a carrier. That is the cheapest way to produce a failed-delivery state to look at.
+Twilio is normally unconfigured locally, so a send is persisted and then marked `FAILED` with a 503 rather than reaching a carrier. That is the cheapest way to produce a failed-delivery state to look at. Only a customer whose `smsConsent` is `GRANTED` gets that far: anyone else is refused with 403 (`reason` `NO_CONSENT` or `REVOKED`) before anything is persisted, so pick a thread other than the seeded opted-out customer (Lena Ortiz).
 
 "View demo" signs in as whichever account `DEMO_USER_EMAIL` names, and that account has to exist in the database you are pointed at: if it does not, the button bounces back to `/login?reason=inactive` with no server-side error. Restart the dev server with `DEMO_USER_EMAIL=service@ctxchat.local` to get a passwordless login as the service advisor against seeded data.
 
