@@ -262,6 +262,23 @@ export const REVIEW_PHRASES: readonly string[] = [
   "WRONG NUMBER",
 ];
 
+/**
+ * Everyday phrasings with STOP in them. Only the STOP inside each one is passed
+ * over by the review scan, so "stop by later, and stop texting me" still asks
+ * for a person.
+ */
+export const EVERYDAY_STOP_PHRASES: readonly string[] = [
+  "STOP BY",
+  "STOP IN",
+  "STOP AT",
+  "STOP OVER",
+  "WON'T STOP",
+  "WONT STOP",
+  "WILL NOT STOP",
+];
+
+const everydayStopPattern = new RegExp(` (?:${EVERYDAY_STOP_PHRASES.join("|")})(?= )`, "g");
+
 export function normalizeConsentReply(body: string) {
   return body
     .trim()
@@ -288,7 +305,10 @@ export function classifyConsentReply(body: string): ConsentKeyword {
 
   // Word boundaries on the padded text, so "STOPPED BY" and "NONSTOP" do not
   // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't".
-  const padded = ` ${normalized.replace(/’/g, "'").replace(/[^A-Z0-9' ]+/g, " ").replace(/ +/g, " ")} `;
+  const padded = ` ${normalized.replace(/’/g, "'").replace(/[^A-Z0-9' ]+/g, " ").replace(/ +/g, " ")} `.replace(
+    everydayStopPattern,
+    " _",
+  );
 
   if (
     REVIEW_WORDS.some((word) => padded.includes(` ${word} `)) ||

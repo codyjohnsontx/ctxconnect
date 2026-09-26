@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import {
   GRANT_KEYWORDS,
+  EVERYDAY_STOP_PHRASES,
   REVIEW_PHRASES,
   REVIEW_WORDS,
   REVOKE_KEYWORDS,
@@ -300,7 +301,7 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
   });
 
   it("reads a text in the backfill exactly as the webhook reads it", async () => {
-    const words = [...REVOKE_KEYWORDS, ...GRANT_KEYWORDS, "YES", ...REVIEW_WORDS, ...REVIEW_PHRASES];
+    const words = [...REVOKE_KEYWORDS, ...GRANT_KEYWORDS, "YES", ...REVIEW_WORDS, ...REVIEW_PHRASES, ...EVERYDAY_STOP_PHRASES];
     const texts = [
       ...consentReplyCases.map(([body]) => body),
       ...words.flatMap((word) => [word, word.toLowerCase(), ` ${word}. `, `please ${word.toLowerCase()} now`]),

@@ -272,7 +272,11 @@ PR 1:
   `occurredAt` resolves the same way every time.
 - The review phrase list leaves out CANCEL, END and QUIT as words inside a
   longer text: they revoke as a whole message, but "cancel my appointment" and
-  "end of the day" are a service inbox's ordinary business.
+  "end of the day" are a service inbox's ordinary business. STOP stays in it,
+  but not inside the everyday phrasings "stop by", "stop in", "stop at", "stop
+  over", "won't stop", "wont stop" and "will not stop" ("my brakes will not
+  stop"). Only the STOP inside each of those is passed over, so "stop by later,
+  and stop texting me" still goes to review; a whole-message STOP still revokes.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
   the two seeded customers who never texted in. That happens once per
