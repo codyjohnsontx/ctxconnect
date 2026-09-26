@@ -385,13 +385,17 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
     // Texts in the same millisecond used to be ordered by a random event id,
     // so the same legacy history came out opted in or opted out at random.
     // `OptInEvent.createdAt` says which text the old webhook handled last, and
-    // that has to win whichever way the message ids happen to sort. Several
-    // customers per case, because a coin flip passes a single one half the
-    // time.
+    // that has to win whichever way the message ids happen to sort. The old
+    // webhook wrote a text and its record in one transaction, so the record's
+    // time can tie as well; then the customer's final legacy flags say where
+    // they ended up, and that has to win over the ids. Several customers per
+    // case, because a coin flip passes a single one half the time.
     type LegacyCase = {
       texts: Array<{ id: string; body: string }>;
       // The old webhook's records, in the order it wrote them.
       handled: Array<{ messageId: string; type: "OPT_IN" | "OPT_OUT" }>;
+      // Both records written in the same millisecond as the texts.
+      handledTogether?: boolean;
       optedOut: boolean;
     };
     const cases: Record<string, LegacyCase> = {
@@ -415,8 +419,20 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
         handled: [{ messageId: "b", type: "OPT_IN" }, { messageId: "a", type: "OPT_OUT" }],
         optedOut: true,
       },
+      "exact tie, ended opted in, ids say STOP was last": {
+        texts: [{ id: "a", body: "START" }, { id: "b", body: "STOP" }],
+        handled: [{ messageId: "a", type: "OPT_IN" }, { messageId: "b", type: "OPT_OUT" }],
+        handledTogether: true,
+        optedOut: false,
+      },
+      "exact tie, ended opted out, ids say START was last": {
+        texts: [{ id: "a", body: "STOP" }, { id: "b", body: "START" }],
+        handled: [{ messageId: "a", type: "OPT_OUT" }, { messageId: "b", type: "OPT_IN" }],
+        handledTogether: true,
+        optedOut: true,
+      },
     };
-    const copies = 12;
+    const copies = 20;
     const customers = Object.entries(cases).flatMap(([name, legacyCase], caseIndex) =>
       Array.from({ length: copies }, (_, copy) => ({ id: `t${caseIndex}c${copy}`, name, legacyCase })),
     );
@@ -444,7 +460,7 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
             await client.query(
               `INSERT INTO "OptInEvent" ("id", "customerId", "type", "source", "messageId", "createdAt")
                VALUES ($1, $2, $3, 'twilio', $4, timestamp '2026-09-01 10:00:00.000' + $5 * interval '1 millisecond')`,
-              [`${id}o${position}`, id, record.type, `${id}${record.messageId}`, position + 1],
+              [`${id}o${position}`, id, record.type, `${id}${record.messageId}`, legacyCase.handledTogether ? 0 : position + 1],
             );
           }
         }

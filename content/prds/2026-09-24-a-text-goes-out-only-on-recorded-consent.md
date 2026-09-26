@@ -198,8 +198,10 @@ owner decisions 1, 1b and 6 above.
   the lock first is both classified first and sorted first. The customer ends
   opted out in every interleaving (decision 4).
 - Two legacy texts in the same millisecond: the backfill orders them by when
-  the old webhook recorded the opt-in or opt-out each one caused, then by id,
-  never by a random event id.
+  the old webhook recorded the opt-in or opt-out each one caused; if those
+  records tie too, by the customer's final legacy flags, so the keyword
+  matching where they ended up comes last; then by id. Never by a random
+  event id.
 
 ## Data Requirements
 

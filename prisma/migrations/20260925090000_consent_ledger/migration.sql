@@ -174,25 +174,45 @@ $$;
 -- Texts are put in the order the customer sent them: by their time, then - for two texts in
 -- the same millisecond - by when the old webhook recorded the opt-in or opt-out each one caused
 -- (`OptInEvent.createdAt`, which says which of a same-millisecond STOP and START it handled
--- last), then by id. `nth` is that order, and every event below carries it through to its id,
--- so no tie is ever left to chance.
+-- last). The old webhook wrote a text and its record in one transaction, so both can tie too;
+-- then the customer's final legacy flags decide, putting the keyword that matches where the
+-- customer ended up last, and only then the id. `nth` is that order, and every event below
+-- carries it through to its id, so no tie is ever left to chance.
 CREATE TEMPORARY TABLE consent_inbound AS
 SELECT
-  m.id AS message_id,
-  m."createdAt" AS occurred_at,
-  coalesce(legacy.recorded_at, m."createdAt") AS legacy_at,
-  c."customerId" AS customer_id,
+  t.message_id,
+  t.occurred_at,
+  t.legacy_at,
+  t.customer_id,
   row_number() OVER (
-    PARTITION BY c."customerId"
-    ORDER BY m."createdAt", coalesce(legacy.recorded_at, m."createdAt"), m.id
+    PARTITION BY t.customer_id
+    ORDER BY
+      t.occurred_at,
+      t.legacy_at,
+      CASE
+        WHEN t.keyword IN ('GRANT', 'YES') THEN CASE WHEN t.opted_out THEN 0 ELSE 1 END
+        WHEN t.keyword = 'REVOKE' THEN CASE WHEN t.opted_out THEN 1 ELSE 0 END
+        ELSE 0
+      END,
+      t.message_id
   ) AS nth,
-  consent_classify_reply(m.body) AS keyword
-FROM "Message" m
-JOIN "Conversation" c ON c.id = m."conversationId"
-LEFT JOIN LATERAL (
-  SELECT min(o."createdAt") AS recorded_at FROM "OptInEvent" o WHERE o."messageId" = m.id
-) legacy ON true
-WHERE m.direction = 'INBOUND';
+  t.keyword
+FROM (
+  SELECT
+    m.id AS message_id,
+    m."createdAt" AS occurred_at,
+    coalesce(legacy.recorded_at, m."createdAt") AS legacy_at,
+    c."customerId" AS customer_id,
+    cu."smsOptedOut" AS opted_out,
+    consent_classify_reply(m.body) AS keyword
+  FROM "Message" m
+  JOIN "Conversation" c ON c.id = m."conversationId"
+  JOIN "Customer" cu ON cu.id = c."customerId"
+  LEFT JOIN LATERAL (
+    SELECT min(o."createdAt") AS recorded_at FROM "OptInEvent" o WHERE o."messageId" = m.id
+  ) legacy ON true
+  WHERE m.direction = 'INBOUND'
+) t;
 
 -- Steps 1 to 3 collect the events here, with the order each takes among events at the same
 -- occurredAt, and are written together once they are all known.
