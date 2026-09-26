@@ -246,10 +246,15 @@ PR 1:
 - The migration carries two CHECK constraints Prisma cannot express: the
   pairing of method to kind, and the recorder and evidence every staff-recorded
   method needs. The recorder's foreign key is `RESTRICT`, not `SET NULL`,
-  because nulling it would break that check.
-- The backfill classifies every stored inbound text with the widened rule
-  rather than copying `OptInEvent` rows, so each event names the text it rests
-  on. `OptInEvent` rows the texts do not reproduce (seeded rows, or a webhook
+  because nulling it would break that check. A trigger refuses any update or
+  delete of an event, except the `SET NULL` that clears `messageId` when the
+  evidencing text is deleted.
+- The backfill classifies every stored inbound text with the widened rule,
+  restated as the SQL function `consent_classify_reply`, rather than copying
+  `OptInEvent` rows, so each event names the text it rests on. As in the
+  webhook, a possible stop request in other words is not texting first: the
+  grant rests on the first text that is not one, and a customer who only ever
+  sent one stays `NONE`. `OptInEvent` rows the texts do not reproduce (seeded rows, or a webhook
   row whose text is gone) are kept, saying where they came from.
 - The review phrase list leaves out CANCEL, END and QUIT as words inside a
   longer text: they revoke as a whole message, but "cancel my appointment" and

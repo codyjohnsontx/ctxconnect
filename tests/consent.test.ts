@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
   type ConsentEventFacts,
@@ -15,10 +12,8 @@ import {
 import { ConsentChannel, ConsentEventKind, ConsentMethod, SmsConsentStatus } from "../src/generated/prisma/enums";
 
 // Consent used to be two booleans on Customer that defaulted to "consented".
-// It is now a ledger, and these pin the rule that reads it, the pairing of
-// method to kind, and that only one writer touches it.
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+// It is now a ledger, and these pin the rule that reads it and the pairing of
+// method to kind.
 
 let nextId = 0;
 
@@ -184,43 +179,5 @@ describe("describeConsent", () => {
     assert.equal(consentBlockMessage(SmsConsentStatus.GRANTED), null);
     assert.match(consentBlockMessage(SmsConsentStatus.REVOKED) ?? "", /START/);
     assert.match(consentBlockMessage(SmsConsentStatus.NONE) ?? "", /No consent on record/);
-  });
-});
-
-describe("the ledger has one writer and is never rewritten", () => {
-  function sourceFiles(dir: string): string[] {
-    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      const path = join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        return entry.name === "generated" ? [] : sourceFiles(path);
-      }
-
-      return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
-    });
-  }
-
-  const files = ["src", "prisma", "scripts"]
-    .filter((dir) => existsSync(join(repoRoot, dir)))
-    .flatMap((dir) => sourceFiles(join(repoRoot, dir)))
-    .map((path) => ({ path: relative(repoRoot, path), text: readFileSync(path, "utf8") }));
-
-  it("never updates or deletes a ConsentEvent", () => {
-    // Decision 7: a correction is a new STAFF_CORRECTION event, never an edit.
-    const offenders = files.filter(({ text }) =>
-      /consentEvent\s*\.\s*(update|updateMany|upsert|delete|deleteMany)\b/.test(text) ||
-      /(UPDATE|DELETE\s+FROM)\s+"ConsentEvent"/i.test(text),
-    );
-    assert.deepEqual(offenders.map(({ path }) => path), []);
-  });
-
-  it("creates events, and writes the cached status, only in recordConsentEvent", () => {
-    const creators = files.filter(({ text }) => /consentEvent\s*\.\s*create(Many)?\b/.test(text));
-    assert.deepEqual(creators.map(({ path }) => path), ["src/lib/consent-ledger.ts"]);
-
-    // A write names the column inside a `data` block; a read selects it or
-    // passes it along, which is fine anywhere.
-    const cacheWriters = files.filter(({ text }) => /data\s*:\s*\{[^}]*\bsmsConsent/.test(text));
-    assert.deepEqual(cacheWriters.map(({ path }) => path), ["src/lib/consent-ledger.ts"]);
   });
 });

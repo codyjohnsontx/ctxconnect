@@ -1,15 +1,38 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { before, describe, it } from "node:test";
-import { consentMethodRules, consentState } from "../src/lib/consent";
-import { ConsentEventKind, ConsentMethod, Department, Role, SmsConsentStatus } from "../src/generated/prisma/enums";
+import { fileURLToPath } from "node:url";
+import { Client } from "pg";
+import {
+  GRANT_KEYWORDS,
+  REVIEW_PHRASES,
+  REVIEW_WORDS,
+  REVOKE_KEYWORDS,
+  classifyConsentReply,
+  consentMethodRules,
+  consentState,
+} from "../src/lib/consent";
+import {
+  ConsentEventKind,
+  ConsentMethod,
+  Department,
+  MessageDirection,
+  Role,
+  SmsConsentStatus,
+} from "../src/generated/prisma/enums";
+import { consentReplyCases } from "./consent-reply-cases";
 
 // `Customer.smsConsent` is a cache of the ledger (decision 9): the badges read
 // it, so it must never say anything `consentState` over the customer's events
 // would not. This checks the writer keeps them equal, including for an event
 // recorded out of order, and that the database itself refuses what the ledger
 // forbids - a staff-recorded consent with nobody named, a method recording the
-// wrong kind, and deleting a customer the ledger has evidence about.
+// wrong kind, rewriting or deleting an event, and deleting a customer the
+// ledger has evidence about. It also replays the consent migration's backfill
+// over legacy rows in a scratch schema, and checks the backfill reads a text
+// the way the webhook does.
 //
 // It writes, so it runs only when TEST_DATABASE_URL names a migrated,
 // disposable database, and is skipped otherwise; CI's build job points it at
@@ -22,6 +45,8 @@ type Ledger = typeof import("../src/lib/consent-ledger");
 type Db = typeof import("../src/lib/prisma").prisma;
 
 const suffix = randomUUID().replace(/-/g, "").slice(0, 10);
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "prisma", "migrations");
+const consentLedgerMigration = "20260925090000_consent_ledger";
 let ledger: Ledger;
 let prisma: Db;
 
@@ -192,6 +217,147 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
     );
 
     await assert.rejects(prisma.customer.delete({ where: { id: customer.id } }));
+  });
+
+  it("refuses to rewrite or delete an event, but lets a deleted text clear the link to it", async () => {
+    const customer = await newCustomer("append");
+    const conversation = await prisma.conversation.create({
+      data: { customerId: customer.id, department: Department.SERVICE },
+    });
+    const text = await prisma.message.create({
+      data: { conversationId: conversation.id, direction: MessageDirection.INBOUND, body: "STOP" },
+    });
+    const { event } = await prisma.$transaction((tx) =>
+      ledger.recordConsentEvent(tx, {
+        customerId: customer.id,
+        kind: ConsentEventKind.REVOKED,
+        method: ConsentMethod.KEYWORD_STOP,
+        messageId: text.id,
+        occurredAt: text.createdAt,
+      }),
+    );
+
+    await assert.rejects(
+      prisma.consentEvent.update({
+        where: { id: event.id },
+        data: { kind: ConsentEventKind.GRANTED, method: ConsentMethod.KEYWORD_START },
+      }),
+      /append-only/,
+    );
+    await assert.rejects(
+      prisma.consentEvent.update({ where: { id: event.id }, data: { messageId: null } }),
+      /append-only/,
+    );
+    await assert.rejects(prisma.consentEvent.delete({ where: { id: event.id } }), /append-only/);
+
+    await prisma.message.delete({ where: { id: text.id } });
+    assert.deepEqual(await prisma.consentEvent.findUniqueOrThrow({ where: { id: event.id } }), {
+      ...event,
+      messageId: null,
+    });
+  });
+
+  it("reads a text in the backfill exactly as the webhook reads it", async () => {
+    const words = [...REVOKE_KEYWORDS, ...GRANT_KEYWORDS, "YES", ...REVIEW_WORDS, ...REVIEW_PHRASES];
+    const texts = [
+      ...consentReplyCases.map(([body]) => body),
+      ...words.flatMap((word) => [word, word.toLowerCase(), ` ${word}. `, `please ${word.toLowerCase()} now`]),
+    ];
+
+    const rows = await prisma.$queryRaw<Array<{ body: string; keyword: string }>>`
+      SELECT body, consent_classify_reply(body) AS keyword FROM unnest(${texts}::text[]) AS texts(body)
+    `;
+
+    assert.equal(rows.length, texts.length);
+    for (const { body, keyword } of rows) {
+      assert.equal(keyword, classifyConsentReply(body), JSON.stringify(body));
+    }
+  });
+
+  it("backfills a legacy customer from the first text that is not a possible stop request", async () => {
+    const legacy: Record<string, string[]> = {
+      "review first": ["Wrong number, stop texting me", "Sorry, it is my number after all. Is the bike ready?"],
+      "review only": ["please don't text this number"],
+      ordinary: ["Is my bike ready?"],
+      "stop first": ["STOP", "Is my bike ready?"],
+      "stop then yes": ["STOP", "yes"],
+    };
+
+    const schema = `consent_backfill_${suffix}`;
+    const client = new Client({ connectionString: databaseUrl });
+    await client.connect();
+
+    try {
+      await client.query(`CREATE SCHEMA "${schema}"`);
+      await client.query(`SET search_path TO "${schema}"`);
+
+      const migration = (name: string) => readFileSync(join(migrationsDir, name, "migration.sql"), "utf8");
+      const earlier = readdirSync(migrationsDir)
+        .filter((name) => /^\d/.test(name) && name < consentLedgerMigration)
+        .sort();
+      // One statement at a time, because one of them builds an index
+      // CONCURRENTLY, which Postgres refuses inside a multi-statement query.
+      for (const name of earlier) {
+        for (const statement of migration(name).split(/;\s*$/m)) {
+          await client.query(statement);
+        }
+      }
+
+      for (const [index, [name, bodies]] of Object.entries(legacy).entries()) {
+        await client.query(
+          `INSERT INTO "Customer" ("id", "name", "phone", "updatedAt") VALUES ($1, $2, $3, now())`,
+          [`c${index}`, name, `+1555000000${index}`],
+        );
+        await client.query(
+          `INSERT INTO "Conversation" ("id", "customerId", "department", "updatedAt") VALUES ($1, $1, 'SERVICE', now())`,
+          [`c${index}`],
+        );
+        for (const [position, body] of bodies.entries()) {
+          await client.query(
+            `INSERT INTO "Message" ("id", "conversationId", "direction", "body", "createdAt", "updatedAt")
+             VALUES ($1, $2, 'INBOUND', $3, timestamp '2026-09-01 10:00' + $4 * interval '1 minute', now())`,
+            [`c${index}m${position}`, `c${index}`, body, position],
+          );
+        }
+      }
+
+      await client.query(migration(consentLedgerMigration));
+
+      const { rows } = await client.query<{
+        name: string;
+        status: string;
+        method: string | null;
+        messageId: string | null;
+        methods: string[] | null;
+      }>(`
+        SELECT cu.name, cu."smsConsent"::text AS status, e.method::text AS method, e."messageId",
+          (SELECT array_agg(all_events.method::text ORDER BY all_events."occurredAt")
+           FROM "ConsentEvent" all_events WHERE all_events."customerId" = cu.id) AS methods
+        FROM "Customer" cu
+        LEFT JOIN "ConsentEvent" e ON e.id = cu."smsConsentEventId"
+      `);
+
+      assert.deepEqual(Object.fromEntries(rows.map(({ name, ...rest }) => [name, rest])), {
+        "review first": {
+          status: "GRANTED",
+          method: "BACKFILL_FIRST_INBOUND",
+          messageId: "c0m1",
+          methods: ["BACKFILL_FIRST_INBOUND"],
+        },
+        "review only": { status: "NONE", method: null, messageId: null, methods: null },
+        ordinary: { status: "GRANTED", method: "BACKFILL_FIRST_INBOUND", messageId: "c2m0", methods: ["BACKFILL_FIRST_INBOUND"] },
+        "stop first": { status: "REVOKED", method: "KEYWORD_STOP", messageId: "c3m0", methods: ["KEYWORD_STOP"] },
+        "stop then yes": {
+          status: "GRANTED",
+          method: "KEYWORD_START",
+          messageId: "c4m1",
+          methods: ["KEYWORD_STOP", "KEYWORD_START"],
+        },
+      });
+    } finally {
+      await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await client.end();
+    }
   });
 
   it("equals consentState over the ledger for every customer in the database", async () => {

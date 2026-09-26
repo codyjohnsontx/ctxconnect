@@ -242,9 +242,9 @@ export const GRANT_KEYWORDS: readonly string[] = ["START", "UNSTOP"];
  * ordinary business of the day, and a review blocks the thread until somebody
  * answers it.
  */
-const REVIEW_WORDS: readonly string[] = ["STOP", "STOPALL", "UNSUBSCRIBE", "REVOKE", "OPTOUT", "OPT OUT"];
+export const REVIEW_WORDS: readonly string[] = ["STOP", "STOPALL", "UNSUBSCRIBE", "REVOKE", "OPTOUT", "OPT OUT"];
 
-const REVIEW_PHRASES: readonly string[] = [
+export const REVIEW_PHRASES: readonly string[] = [
   "DONT TEXT",
   "DON'T TEXT",
   "DO NOT TEXT",

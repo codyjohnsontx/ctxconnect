@@ -101,37 +101,87 @@ ALTER TABLE "ConsentEvent" ADD CONSTRAINT "ConsentEvent_staff_evidence_check" CH
   OR ("recordedByUserId" IS NOT NULL AND "evidence" IS NOT NULL AND btrim("evidence") <> '')
 );
 
--- Backfill. Every inbound text is classified by the rule in src/lib/consent.ts
--- (`normalizeConsentReply` and the keyword lists), restated in SQL: trim, upper-case, fold runs
--- of spaces, hyphens and underscores, drop trailing punctuation, match the whole message. That
--- is wider than the list the webhook used until now, so a customer who texted "REVOKE", "OPT
--- OUT" or "Stop." comes out opted out. That tightens, and it is what the FCC's per se list says.
+-- The ledger is never rewritten: a correction is a new event, so the database refuses UPDATE
+-- and DELETE. The one update it lets through is the one Postgres makes itself when an
+-- evidencing text is deleted - the ON DELETE SET NULL above clearing `messageId` and nothing
+-- else.
+CREATE FUNCTION consent_event_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'UPDATE'
+    AND OLD."messageId" IS NOT NULL
+    AND NEW."messageId" IS NULL
+    AND to_jsonb(NEW) - 'messageId' = to_jsonb(OLD) - 'messageId'
+    AND NOT EXISTS (SELECT 1 FROM "Message" m WHERE m.id = OLD."messageId")
+  THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'ConsentEvent is append-only: % of % refused', TG_OP, OLD.id
+    USING ERRCODE = 'restrict_violation';
+END;
+$$;
+
+CREATE TRIGGER "ConsentEvent_append_only"
+BEFORE UPDATE OR DELETE ON "ConsentEvent"
+FOR EACH ROW EXECUTE FUNCTION consent_event_append_only();
+
+-- `classifyConsentReply` in src/lib/consent.ts, restated in SQL so the backfill reads a text
+-- exactly as the webhook does; tests/consent-cache.test.ts runs both over the same texts. Trim,
+-- upper-case, fold runs of spaces, hyphens and underscores, drop trailing punctuation and match
+-- the whole message against the keywords; failing that, look for a review word or phrase
+-- anywhere in it. That is wider than the list the webhook used until now, so a customer who
+-- texted "REVOKE", "OPT OUT" or "Stop." comes out opted out. That tightens, and it is what the
+-- FCC's per se list says.
+CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN n.word IN ('STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT', 'OPT OUT') THEN 'REVOKE'
+    WHEN n.word IN ('START', 'UNSTOP') THEN 'GRANT'
+    WHEN n.word = 'YES' THEN 'YES'
+    WHEN EXISTS (
+      SELECT 1
+      FROM unnest(ARRAY[
+        'STOP', 'STOPALL', 'UNSUBSCRIBE', 'REVOKE', 'OPTOUT', 'OPT OUT',
+        'DONT TEXT', 'DON''T TEXT', 'DO NOT TEXT', 'NO MORE TEXTS', 'REMOVE ME', 'TAKE ME OFF', 'WRONG NUMBER'
+      ]) AS review(phrase)
+      WHERE position(
+        ' ' || review.phrase || ' ' IN
+        ' ' || regexp_replace(regexp_replace(replace(n.word, '’', ''''), '[^A-Z0-9'' ]+', ' ', 'g'), ' +', ' ', 'g') || ' '
+      ) > 0
+    ) THEN 'REVIEW'
+    ELSE 'NONE'
+  END
+  FROM (
+    SELECT btrim(regexp_replace(regexp_replace(upper(btrim(coalesce(body, ''))), '[\s_-]+', ' ', 'g'), '[\s.,!?;:''"]+$', '')) AS word
+  ) n
+$$;
+
+-- Backfill. Every inbound text is classified by that function.
 CREATE TEMPORARY TABLE consent_inbound AS
 SELECT
   m.id AS message_id,
   m."createdAt" AS occurred_at,
   c."customerId" AS customer_id,
   row_number() OVER (PARTITION BY c."customerId" ORDER BY m."createdAt", m.id) AS nth,
-  CASE
-    WHEN n.word IN ('STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT', 'OPT OUT') THEN 'REVOKE'
-    WHEN n.word IN ('START', 'UNSTOP') THEN 'GRANT'
-    WHEN n.word = 'YES' THEN 'YES'
-    ELSE 'NONE'
-  END AS keyword
+  consent_classify_reply(m.body) AS keyword
 FROM "Message" m
 JOIN "Conversation" c ON c.id = m."conversationId"
-CROSS JOIN LATERAL (
-  SELECT btrim(regexp_replace(regexp_replace(upper(btrim(m.body)), '[\s_-]+', ' ', 'g'), '[\s.,!?;:''"]+$', '')) AS word
-) n
 WHERE m.direction = 'INBOUND';
 
--- 1. The customer's first text is the customer texting first, unless that text was itself a
---    keyword: a first-ever STOP grants nothing, and a first-ever START is recorded as START.
+-- 1. The customer's first text is the customer texting first, as the webhook reads it. A
+--    possible stop request in other words is not consent and is passed over; the first text
+--    after it decides. If that text is itself a keyword it grants nothing here: a first-ever STOP
+--    is recorded as STOP, a first-ever START as START. A customer who only ever sent possible
+--    stop requests stays NONE.
 INSERT INTO "ConsentEvent" ("id", "customerId", "phone", "kind", "method", "messageId", "occurredAt")
 SELECT 'bf' || replace(gen_random_uuid()::text, '-', ''), i.customer_id, cu.phone, 'GRANTED', 'BACKFILL_FIRST_INBOUND', i.message_id, i.occurred_at
-FROM consent_inbound i
+FROM (
+  SELECT DISTINCT ON (customer_id) *
+  FROM consent_inbound
+  WHERE keyword <> 'REVIEW'
+  ORDER BY customer_id, nth
+) i
 JOIN "Customer" cu ON cu.id = i.customer_id
-WHERE i.nth = 1 AND i.keyword IN ('NONE', 'YES');
+WHERE i.keyword IN ('NONE', 'YES');
 
 -- 2. Every stop word and every START or UNSTOP, with the text as evidence. YES counts only as a
 --    re-subscribe after a stop word, exactly as the webhook now reads it.
