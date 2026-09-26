@@ -159,10 +159,16 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
       ]) AS review(phrase)
       WHERE position(
         ' ' || review.phrase || ' ' IN
-        regexp_replace(
-          ' ' || regexp_replace(regexp_replace(replace(n.word, '’', ''''), '[^A-Z0-9'' ]+', ' ', 'g'), ' +', ' ', 'g') || ' ',
-          ' (?:STOP BY|STOP IN|STOP AT|STOP OVER|WON''T STOP|WONT STOP|WILL NOT STOP)(?= )', ' _', 'g'
-        )
+        ' ' || regexp_replace(
+          regexp_replace(
+            regexp_replace(
+              replace(n.word, '’', ''''),
+              '(?<![A-Z0-9''])(?:STOP BY|STOP IN|STOP AT|STOP OVER|WON''T STOP|WONT STOP|WILL NOT STOP)(?![A-Z0-9''])', '_', 'g'
+            ),
+            '[^A-Z0-9''_ ]+', ' ', 'g'
+          ),
+          ' +', ' ', 'g'
+        ) || ' '
       ) > 0
     ) THEN 'REVIEW'
     ELSE 'NONE'

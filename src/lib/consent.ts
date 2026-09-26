@@ -277,7 +277,7 @@ export const EVERYDAY_STOP_PHRASES: readonly string[] = [
   "WILL NOT STOP",
 ];
 
-const everydayStopPattern = new RegExp(` (?:${EVERYDAY_STOP_PHRASES.join("|")})(?= )`, "g");
+const everydayStopPattern = new RegExp(`(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])`, "g");
 
 export function normalizeConsentReply(body: string) {
   return body
@@ -305,10 +305,8 @@ export function classifyConsentReply(body: string): ConsentKeyword {
 
   // Word boundaries on the padded text, so "STOPPED BY" and "NONSTOP" do not
   // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't".
-  const padded = ` ${normalized.replace(/’/g, "'").replace(/[^A-Z0-9' ]+/g, " ").replace(/ +/g, " ")} `.replace(
-    everydayStopPattern,
-    " _",
-  );
+  const folded = normalized.replace(/’/g, "'").replace(everydayStopPattern, "_");
+  const padded = ` ${folded.replace(/[^A-Z0-9'_ ]+/g, " ").replace(/ +/g, " ")} `;
 
   if (
     REVIEW_WORDS.some((word) => padded.includes(` ${word} `)) ||

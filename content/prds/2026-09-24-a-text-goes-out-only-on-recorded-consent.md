@@ -277,6 +277,8 @@ PR 1:
   over", "won't stop", "wont stop" and "will not stop" ("my brakes will not
   stop"). Only the STOP inside each of those is passed over, so "stop by later,
   and stop texting me" still goes to review; a whole-message STOP still revokes.
+  A phrase counts only with nothing but spaces between its words, so "Stop. In
+  future call me" is a sentence ending in STOP and still goes to review.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
   the two seeded customers who never texted in. That happens once per

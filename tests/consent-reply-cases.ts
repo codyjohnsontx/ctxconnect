@@ -43,6 +43,10 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["please stop texting me", "REVIEW"],
   ["I can stop by later. Also stop texting me", "REVIEW"],
   ["won't stop by, please stop", "REVIEW"],
+  ["Stop. In future call me", "REVIEW"],
+  ["Please stop. At this point it's harassment", "REVIEW"],
+  ["stop, at once", "REVIEW"],
+  ["please stop! Over and out", "REVIEW"],
   // Ordinary business, which must not block a thread.
   ["yesterday", "NONE"],
   ["I stopped by yesterday", "NONE"],
@@ -55,6 +59,7 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["it wont stop leaking", "NONE"],
   ["the rear wheel will not stop wobbling", "NONE"],
   ["stop by stop by", "NONE"],
+  ["Can I stop by, please?", "NONE"],
   ["the nonstop rattle is back", "NONE"],
   ["can I cancel my appointment?", "NONE"],
   ["pick it up at the end of the day", "NONE"],
