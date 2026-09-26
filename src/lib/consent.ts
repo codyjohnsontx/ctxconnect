@@ -224,9 +224,9 @@ export function consentBlockMessage(status: SmsConsentStatus, customerTexts: rea
  *
  * Matching is on the whole message after trimming, upper-casing, folding runs
  * of spaces, hyphens and underscores to one space, and dropping the
- * punctuation, quotes, brackets and asterisks wrapped around it, so " Stop. ",
- * "opt-out", "STOP!!", “STOP” and *STOP* count; a de minimis variance must not
- * defeat an opt-out.
+ * punctuation, quotes, brackets, dashes and symbols wrapped around it, so
+ * " Stop. ", "opt-out", "STOP!!", “STOP”, *STOP* and "STOP…" count; a de minimis
+ * variance must not defeat an opt-out.
  */
 export type ConsentKeyword = "REVOKE" | "GRANT" | "YES" | "REVIEW" | "NONE";
 
@@ -315,7 +315,7 @@ export function normalizeConsentReply(body: string) {
   return foldApostrophes(body.trim().toUpperCase())
     .replace(quotationApostrophe, " ")
     .replace(/[\s_-]+/g, " ")
-    .replace(/^[\s.,!?;:'"“”()\[\]*]+|[\s.,!?;:'"“”()\[\]*]+$/g, "");
+    .replace(/^[\s.,!?;:'"“”„‚()\[\]{}<>*…—–¡¿«»`~\/]+|[\s.,!?;:'"“”„‚()\[\]{}<>*…—–¡¿«»`~\/]+$/g, "");
 }
 
 export function classifyConsentReply(body: string): ConsentKeyword {
