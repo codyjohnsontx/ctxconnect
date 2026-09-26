@@ -50,7 +50,28 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["please\u2028stop", "REVIEW"],
   ["yes", "YES"],
   ["Yes!", "YES"],
+  // Keywords however they are wrapped, spaced or broken up: NFKC, invisible
+  // format characters, every Unicode quote and bracket, U+0085 and U+2028.
+  ["‹CANCEL›", "REVOKE"],
+  ["［END］", "REVOKE"],
+  ["「QUIT」", "REVOKE"],
+  ["『STOP』", "REVOKE"],
+  ["【STOP】", "REVOKE"],
+  ["ＳＴＯＰ", "REVOKE"],
+  ["‹START›", "GRANT"],
+  ["S\u200BTOP", "REVOKE"],
+  ["ST\u2060OP", "REVOKE"],
+  ["ST\u00ADOP", "REVOKE"],
+  ["\u0085CANCEL\u0085", "REVOKE"],
+  ["\u2028STOP\u2029", "REVOKE"],
+  ["STOP 🛑", "REVOKE"],
   // Possible stop requests in other words: a person decides.
+  ["Please ST\u200BOP texting me", "REVIEW"],
+  ["You won't stop bothering me with all these messages", "REVIEW"],
+  ["You won't stop sending me every one of these messages", "REVIEW"],
+  ["You won't stop. You texted me again.", "REVIEW"],
+  ["You will not stop, even though I asked twice, and then you call again.", "REVIEW"],
+  ["I can stop by, but you keep calling my number", "REVIEW"],
   ["stop please", "REVIEW"],
   ["STOP PLEASE", "REVIEW"],
   ["Please stop texting me", "REVIEW"],
@@ -75,7 +96,6 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["please opt_out", "REVIEW"],
   ["please stop! Over and out", "REVIEW"],
   ["stop at once", "REVIEW"],
-  ["I'll STOP  AT the shop after work", "REVIEW"],
   ["Stop\nAt this point it's harassment", "REVIEW"],
   ["Stop\nIn future call me", "REVIEW"],
   ["stop by later. also stop texting me", "REVIEW"],
@@ -106,6 +126,10 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["stop by stop by", "NONE"],
   ["Can I stop by, please?", "NONE"],
   ["I'll stop\u00a0by later", "NONE"],
+  ["I'll stop at the shop after work", "NONE"],
+  ["I'll STOP  AT the shop after work", "NONE"],
+  ["Can I stop at CTX MotoWorks around 4?", "NONE"],
+  ["can I stop at the shop at 3", "NONE"],
   ["the nonstop rattle is back", "NONE"],
   ["can I cancel my appointment?", "NONE"],
   ["pick it up at the end of the day", "NONE"],
@@ -113,3 +137,24 @@ export const consentReplyCases: Array<[string, ConsentKeyword]> = [
   ["start the work whenever you're ready", "NONE"],
   ["", "NONE"],
 ];
+
+// Every whole-message keyword wrapped, padded or split in the ways a phone or a
+// paste can produce, with the answer the keyword alone gives. Run by both the
+// keyword test and the SQL parity test.
+const WRAPPERS: Array<[string, string]> = [
+  ['"', '"'], ["'", "'"], ["“", "”"], ["„", "“"], ["‘", "’"], ["«", "»"], ["‹", "›"],
+  ["「", "」"], ["『", "』"], ["【", "】"], ["〈", "〉"], ["《", "》"], ["（", "）"], ["［", "］"],
+  ["＂", "＂"], ["(", ")"], ["[", "]"], ["{", "}"], ["<", ">"], ["*", "*"], ["_", "_"], ["`", "`"],
+];
+const PADDING = [" ", "\u00a0", "\u0085", "\u2028", "\u2029", "\u3000", "\ufeff", "\u200b", "\n", "\r\n", "\t"];
+const SPLITTERS = ["\u200b", "\u200c", "\u200d", "\u2060", "\u00ad"];
+
+export function keywordVariantCases(
+  keywords: ReadonlyArray<[string, ConsentKeyword]>,
+): Array<[string, ConsentKeyword]> {
+  return keywords.flatMap(([word, expected]) => [
+    ...WRAPPERS.map(([open, close]): [string, ConsentKeyword] => [`${open}${word}${close}`, expected]),
+    ...PADDING.map((pad): [string, ConsentKeyword] => [`${pad}${word.toLowerCase()}${pad}`, expected]),
+    ...SPLITTERS.map((split): [string, ConsentKeyword] => [`${word.slice(0, 1)}${split}${word.slice(1)}`, expected]),
+  ]);
+}

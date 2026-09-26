@@ -222,11 +222,11 @@ export function consentBlockMessage(status: SmsConsentStatus, customerTexts: rea
  *   working on the carb" must not end a relationship.
  * - `NONE`: an ordinary text.
  *
- * Matching is on the whole message after trimming, upper-casing, folding runs
- * of spaces, hyphens and underscores to one space, and dropping the
- * punctuation, quotes, brackets, dashes and symbols wrapped around it, so
- * " Stop. ", "opt-out", "STOP!!", “STOP”, *STOP* and "STOP…" count; a de minimis
- * variance must not defeat an opt-out.
+ * Matching is on the whole message in `canonicalConsentText`'s form, with every
+ * separator - space, line break, punctuation, quote, bracket, dash, symbol -
+ * folded to one space and trimmed, so " Stop. ", "opt-out", "STOP!!", “STOP”,
+ * ‹CANCEL›, 「QUIT」, *STOP* and "STOP…" count; a de minimis variance must not
+ * defeat an opt-out. Where the rule has to guess, it guesses stop request.
  */
 export type ConsentKeyword = "REVOKE" | "GRANT" | "YES" | "REVIEW" | "NONE";
 
@@ -264,64 +264,77 @@ export const REVIEW_PHRASES: readonly string[] = [
 ];
 
 /**
- * Everyday phrasings with STOP in them. Only the STOP inside each one is passed
- * over by the review scan, so "stop by later, and stop texting me" still asks
- * for a person. A phrase is not passed over when one of the next three words
- * is a contact word ("you won't stop texting me"), and its words count as one
- * phrase only with spaces or tabs between them, never punctuation or a line
- * break ("Stop. In future call me").
+ * Everyday phrasings with STOP in them: "can I stop by Saturday", "I'll stop
+ * in at 3", "stop at the shop", "stop over after work", "my brakes won't
+ * stop". Such a phrase lets a text through as ordinary only when nothing else
+ * in the whole message could be a stop request: no other review word or
+ * phrase, and no contact word anywhere (`CONTACT_STEMS`), so "you won't stop
+ * texting me" and "you won't stop. You texted me again." still ask for a
+ * person. Its words join only across spaces on one line, never punctuation or
+ * a line break ("Stop. In future call me", "Stop\nAt this point"), and "stop
+ * at once" is always a stop request.
  */
 export const EVERYDAY_STOP_PHRASES: readonly string[] = [
   "STOP BY",
   "STOP IN",
   "STOP OVER",
+  "STOP AT",
   "WON'T STOP",
   "WONT STOP",
   "WILL NOT STOP",
 ];
 
-export const EVERYDAY_STOP_CONTACT_WORDS: readonly string[] = [
-  "TEXT",
-  "TEXTS",
-  "TEXTING",
-  "TXT",
-  "MESSAGE",
-  "MESSAGES",
-  "MESSAGING",
-  "MSG",
-  "SMS",
-  "CONTACT",
-  "CONTACTING",
-  "CALL",
-  "CALLING",
-  "CALLS",
-];
+/** The start of any word about contacting someone, and its inflections: TEXTED, MESSAGES, CALLING. */
+export const CONTACT_STEMS: readonly string[] = ["TEXT", "TXT", "MESSAG", "MSG", "SMS", "CALL", "CONTACT", "NUMBER"];
 
-// One template literal, not two joined with +: the production minifier folds
-// the joined form wrongly and drops the group's closing ")(?![A-Z0-9'])",
-// which leaves an unterminated group that throws when the module loads.
+// Each is one template literal, never pieces joined with +: the production
+// minifier once folded a joined pattern wrongly and dropped part of it.
 const everydayStopPattern = new RegExp(
-  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.join("|")})(?![A-Z0-9'])(?!(?:[^A-Z0-9']+[A-Z0-9']+){0,2}[^A-Z0-9']+(?:${EVERYDAY_STOP_CONTACT_WORDS.join("|")})(?![A-Z0-9']))`,
+  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.map((phrase) => (phrase === "STOP AT" ? "STOP +AT(?! +ONCE(?![A-Z0-9']))" : phrase.replace(/ /g, " +"))).join("|")})(?![A-Z0-9'])`,
   "g",
 );
+const contactStemPattern = new RegExp(`(?<![A-Z0-9'])(?:${CONTACT_STEMS.join("|")})`);
 
-// An apostrophe is part of a word only between two letters or digits, as in
-// DON'T; anywhere else it is a quotation mark.
-const quotationApostrophe = /'(?![A-Z0-9])|(?<![A-Z0-9])'/g;
-
-function foldApostrophes(upperCased: string) {
-  return upperCased.replace(/[‘’]/g, "'");
+/**
+ * The one form every match is made on, restated character for character by
+ * `consent_classify_reply` in the consent-ledger migration so the backfill
+ * reads a text exactly as the webhook does:
+ *
+ * 1. Unicode NFKC, so fullwidth and compatibility letters, quotes and brackets
+ *    become their plain forms.
+ * 2. Invisible format characters - zero-width spaces and joiners, the word
+ *    joiner, soft hyphens, direction marks, variation selectors - removed, so
+ *    "S\u200BTOP" is STOP.
+ * 3. Every line break (including U+0085, U+2028 and U+2029) becomes "\n", and
+ *    every other space character a plain space. An explicit set rather than
+ *    `\s`, which JavaScript and Postgres define differently.
+ * 4. Upper-cased, with curly and other apostrophe-like marks folded to "'",
+ *    and an apostrophe that is not between two letters or digits - a quotation
+ *    mark, as in 'stop' - turned into a separator. "DON'T" keeps its own.
+ *
+ * Everything else that is not A-Z, 0-9 or an in-word apostrophe is a
+ * separator wherever it is read below: any quote, bracket, asterisk, dash,
+ * punctuation mark or emoji wrapped around or between words.
+ */
+export function canonicalConsentText(body: string) {
+  return body
+    .normalize("NFKC")
+    .replace(/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0]/g, "")
+    .replace(/[\n\u000B\u000C\r\u0085\u2028\u2029]/g, "\n")
+    .replace(/[\t \u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, " ")
+    .toUpperCase()
+    .replace(/[\u2018\u2019\u201B\u02BC`\u2032]/g, "'")
+    .replace(/'(?![A-Z0-9])|(?<![A-Z0-9])'/g, ",");
 }
 
+/** The whole message as a keyword: separators folded to single spaces, trimmed. */
 export function normalizeConsentReply(body: string) {
-  return foldApostrophes(body.trim().toUpperCase())
-    .replace(quotationApostrophe, " ")
-    .replace(/[\s_-]+/g, " ")
-    .replace(/^[\s.,!?;:'"“”„‚()\[\]{}<>*…—–¡¿«»`~\/]+|[\s.,!?;:'"“”„‚()\[\]{}<>*…—–¡¿«»`~\/]+$/g, "");
+  return canonicalConsentText(body).replace(/[^A-Z0-9']+/g, " ").trim();
 }
 
 export function classifyConsentReply(body: string): ConsentKeyword {
-  const normalized = normalizeConsentReply(body);
+  const canonical = canonicalConsentText(body);
+  const normalized = canonical.replace(/[^A-Z0-9']+/g, " ").trim();
 
   if (REVOKE_KEYWORDS.includes(normalized)) {
     return "REVOKE";
@@ -335,21 +348,21 @@ export function classifyConsentReply(body: string): ConsentKeyword {
     return "YES";
   }
 
-  // Word boundaries on the padded text, so "STOPPED BY" and "NONSTOP" do not
-  // match STOP. Curly apostrophes are folded so "don’t text" reads like "don't",
-  // and a quotation mark is punctuation, so "I said 'stop'" finds STOP. An
-  // everyday phrase is matched before punctuation is folded and is marked with
-  // a lower-case x, which no upper-cased text contains and no list word matches.
-  const marked = foldApostrophes(body.toUpperCase())
-    .replace(quotationApostrophe, ",")
-    .replace(/[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+/g, " ")
-    .replace(everydayStopPattern, "x");
-  const padded = ` ${marked.replace(/[^A-Z0-9'x ]+/g, " ").replace(/ +/g, " ")} `;
+  // Everyday phrases are marked with a lower-case x, which no upper-cased
+  // text contains and no list word matches, so their STOP is not read as a
+  // request. Word boundaries come from the padding, so "STOPPED BY" and
+  // "NONSTOP" do not match STOP.
+  const masked = canonical.replace(everydayStopPattern, "x");
+  const padded = ` ${masked.replace(/[^A-Z0-9'x]+/g, " ")} `;
 
   if (
     REVIEW_WORDS.some((word) => padded.includes(` ${word} `)) ||
     REVIEW_PHRASES.some((phrase) => padded.includes(` ${phrase} `))
   ) {
+    return "REVIEW";
+  }
+
+  if (masked !== canonical && contactStemPattern.test(canonical)) {
     return "REVIEW";
   }
 

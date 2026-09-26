@@ -270,24 +270,27 @@ PR 1:
   rows, or a webhook row whose text is gone) are kept, saying where they came
   from. Backfilled ids are numbered in that order, so a tie at the same
   `occurredAt` resolves the same way every time.
+- Every text is read in one canonical form, identical in the webhook and the
+  backfill's SQL: Unicode NFKC, invisible format characters (zero-width
+  spaces and joiners, soft hyphens, direction marks) removed, every line
+  break (including U+0085 and U+2028) a line break and every other space a
+  space, upper-cased, and every quote, bracket, asterisk, dash, punctuation
+  mark or emoji a separator; an apostrophe belongs to a word only between two
+  letters or digits. So “STOP”, ‹CANCEL›, 「QUIT」, *STOP*, "STOP…",
+  "STOP 🛑" and "S\u200BTOP" revoke, and ‹START› grants. Where the rule has
+  to guess, it guesses stop request.
 - The review phrase list leaves out CANCEL, END and QUIT as words inside a
   longer text: they revoke as a whole message, but "cancel my appointment" and
   "end of the day" are a service inbox's ordinary business. STOP stays in it,
-  but not inside the everyday phrasings "stop by", "stop in", "stop over",
-  "won't stop", "wont stop" and "will not stop" ("my brakes will not stop").
-  Only the STOP inside each of those is passed over, so "stop by later, and
-  stop texting me" still goes to review; a whole-message STOP still revokes.
-  A phrase is not passed over when a contact word (text, texting, txt,
-  message, msg, sms, contact, call and their forms) is one of the next three
-  words, so "you won't stop texting me" goes to review. Its words count as one
-  phrase only with spaces or tabs between them, never punctuation or a line
-  break, so "Stop. In future call me" and "stop - at once" go to review.
-  "Stop at" is not on the list: "stop at once" is a stop request. An
-  apostrophe is part of a word only between two letters or digits, so a quoted
-  "'STOP'" revokes and "I said 'stop'" goes to review. Any punctuation,
-  quotes, brackets, dashes or symbols wrapped around a whole-message keyword
-  are dropped before it is matched, so “STOP”, (STOP), "STOP…" and "¡STOP!"
-  revoke; an emoji is not punctuation, so "STOP 🛑" goes to review.
+  except in the everyday phrasings "stop by", "stop in", "stop at", "stop
+  over", "won't stop", "wont stop" and "will not stop" ("can I stop at the
+  shop at 3", "my brakes will not stop"). Such a phrase lets a text through
+  only when nothing else in the whole message could be a stop request: no
+  other review word or phrase, and no contact word anywhere (text, txt,
+  message, msg, sms, call, contact, number and their forms), so "you won't
+  stop. You texted me again." goes to review. Its words join only across
+  spaces on one line, never punctuation or a line break ("Stop. In future
+  call me"), and "stop at once" is always a stop request.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
   the two seeded customers who never texted in. That happens once per

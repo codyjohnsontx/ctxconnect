@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { classifyConsentReply } from "../src/lib/consent";
-import { consentReplyCases as cases } from "./consent-reply-cases";
+import { type ConsentKeyword, GRANT_KEYWORDS, REVOKE_KEYWORDS, classifyConsentReply } from "../src/lib/consent";
+import { consentReplyCases, keywordVariantCases } from "./consent-reply-cases";
+
+const cases = [
+  ...consentReplyCases,
+  ...keywordVariantCases([
+    ...REVOKE_KEYWORDS.map((word): [string, ConsentKeyword] => [word, "REVOKE"]),
+    ...GRANT_KEYWORDS.map((word): [string, ConsentKeyword] => [word, "GRANT"]),
+    ["YES", "YES"],
+  ]),
+];
 
 // 47 CFR 64.1200(a)(10) names stop, quit, end, revoke, opt out, cancel and
 // unsubscribe as per se revocations of consent to texts. The webhook matched

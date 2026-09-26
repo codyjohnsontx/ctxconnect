@@ -140,46 +140,57 @@ BEFORE TRUNCATE ON "ConsentEvent"
 FOR EACH STATEMENT EXECUTE FUNCTION consent_event_no_truncate();
 
 -- `classifyConsentReply` in src/lib/consent.ts, restated in SQL so the backfill reads a text
--- exactly as the webhook does; tests/consent-cache.test.ts runs both over the same texts. Trim,
--- upper-case, fold runs of spaces, hyphens and underscores, drop the punctuation, quotes,
--- brackets, dashes and symbols around it and match the whole message against the keywords;
--- failing that, look for a review word or phrase anywhere in it. That is wider than the list
+-- exactly as the webhook does; tests/consent-cache.test.ts runs both over the same texts. Put the
+-- text in `canonicalConsentText`'s form, fold every separator to one space and match the whole
+-- message against the keywords; failing that, look for a review word or phrase anywhere in it,
+-- with the everyday STOP phrasings passed over only when no contact word appears anywhere in
+-- the message. Where the rule has to guess, it guesses stop request. That is wider than the list
 -- the webhook used until now, so a customer who texted "REVOKE", "OPT OUT" or "Stop." comes
 -- out opted out. That tightens, and it is what the FCC's per se list says.
 CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE
-    WHEN n.word IN ('STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT', 'OPT OUT') THEN 'REVOKE'
-    WHEN n.word IN ('START', 'UNSTOP') THEN 'GRANT'
-    WHEN n.word = 'YES' THEN 'YES'
+    WHEN k.word IN ('STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT', 'OPT OUT') THEN 'REVOKE'
+    WHEN k.word IN ('START', 'UNSTOP') THEN 'GRANT'
+    WHEN k.word = 'YES' THEN 'YES'
     WHEN EXISTS (
       SELECT 1
       FROM unnest(ARRAY[
         'STOP', 'STOPALL', 'UNSUBSCRIBE', 'REVOKE', 'OPTOUT', 'OPT OUT',
         'DONT TEXT', 'DON''T TEXT', 'DO NOT TEXT', 'NO MORE TEXTS', 'REMOVE ME', 'TAKE ME OFF', 'WRONG NUMBER'
       ]) AS review(phrase)
-      WHERE position(' ' || review.phrase || ' ' IN n.padded) > 0
+      WHERE position(' ' || review.phrase || ' ' IN k.padded) > 0
     ) THEN 'REVIEW'
+    WHEN k.masked <> k.canonical
+      AND k.canonical ~ '(?<![A-Z0-9''])(?:TEXT|TXT|MESSAG|MSG|SMS|CALL|CONTACT|NUMBER)' THEN 'REVIEW'
     ELSE 'NONE'
   END
   FROM (
     SELECT
-      regexp_replace(regexp_replace(regexp_replace(regexp_replace(
-        q.body,
-        '''(?![A-Z0-9])|(?<![A-Z0-9])''', ' ', 'g'),
-        '[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', ' ', 'g'),
-        '[\s_-]+', ' ', 'g'),
-        '^[\s.,!?;:''"“”„‚()\[\]{}<>*…—–¡¿«»`~/]+|[\s.,!?;:''"“”„‚()\[\]{}<>*…—–¡¿«»`~/]+$', '', 'g') AS word,
-      ' ' || regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
-        q.body,
-        '''(?![A-Z0-9])|(?<![A-Z0-9])''', ',', 'g'),
-        '[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+', ' ', 'g'),
-        '(?<![A-Z0-9''])(?:STOP BY|STOP IN|STOP OVER|WON''T STOP|WONT STOP|WILL NOT STOP)(?![A-Z0-9''])'
-          '(?!(?:[^A-Z0-9'']+[A-Z0-9'']+){0,2}[^A-Z0-9'']+'
-          '(?:TEXT|TEXTS|TEXTING|TXT|MESSAGE|MESSAGES|MESSAGING|MSG|SMS|CONTACT|CONTACTING|CALL|CALLING|CALLS)(?![A-Z0-9'']))', 'x', 'g'),
-        '[^A-Z0-9''x ]+', ' ', 'g'),
-        ' +', ' ', 'g') || ' ' AS padded
-    FROM (SELECT regexp_replace(upper(coalesce(body, '')), '[‘’]', '''', 'g') AS body) q
-  ) n
+      c.canonical,
+      m.masked,
+      btrim(regexp_replace(c.canonical, '[^A-Z0-9'']+', ' ', 'g')) AS word,
+      ' ' || regexp_replace(m.masked, '[^A-Z0-9''x]+', ' ', 'g') || ' ' AS padded
+    FROM (
+      -- canonicalConsentText: NFKC; invisible format characters removed; line breaks to "\n" and
+      -- every other space to " "; upper-cased; apostrophe-like marks folded to "'", and an
+      -- apostrophe that is not between two letters or digits made a separator.
+      SELECT regexp_replace(regexp_replace(upper(
+        regexp_replace(regexp_replace(regexp_replace(
+          normalize(coalesce(body, ''), NFKC),
+          '[­͏؜ᅟᅠ឴឵᠋-᠏​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]', '', 'g'),
+          '[\n\u000B\u000C\r\u0085  ]', E'\n', 'g'),
+          '[\t    -   　]', ' ', 'g')),
+        '[‘’‛ʼ`′]', '''', 'g'),
+        '''(?![A-Z0-9])|(?<![A-Z0-9])''', ',', 'g') AS canonical
+    ) c
+    CROSS JOIN LATERAL (
+      -- The everyday STOP phrases, marked with a lower-case x as `classifyConsentReply` marks them.
+      SELECT regexp_replace(
+        c.canonical,
+        '(?<![A-Z0-9''])(?:STOP +BY|STOP +IN|STOP +OVER|STOP +AT(?! +ONCE(?![A-Z0-9'']))|WON''T +STOP|WONT +STOP|WILL +NOT +STOP)(?![A-Z0-9''])',
+        'x', 'g') AS masked
+    ) m
+  ) k
 $$;
 
 -- Backfill. Every inbound text is classified by that function.

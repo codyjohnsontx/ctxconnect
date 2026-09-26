@@ -6,9 +6,10 @@ import { before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import {
-  GRANT_KEYWORDS,
-  EVERYDAY_STOP_CONTACT_WORDS,
+  CONTACT_STEMS,
+  type ConsentKeyword,
   EVERYDAY_STOP_PHRASES,
+  GRANT_KEYWORDS,
   REVIEW_PHRASES,
   REVIEW_WORDS,
   REVOKE_KEYWORDS,
@@ -24,7 +25,7 @@ import {
   Role,
   SmsConsentStatus,
 } from "../src/generated/prisma/enums";
-import { consentReplyCases } from "./consent-reply-cases";
+import { consentReplyCases, keywordVariantCases } from "./consent-reply-cases";
 
 // `Customer.smsConsent` is a cache of the ledger (decision 9): the badges read
 // it, so it must never say anything `consentState` over the customer's events
@@ -309,14 +310,25 @@ describe("the cached consent status", { skip: !databaseUrl && "TEST_DATABASE_URL
       ...REVIEW_WORDS,
       ...REVIEW_PHRASES,
       ...EVERYDAY_STOP_PHRASES,
-      ...EVERYDAY_STOP_CONTACT_WORDS,
+      ...CONTACT_STEMS,
     ];
     const texts = [
       ...consentReplyCases.map(([body]) => body),
+      ...keywordVariantCases([
+        ...REVOKE_KEYWORDS.map((word): [string, ConsentKeyword] => [word, "REVOKE"]),
+        ...GRANT_KEYWORDS.map((word): [string, ConsentKeyword] => [word, "GRANT"]),
+        ["YES", "YES"],
+      ]).map(([body]) => body),
       ...words.flatMap((word) => [word, word.toLowerCase(), ` ${word}. `, `please ${word.toLowerCase()} now`]),
-      ...EVERYDAY_STOP_PHRASES.flatMap((phrase) =>
-        EVERYDAY_STOP_CONTACT_WORDS.map((word) => `${phrase.toLowerCase()} and ${word.toLowerCase()}`),
-      ),
+      ...EVERYDAY_STOP_PHRASES.flatMap((phrase) => [
+        `can I ${phrase.toLowerCase()} later`,
+        `${phrase.toLowerCase()}\nat once`,
+        `${phrase.toLowerCase()} at once`,
+        ...CONTACT_STEMS.flatMap((stem) => [
+          `${phrase.toLowerCase()} and ${stem.toLowerCase()}`,
+          `${phrase.toLowerCase()}, then much later I ${stem.toLowerCase()}ed you`,
+        ]),
+      ]),
     ];
 
     const rows = await prisma.$queryRaw<Array<{ body: string; keyword: string }>>`
