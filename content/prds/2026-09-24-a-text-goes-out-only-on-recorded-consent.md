@@ -284,7 +284,10 @@ PR 1:
   break, so "Stop. In future call me" and "stop - at once" go to review.
   "Stop at" is not on the list: "stop at once" is a stop request. An
   apostrophe is part of a word only between two letters or digits, so a quoted
-  "'STOP'" revokes and "I said 'stop'" goes to review.
+  "'STOP'" revokes and "I said 'stop'" goes to review. Any punctuation,
+  quotes, brackets, dashes or symbols wrapped around a whole-message keyword
+  are dropped before it is matched, so “STOP”, (STOP), "STOP…" and "¡STOP!"
+  revoke; an emoji is not punctuation, so "STOP 🛑" goes to review.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
   the two seeded customers who never texted in. That happens once per
