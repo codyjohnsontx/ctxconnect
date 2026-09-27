@@ -269,9 +269,10 @@ export const REVIEW_PHRASES: readonly string[] = [
  * lets a text through as ordinary only when nothing else in the whole message
  * could be a stop request: no other review word or phrase, and no contact
  * word anywhere (`CONTACT_STEMS`), so "you won't stop texting me" and "you
- * won't stop. You texted me again." still ask for a person. Its words join only across spaces on one line, never punctuation or
- * a line break ("Stop. In future call me", "Stop\nAt this point"). "Stop at"
- * is not on the list: "stop at once" is a stop request.
+ * won't stop. You texted me again." still ask for a person. Its words join
+ * only across spaces on one line, never punctuation or a line break ("Stop.
+ * In future call me", "Stop\nAt this point"). "Stop at" is not on the list:
+ * "stop at once" is a stop request.
  */
 export const EVERYDAY_STOP_PHRASES: readonly string[] = [
   "STOP BY",
