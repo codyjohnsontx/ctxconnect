@@ -57,8 +57,9 @@ Confirm:
 - One open `Conversation`
 - One inbound `Message` with the inbound `MessageSid`
 - One active unassigned notification visible in `/command-center`
-- `/customers` shows `SMS ok`
-- `/inbox/<conversationId>` shows the inbound message and `Eligible to receive SMS`
+- One `ConsentEvent` (`GRANTED`, `CUSTOMER_TEXTED_FIRST`) naming the inbound message
+- `/customers` shows `Texting allowed`
+- `/inbox/<conversationId>` shows the inbound message and `Texting allowed since ... - they texted first`
 
 ### 2. Duplicate inbound replay
 
@@ -71,7 +72,7 @@ pnpm twilio:replay --url <public-url>/api/twilio/inbound \
   --field Body="Original body"
 ```
 
-Confirm HTTP `200` and no additional `Customer`, `Conversation`, `Message`, `OptInEvent`, or `Notification` rows.
+Confirm HTTP `200` and no additional `Customer`, `Conversation`, `Message`, `ConsentEvent`, or `Notification` rows.
 
 ### 3. STOP and START replay safety
 
@@ -79,8 +80,9 @@ Send a real `STOP` message, then a real `START` message from the same phone.
 
 Confirm:
 
-- `STOP` creates exactly one `OPT_OUT` event and flips the customer to opted out
-- `START` creates exactly one `OPT_IN` event and flips the customer back to opted in
+- `STOP` creates exactly one `ConsentEvent` (`REVOKED`, `KEYWORD_STOP`) and the customer reads `Opted out`
+- `START` creates exactly one `ConsentEvent` (`GRANTED`, `KEYWORD_START`) and the customer reads `Texting allowed`
+- An ordinary text between the two creates no `ConsentEvent` and the customer stays `Opted out`
 - Replaying either signed payload with the same `MessageSid` returns `200` and creates nothing extra
 
 ### 4. Signed but unusable inbound payload

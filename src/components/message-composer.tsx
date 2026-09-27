@@ -31,7 +31,8 @@ type MessageComposerProps = {
   unit: string | null;
   department: Department;
   templates: Template[];
-  disabled?: boolean;
+  /** Why Attend will not text this customer, or null when it will. */
+  consentBlock?: string | null;
   demoBlocked?: boolean;
   /** The last reply staff wrote that the customer never received, if any. */
   unsentBody?: string | null;
@@ -98,10 +99,11 @@ export function MessageComposer({
   unit,
   department,
   templates,
-  disabled,
+  consentBlock,
   demoBlocked,
   unsentBody,
 }: MessageComposerProps) {
+  const disabled = Boolean(consentBlock);
   const router = useRouter();
   // What she has typed here in this visit, or null while the box is still
   // showing whatever she left behind last time.
@@ -263,8 +265,8 @@ export function MessageComposer({
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
-              : disabled
-                ? "Customer is opted out of SMS."
+              : consentBlock
+                ? "Texting is blocked for this customer."
                 : "Type a customer message..."
           }
           disabled={disabled || demoBlocked || isPending}
@@ -291,10 +293,8 @@ export function MessageComposer({
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
         </p>
-      ) : disabled ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-          This customer has opted out with STOP. They must text START before staff can send again.
-        </p>
+      ) : consentBlock ? (
+        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{consentBlock}</p>
       ) : null}
       {/* Says out loud that leaving the thread is safe - the reassurance is
           most of the point - and it is what makes an already-filled box she

@@ -6,6 +6,7 @@ import {
   Department,
   MessageDirection,
   Priority,
+  SmsConsentStatus,
   TaskStatus,
 } from "@/generated/prisma/client";
 
@@ -19,7 +20,7 @@ export type AiOpsBriefInput = {
     subject: string | null;
     customer: {
       name: string;
-      smsOptedOut: boolean;
+      smsConsent: SmsConsentStatus;
       notes: string | null;
     };
     messages: Array<{
@@ -125,14 +126,21 @@ function normalizeInput(input: AiOpsBriefInput) {
   };
 }
 
+// A courtesy, not the enforcement: the send route refuses the text whatever
+// the brief suggests. It keeps the brief from drafting a reply nobody may send.
 function sanitizeSmsOptOut(input: AiOpsBriefInput, result: AiOpsBriefResult): AiOpsBriefResult {
-  if (!input.conversation.customer.smsOptedOut) {
+  const consent = input.conversation.customer.smsConsent;
+
+  if (consent === SmsConsentStatus.GRANTED) {
     return result;
   }
 
   return {
     ...result,
-    suggestedNextAction: "Use a non-SMS channel before any customer outreach because the customer is opted out.",
+    suggestedNextAction:
+      consent === SmsConsentStatus.REVOKED
+        ? "Use a non-SMS channel before any customer outreach because the customer is opted out."
+        : "Use a non-SMS channel before any customer outreach because there is no SMS consent on record.",
     suggestedReply: null,
   };
 }
@@ -281,7 +289,7 @@ export async function generateAiOpsBrief(input: AiOpsBriefInput): Promise<AiOpsB
                 "Use only facts present in the supplied conversation context.",
                 "Do not invent facts, promised actions, staff contact, customer contact, or outcomes.",
                 "Do not claim the customer was contacted unless a message shows it.",
-                "If the customer is opted out of SMS, suggestedReply must be null and suggestedNextAction must not recommend SMS.",
+                "If the customer's smsConsent is not GRANTED, suggestedReply must be null and suggestedNextAction must not recommend SMS.",
                 "Treat failed messages, SLA misses, urgent priority, high priority, and overdue follow-ups as risk signals.",
                 "Keep recommendations operational, specific, and human-approved.",
                 "Return structured output only.",

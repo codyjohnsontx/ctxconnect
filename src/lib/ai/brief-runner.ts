@@ -102,7 +102,7 @@ export async function loadConversationBriefContext(conversationId: string) {
       customer: {
         select: {
           name: true,
-          smsOptedOut: true,
+          smsConsent: true,
           notes: true,
         },
       },
@@ -210,7 +210,7 @@ export async function generateAndSaveBrief({
         subject: truncateForAi(conversation.subject, MAX_SUBJECT_CHARS),
         customer: {
           name: truncateForAi(conversation.customer.name, 120) ?? conversation.customer.name,
-          smsOptedOut: conversation.customer.smsOptedOut,
+          smsConsent: conversation.customer.smsConsent,
           notes: truncateForAi(conversation.customer.notes, MAX_CUSTOMER_NOTES_CHARS),
         },
         messages: [...conversation.messages].reverse().map((message) => ({

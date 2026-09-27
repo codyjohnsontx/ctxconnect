@@ -249,6 +249,11 @@ export async function getInboxData(user: AppUser, filters: InboxFilters, selecte
             customer: {
               include: {
                 vehicles: true,
+                // The event the cached consent status rests on, so the card can
+                // say since when and why.
+                smsConsentEvent: {
+                  select: { id: true, channel: true, kind: true, method: true, occurredAt: true, createdAt: true },
+                },
                 conversations: {
                   orderBy: { lastMessageAt: "desc" },
                   take: 6,
