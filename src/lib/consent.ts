@@ -265,20 +265,18 @@ export const REVIEW_PHRASES: readonly string[] = [
 
 /**
  * Everyday phrasings with STOP in them: "can I stop by Saturday", "I'll stop
- * in at 3", "stop at the shop", "stop over after work", "my brakes won't
- * stop". Such a phrase lets a text through as ordinary only when nothing else
- * in the whole message could be a stop request: no other review word or
- * phrase, and no contact word anywhere (`CONTACT_STEMS`), so "you won't stop
- * texting me" and "you won't stop. You texted me again." still ask for a
- * person. Its words join only across spaces on one line, never punctuation or
- * a line break ("Stop. In future call me", "Stop\nAt this point"), and "stop
- * at once" is always a stop request.
+ * in at 3", "stop over after work", "my brakes won't stop". Such a phrase
+ * lets a text through as ordinary only when nothing else in the whole message
+ * could be a stop request: no other review word or phrase, and no contact
+ * word anywhere (`CONTACT_STEMS`), so "you won't stop texting me" and "you
+ * won't stop. You texted me again." still ask for a person. Its words join only across spaces on one line, never punctuation or
+ * a line break ("Stop. In future call me", "Stop\nAt this point"). "Stop at"
+ * is not on the list: "stop at once" is a stop request.
  */
 export const EVERYDAY_STOP_PHRASES: readonly string[] = [
   "STOP BY",
   "STOP IN",
   "STOP OVER",
-  "STOP AT",
   "WON'T STOP",
   "WONT STOP",
   "WILL NOT STOP",
@@ -290,7 +288,7 @@ export const CONTACT_STEMS: readonly string[] = ["TEXT", "TXT", "MESSAG", "MSG",
 // Each is one template literal, never pieces joined with +: the production
 // minifier once folded a joined pattern wrongly and dropped part of it.
 const everydayStopPattern = new RegExp(
-  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.map((phrase) => (phrase === "STOP AT" ? "STOP +AT(?! +ONCE(?![A-Z0-9']))" : phrase.replace(/ /g, " +"))).join("|")})(?![A-Z0-9'])`,
+  `(?<![A-Z0-9'])(?:${EVERYDAY_STOP_PHRASES.map((phrase) => phrase.replace(/ /g, " +")).join("|")})(?![A-Z0-9'])`,
   "g",
 );
 const contactStemPattern = new RegExp(`(?<![A-Z0-9'])(?:${CONTACT_STEMS.join("|")})`);

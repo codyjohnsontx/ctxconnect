@@ -282,15 +282,16 @@ PR 1:
 - The review phrase list leaves out CANCEL, END and QUIT as words inside a
   longer text: they revoke as a whole message, but "cancel my appointment" and
   "end of the day" are a service inbox's ordinary business. STOP stays in it,
-  except in the everyday phrasings "stop by", "stop in", "stop at", "stop
-  over", "won't stop", "wont stop" and "will not stop" ("can I stop at the
-  shop at 3", "my brakes will not stop"). Such a phrase lets a text through
+  except in the everyday phrasings "stop by", "stop in", "stop over", "won't
+  stop", "wont stop" and "will not stop" ("can I stop by Saturday", "my
+  brakes will not stop"). Such a phrase lets a text through
   only when nothing else in the whole message could be a stop request: no
   other review word or phrase, and no contact word anywhere (text, txt,
   message, msg, sms, call, contact, number and their forms), so "you won't
   stop. You texted me again." goes to review. Its words join only across
   spaces on one line, never punctuation or a line break ("Stop. In future
-  call me"), and "stop at once" is always a stop request.
+  call me"). "Stop at" is not on the list: "stop at once" and "stop at this
+  point" are stop requests, so "can I stop at the shop at 3" goes to review.
 - The seed writes events the way the real writers do: the webhook's rule over
   each seeded text, and a staff-recorded consent (one verbal, one written) for
   the two seeded customers who never texted in. That happens once per

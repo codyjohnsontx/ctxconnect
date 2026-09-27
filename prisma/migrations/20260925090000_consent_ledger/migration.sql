@@ -187,7 +187,7 @@ CREATE FUNCTION consent_classify_reply(body text) RETURNS text LANGUAGE sql IMMU
       -- The everyday STOP phrases, marked with a lower-case x as `classifyConsentReply` marks them.
       SELECT regexp_replace(
         c.canonical,
-        '(?<![A-Z0-9''])(?:STOP +BY|STOP +IN|STOP +OVER|STOP +AT(?! +ONCE(?![A-Z0-9'']))|WON''T +STOP|WONT +STOP|WILL +NOT +STOP)(?![A-Z0-9''])',
+        '(?<![A-Z0-9''])(?:STOP +BY|STOP +IN|STOP +OVER|WON''T +STOP|WONT +STOP|WILL +NOT +STOP)(?![A-Z0-9''])',
         'x', 'g') AS masked
     ) m
   ) k
