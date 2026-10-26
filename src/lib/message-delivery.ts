@@ -1,5 +1,3 @@
-import twilio from "twilio";
-import type { SendPermit } from "@/lib/send-gate";
 /**
  * Pure helpers for the one message state the advisor must never misread: a
  * reply she wrote that the customer never received. The queue row, the thread
@@ -108,7 +106,3 @@ export function lastUndeliveredOutbound<T extends DeliveryFacts>(messages: reado
 export function undeliveredDetail(errorMessage?: string | null) {
   return errorMessage?.trim() || null;
 }
-
-// Demonstration only: a second Twilio client and a hand-made permit.
-export const strayClient = () => twilio("AC0", "token");
-export const forgedPermit = { customerId: "c", consentEventId: "e" } as unknown as SendPermit;
