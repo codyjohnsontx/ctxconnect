@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
-import { cachedConsentState, consentBlockMessage, describeConsent } from "@/lib/consent";
+import { cachedConsentState, describeConsent } from "@/lib/consent";
 import { handOffReasons } from "@/lib/conversation-controls-state";
 import { isUnnamedCustomer } from "@/lib/customer-identity";
 import type { AppUser, getInboxData } from "@/lib/data";
@@ -33,6 +33,7 @@ import {
   undeliveredDetail,
 } from "@/lib/message-delivery";
 import { type PreviewAuthor, previewAttribution } from "@/lib/message-preview";
+import type { SendBlock } from "@/lib/send-gate";
 import { CONVERSATION_PANEL_ATTRIBUTE } from "@/lib/thread-scroll";
 import { cn, formatPhone, labelize } from "@/lib/utils";
 
@@ -70,6 +71,8 @@ type InboxViewProps = InboxData & {
   searchParams: Record<string, string | undefined>;
   isDemo?: boolean;
   currentUser: AppUser;
+  /** The send gate's answer for the open thread, from `previewSendBlock`. */
+  sendBlock?: SendBlock | null;
 };
 
 // Origins that a conversation can be opened from, with the label/href for the
@@ -117,6 +120,7 @@ export function InboxView({
   searchParams,
   isDemo,
   currentUser,
+  sendBlock = null,
 }: InboxViewProps) {
   const selectedVehicle = selectedConversation?.customer.vehicles[0];
   // null rather than a stand-in word: a template that names the bike should ask
@@ -671,12 +675,7 @@ export function InboxView({
               unit={unit}
               department={selectedConversation.department}
               templates={templates}
-              consentBlock={consentBlockMessage(
-                selectedConversation.customer.smsConsent,
-                selectedConversation.messages
-                  .filter((message) => message.direction === MessageDirection.INBOUND)
-                  .map((message) => message.body),
-              )}
+              sendBlock={sendBlock}
               demoBlocked={isDemo}
               unsentBody={lastUndeliveredOutbound(selectedConversation.messages)?.body ?? null}
             />

@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { SendHorizonal } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
+import type { SendBlock } from "@/lib/send-gate";
 import { smsTooLong } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
 import type { Department } from "@/generated/prisma/client";
@@ -31,8 +33,8 @@ type MessageComposerProps = {
   unit: string | null;
   department: Department;
   templates: Template[];
-  /** Why Attend will not text this customer, or null when it will. */
-  consentBlock?: string | null;
+  /** Why the send gate will not let a text go to this customer, or null when it will. */
+  sendBlock?: SendBlock | null;
   demoBlocked?: boolean;
   /** The last reply staff wrote that the customer never received, if any. */
   unsentBody?: string | null;
@@ -99,11 +101,11 @@ export function MessageComposer({
   unit,
   department,
   templates,
-  consentBlock,
+  sendBlock,
   demoBlocked,
   unsentBody,
 }: MessageComposerProps) {
-  const disabled = Boolean(consentBlock);
+  const disabled = Boolean(sendBlock);
   const router = useRouter();
   // What she has typed here in this visit, or null while the box is still
   // showing whatever she left behind last time.
@@ -211,8 +213,9 @@ export function MessageComposer({
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         setError(payload?.error ?? "The message was not sent. Nothing reached the customer.");
-        // The send already recorded the attempt as undelivered, so refresh to put
-        // it in the thread where she will still see it after leaving this screen.
+        // Refresh either way: a failed send is in the thread as undelivered, and
+        // a refused one comes back as the block below, dated, with the draft
+        // still in the box.
         router.refresh();
         return;
       }
@@ -265,7 +268,7 @@ export function MessageComposer({
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
-              : consentBlock
+              : sendBlock
                 ? "Texting is blocked for this customer."
                 : "Type a customer message..."
           }
@@ -293,8 +296,23 @@ export function MessageComposer({
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
         </p>
-      ) : consentBlock ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{consentBlock}</p>
+      ) : sendBlock ? (
+        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+          {sendBlock.headline}
+          {sendBlock.at ? (
+            <>
+              {" on "}
+              <LocalTimestamp value={sendBlock.at} />
+            </>
+          ) : null}
+          .{" "}
+          {sendBlock.opensAt ? (
+            <>
+              Texting opens again <LocalTimestamp value={sendBlock.opensAt} />.{" "}
+            </>
+          ) : null}
+          {sendBlock.instruction}
+        </p>
       ) : null}
       {/* Says out loud that leaving the thread is safe - the reassurance is
           most of the point - and it is what makes an already-filled box she
@@ -311,7 +329,8 @@ export function MessageComposer({
           </button>
         </p>
       ) : null}
-      {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+      {/* Once the refreshed thread carries the block, it says the same thing with the date. */}
+      {error && !sendBlock ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
     </div>
   );
 }

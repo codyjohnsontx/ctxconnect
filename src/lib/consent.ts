@@ -188,27 +188,6 @@ export function describeConsent(state: Pick<ConsentState, "status" | "event">): 
 }
 
 /**
- * What the composer says when it will not send, or null when it will. A
- * customer with no consent whose texts were read as a possible stop request
- * has texted, so telling staff a text from them would start things is false.
- */
-export function consentBlockMessage(status: SmsConsentStatus, customerTexts: readonly string[]): string | null {
-  if (status === SmsConsentStatus.REVOKED) {
-    return "This customer opted out. They must text START before staff can send again. Call or email in the meantime.";
-  }
-
-  if (status === SmsConsentStatus.NONE && customerTexts.some((body) => classifyConsentReply(body) === "REVIEW")) {
-    return "Their text looks like it may be a stop request. A person needs to review it before the store can text them.";
-  }
-
-  if (status === SmsConsentStatus.NONE) {
-    return "No consent on record, so Attend will not text this customer. A text from them to the store starts the conversation.";
-  }
-
-  return null;
-}
-
-/**
  * What an inbound text says about consent, by the words alone.
  *
  * - `REVOKE`: one of the FCC's per se revocation words (47 CFR 64.1200(a)(10):

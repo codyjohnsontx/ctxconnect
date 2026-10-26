@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress - PR 1 of 5 (the consent ledger) built.
+In Progress - PRs 1 (the consent ledger) and 2 (the single choke point) of 5 built.
 
 ## Date
 
@@ -99,7 +99,7 @@ Five PRs, in order:
 1. **The consent ledger** (built). `ConsentEvent`, its enums, the cached status
    on `Customer`, the backfill, `src/lib/consent.ts`, the widened keyword rule,
    the seed, and every badge reading one description.
-2. **The single choke point.** One pure gate in front of the only Twilio send
+2. **The single choke point** (built). One pure gate in front of the only Twilio send
    call, a permit type only the gate can make, no Message row on a refusal, an
    `AuditLog` row instead, `Message.consentEventId`, Twilio 21610 recorded as a
    revocation, and the 18-month rule for business-initiated texts (decision 6).
@@ -302,6 +302,38 @@ PR 1:
   `REVOKED` or `NO_CONSENT`. The 18-month rule (decision 6) is PR 2's: the
   ledger already exposes when a grant was made, and the inbound-text half of
   the rule reads messages, not the ledger.
+
+PR 2:
+
+- `src/lib/send-gate.ts` is database-free: `decideSend` reads the ledger's
+  `consentState`, the clock, the recipient's zone, whether the text is a
+  `REPLY` or `INITIATED` (`classifyOutbound`) and a contact-window policy, and
+  returns a `SendPermit` or a refusal: `REVOKED`, `NO_CONSENT`, `LAPSED`
+  (decision 6) or `QUIET_HOURS`. The permit's brand is a symbol the module
+  never exports. `describeRefusal` is the composer's copy and replaces PR 1's
+  `consentBlockMessage`.
+- A reply answers the customer's newest text on the thread while it is newer
+  than the store's newest reply that did not fail and no more than 24 hours
+  old. A failed reply never reached them, so they are still owed one.
+- Decision 6 is checked only for `INITIATED` texts: the grant or the
+  customer's newest text on any thread must be within 18 calendar months
+  (UTC, clamped to the month's end). A reply always rests on a text from the
+  last day, so it cannot lapse.
+- Quiet hours are wired with `CONTACT_WINDOW = ALWAYS_OPEN`; PR 4 replaces that
+  one line. A reply already skips the window (decision 1b), and the recipient's
+  zone is the dealership's until `Customer.timeZone` exists.
+- `src/lib/sms-send.ts` `sendCustomerText` locks the customer row, reads the
+  ledger and the thread, and either writes the `Message` as `QUEUED` with
+  `consentEventId` or writes `AuditLog` `sms.send.blocked` (reason, user,
+  conversation, customer, body length) and returns 403. Twilio is called after
+  that commit. Anything thrown inside the transaction is a 503 with nothing
+  sent. On 21610 the queued row is deleted, a `REVOKED / PROVIDER_BLOCK` event
+  dated by the database clock is written, the refusal is audited, and the
+  advisor is told the carrier holds a STOP.
+- The thread page runs the same reads as a dry run (`previewSendBlock`) and
+  hands the composer `sendBlock`; the date in it is printed by
+  `LocalTimestamp` in the browser.
+- `Message.consentEventId` is nullable: texts sent before PR 2 name no grant.
 
 ## Portfolio Notes
 
