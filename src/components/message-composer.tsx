@@ -110,7 +110,7 @@ export function MessageComposer({
   // What she has typed here in this visit, or null while the box is still
   // showing whatever she left behind last time.
   const [edited, setEdited] = useState<Draft | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; deliveryUnknown: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // Whether this browser has actually kept anything. Held here and set from the
@@ -217,7 +217,10 @@ export function MessageComposer({
         } | null;
         // A response with no reason is not proof nothing went out, so this does
         // not claim it.
-        setError(payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.");
+        setError({
+          message: payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.",
+          deliveryUnknown: Boolean(payload?.deliveryUnknown),
+        });
 
         // Twilio may already have delivered it, so the draft goes rather than
         // waiting in the box for a second press.
@@ -341,8 +344,9 @@ export function MessageComposer({
           </button>
         </p>
       ) : null}
-      {/* Once the refreshed thread carries the block, it says the same thing with the date. */}
-      {error && !sendBlock ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+      {/* Once the refreshed thread carries the block, a refusal says the same thing with the date. A delivery
+          it cannot vouch for is not a refusal, so it stays whatever the block says. */}
+      {error && (!sendBlock || error.deliveryUnknown) ? <p className="mt-2 text-sm text-red-600">{error.message}</p> : null}
     </div>
   );
 }

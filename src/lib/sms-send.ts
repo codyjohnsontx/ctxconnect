@@ -265,11 +265,11 @@ async function sendSms(permit: SendPermit, to: string, body: string, transport: 
  * send is refused before it reaches Twilio.
  */
 async function recordCarrierBlock(target: SendTarget, messageId: string) {
-  return prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     await tx.message.delete({ where: { id: messageId } });
     await lockCustomerConsent(tx, target.conversation.customerId);
     const [{ learnedAt }] = await tx.$queryRaw<Array<{ learnedAt: Date }>>`SELECT clock_timestamp() AS "learnedAt"`;
-    const { event } = await recordConsentEvent(tx, {
+    await recordConsentEvent(tx, {
       customerId: target.conversation.customerId,
       kind: ConsentEventKind.REVOKED,
       method: ConsentMethod.PROVIDER_BLOCK,
@@ -277,9 +277,33 @@ async function recordCarrierBlock(target: SendTarget, messageId: string) {
       providerRef: String(TWILIO_UNSUBSCRIBED),
     });
     await auditBlocked(tx, target, "REVOKED", { carrierBlock: true });
-
-    return event;
   });
+}
+
+/** A text that did not go is marked so, and managers are told; the reply to her says so either way. */
+async function recordFailedSend(conversation: SendTarget["conversation"], messageId: string, error: string, detail: string) {
+  try {
+    await prisma.message.update({
+      where: { id: messageId },
+      data: { deliveryStatus: DeliveryStatus.FAILED, errorMessage: error },
+    });
+
+    await notifyManagers({
+      type: NotificationType.MESSAGE_FAILED,
+      title: "Message failed",
+      body: `${conversation.customer.name}: ${detail}`,
+      conversationId: conversation.id,
+      messageId,
+      department: conversation.department,
+      subjectPriority: conversation.priority,
+    });
+  } catch (writeError) {
+    console.error("A text that did not go could not be recorded as failed.", {
+      conversationId: conversation.id,
+      messageId,
+      error: writeError,
+    });
+  }
 }
 
 /**
@@ -342,23 +366,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
   // Compliance: production SMS traffic in the US requires approved A2P 10DLC
   // registration for the dealership brand/campaign before this route is used.
   if (!transport) {
-    await prisma.message.update({
-      where: { id: messageId },
-      data: {
-        deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: TEXTING_NOT_CONNECTED,
-      },
-    });
-
-    await notifyManagers({
-      type: NotificationType.MESSAGE_FAILED,
-      title: "Message failed",
-      body: `${conversation.customer.name}: texting is not connected for the dealership.`,
-      conversationId: conversation.id,
-      messageId,
-      department: conversation.department,
-      subjectPriority: conversation.priority,
-    });
+    await recordFailedSend(conversation, messageId, TEXTING_NOT_CONNECTED, "texting is not connected for the dealership.");
 
     return { status: 503, payload: { error: TEXTING_NOT_CONNECTED } };
   }
@@ -404,28 +412,30 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
   }
 
   if (sent.carrierBlock) {
-    const event = await recordCarrierBlock(target, messageId);
+    await recordCarrierBlock(target, messageId).catch(async (error) => {
+      console.error("Twilio refused a text for a carrier STOP and Attend could not record the STOP.", {
+        conversationId: conversation.id,
+        messageId,
+        error,
+      });
+      await prisma.message.delete({ where: { id: messageId } }).catch((deleteError) => {
+        console.error("A text the carrier refused could not be removed from the thread.", {
+          conversationId: conversation.id,
+          messageId,
+          error: deleteError,
+        });
+      });
+    });
 
-    return refused(describeRefusal({ reason: "REVOKED", opensAt: null }, { event, awaitingReview: false }));
+    return refused(
+      describeRefusal(
+        { reason: "REVOKED", opensAt: null },
+        { event: { method: ConsentMethod.PROVIDER_BLOCK, occurredAt: new Date() }, awaitingReview: false },
+      ),
+    );
   }
 
-  await prisma.message.update({
-    where: { id: messageId },
-    data: {
-      deliveryStatus: DeliveryStatus.FAILED,
-      errorMessage: sent.error,
-    },
-  });
-
-  await notifyManagers({
-    type: NotificationType.MESSAGE_FAILED,
-    title: "Message failed",
-    body: `${conversation.customer.name}: ${sent.error}`,
-    conversationId: conversation.id,
-    messageId,
-    department: conversation.department,
-    subjectPriority: conversation.priority,
-  });
+  await recordFailedSend(conversation, messageId, sent.error, sent.error);
 
   return { status: 502, payload: { error: sent.error } };
 }

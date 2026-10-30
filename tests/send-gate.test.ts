@@ -529,6 +529,24 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     assert.equal((await blockedAudits(conversation.id)).length, 2);
   });
 
+  it("still refuses with the carrier's STOP, leaving no Message, when recording the carrier block fails", async () => {
+    const { conversation } = await customerWhoTexted();
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        // The row the carrier-block transaction deletes first is already gone,
+        // so that transaction throws.
+        await prisma.message.deleteMany({ where: { conversationId: conversation.id, direction: MessageDirection.OUTBOUND } });
+        throw Object.assign(new Error("Attempt to send to unsubscribed recipient"), { code: 21610, status: 400 });
+      },
+    });
+
+    assert.equal(outcome.status, 403);
+    assert.equal(outcome.payload.reason, "REVOKED");
+    assert.match(String(outcome.payload.error), /carrier record shows a STOP/);
+    assert.deepEqual(await outboundRows(conversation.id), []);
+  });
+
   it("tells her delivery is unknown, not that nothing went, when Twilio took the text but the write after failed", async () => {
     const { conversation } = await customerWhoTexted();
     let calls = 0;
