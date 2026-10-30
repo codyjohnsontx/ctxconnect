@@ -425,6 +425,13 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
           error: deleteError,
         });
       });
+      await auditBlocked(prisma, target, "REVOKED", { carrierBlock: true, stopRecorded: false }).catch((auditError) => {
+        console.error("A text the carrier refused could not be audited.", {
+          conversationId: conversation.id,
+          messageId,
+          error: auditError,
+        });
+      });
     });
 
     return refused(

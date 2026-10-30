@@ -529,22 +529,40 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     assert.equal((await blockedAudits(conversation.id)).length, 2);
   });
 
-  it("still refuses with the carrier's STOP, leaving no Message, when recording the carrier block fails", async () => {
-    const { conversation } = await customerWhoTexted();
+  it("still refuses with the carrier's STOP, leaving no Message and one audit row, when recording the carrier block fails", async () => {
+    const { customer, conversation } = await customerWhoTexted();
+    const refuseLedger = `test_refuse_ledger_${suffix}_${count}`;
 
-    const outcome = await smsSend.sendCustomerText(target(conversation), {
-      transport: async () => {
-        // The row the carrier-block transaction deletes first is already gone,
-        // so that transaction throws.
-        await prisma.message.deleteMany({ where: { conversationId: conversation.id, direction: MessageDirection.OUTBOUND } });
-        throw Object.assign(new Error("Attempt to send to unsubscribed recipient"), { code: 21610, status: 400 });
-      },
-    });
+    try {
+      const outcome = await smsSend.sendCustomerText(target(conversation), {
+        transport: async () => {
+          // The outbound row is still there; the ledger write after its delete
+          // fails, so the carrier-block transaction rolls back with it.
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "ConsentEvent" ADD CONSTRAINT "${refuseLedger}" CHECK ("customerId" <> '${customer.id}') NOT VALID`,
+          );
+          throw Object.assign(new Error("Attempt to send to unsubscribed recipient"), { code: 21610, status: 400 });
+        },
+      });
 
-    assert.equal(outcome.status, 403);
-    assert.equal(outcome.payload.reason, "REVOKED");
-    assert.match(String(outcome.payload.error), /carrier record shows a STOP/);
-    assert.deepEqual(await outboundRows(conversation.id), []);
+      assert.equal(outcome.status, 403);
+      assert.equal(outcome.payload.reason, "REVOKED");
+      assert.match(String(outcome.payload.error), /carrier record shows a STOP/);
+      assert.deepEqual(await outboundRows(conversation.id), []);
+
+      const audits = await blockedAudits(conversation.id);
+      assert.equal(audits.length, 1);
+      assert.deepEqual(
+        {
+          reason: (audits[0].metadata as { reason?: string }).reason,
+          carrierBlock: (audits[0].metadata as { carrierBlock?: boolean }).carrierBlock,
+          stopRecorded: (audits[0].metadata as { stopRecorded?: boolean }).stopRecorded,
+        },
+        { reason: "REVOKED", carrierBlock: true, stopRecorded: false },
+      );
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "ConsentEvent" DROP CONSTRAINT IF EXISTS "${refuseLedger}"`);
+    }
   });
 
   it("tells her delivery is unknown, not that nothing went, when Twilio took the text but the write after failed", async () => {
