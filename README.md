@@ -11,7 +11,8 @@ next action, and ranks the inbox by what actually needs attention, not
 simply by which message arrived last.
 
 **Live:** <https://ctxconnect.vercel.app>. The `View demo` button on the login
-page signs in as the demo service advisor in one click.
+page signs in as the demo service advisor in one click once the Cloudflare
+Turnstile bot check passes; the button stays disabled until it does.
 
 ## What it includes
 
@@ -53,7 +54,7 @@ pnpm prisma:generate
 pnpm test
 ```
 
-`pnpm test` runs the 34 `tests/*.test.ts` files with Node's built-in test runner.
+`pnpm test` runs the 36 `tests/*.test.ts` files with Node's built-in test runner.
 The Prisma client has to be generated first, because the tests import it; no
 database is needed. Suites that need a real Postgres read `TEST_DATABASE_URL` and
 skip when it is unset.
