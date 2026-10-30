@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import { DeliveryStatus } from "@/generated/prisma/client";
+import { getTwilioConfig } from "@/lib/env";
 
 const TWILIO_SIGNATURE_HEADER = "x-twilio-signature";
 
@@ -29,7 +30,7 @@ function logTwilioWebhook(level: "warn" | "error", event: string, details: Recor
 }
 
 export async function verifyTwilioWebhook(request: Request, route: "inbound" | "status"): Promise<VerifiedTwilioWebhook> {
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const { authToken } = getTwilioConfig();
 
   if (!authToken) {
     logTwilioWebhook("error", "missing-auth-token", {

@@ -305,13 +305,17 @@ model Message {
   /// Only internal notes are ever marked; it is what lets the breach rule tell
   /// "somebody did something about this customer" from its own bookkeeping.
   systemGenerated Boolean          @default(false)
+  /// The grant a text Attend sent relied on, set by the send gate when it
+  /// writes the row; null for every other row, and for texts sent before it.
+  consentEventId  String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender        User?          @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
   notifications Notification[]
-  consentEvents ConsentEvent[]
+  consentEvents ConsentEvent[] @relation("ConsentEvidence")
+  consentEvent  ConsentEvent?  @relation("SentOnConsent", fields: [consentEventId], references: [id], onDelete: Restrict)
 
   @@index([conversationId, createdAt])
 }
@@ -416,9 +420,11 @@ model ConsentEvent {
   providerRef      String?
 
   customer   Customer  @relation("CustomerConsentEvents", fields: [customerId], references: [id], onDelete: Restrict)
-  message    Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  message    Message?  @relation("ConsentEvidence", fields: [messageId], references: [id], onDelete: SetNull)
   recordedBy User?     @relation("RecordedConsentEvents", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   currentFor Customer? @relation("CustomerCurrentConsent")
+  // The texts Attend sent on this grant.
+  sentOn     Message[] @relation("SentOnConsent")
 
   @@index([customerId, occurredAt])
   @@index([phone, occurredAt])

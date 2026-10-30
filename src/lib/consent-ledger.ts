@@ -53,7 +53,7 @@ export async function recordConsentEvent(tx: Prisma.TransactionClient, input: Co
     throw new Error(`A ${input.method} consent event needs the person recording it and the evidence.`);
   }
 
-  await tx.$executeRaw`SELECT 1 FROM "Customer" WHERE "id" = ${input.customerId} FOR UPDATE`;
+  await lockCustomerConsent(tx, input.customerId);
 
   const customer = await tx.customer.findUniqueOrThrow({
     where: { id: input.customerId },
@@ -90,9 +90,17 @@ export async function recordConsentEvent(tx: Prisma.TransactionClient, input: Co
   return { event, state };
 }
 
+/**
+ * The lock every consent writer and reader that acts on the answer takes: the
+ * customer's row, held to the end of the caller's transaction.
+ */
+export async function lockCustomerConsent(tx: Prisma.TransactionClient, customerId: string) {
+  await tx.$executeRaw`SELECT 1 FROM "Customer" WHERE "id" = ${customerId} FOR UPDATE`;
+}
+
 /** The status a customer is at right now, read under the same lock the writer takes. */
 export async function lockedConsentStatus(tx: Prisma.TransactionClient, customerId: string) {
-  await tx.$executeRaw`SELECT 1 FROM "Customer" WHERE "id" = ${customerId} FOR UPDATE`;
+  await lockCustomerConsent(tx, customerId);
 
   const customer = await tx.customer.findUniqueOrThrow({
     where: { id: customerId },
