@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import {
   type ConsentEventFacts,
   cachedConsentState,
-  consentBlockMessage,
   consentMethodRules,
   consentState,
   describeConsent,
@@ -173,23 +172,5 @@ describe("describeConsent", () => {
 
     assert.deepEqual(describeConsent(fromCache), describeConsent(fromLedger));
     assert.equal(describeConsent(cachedConsentState({ smsConsent: SmsConsentStatus.GRANTED })).label, "Texting allowed");
-  });
-
-  it("blocks the composer for everything but a grant", () => {
-    assert.equal(consentBlockMessage(SmsConsentStatus.GRANTED, []), null);
-    assert.match(consentBlockMessage(SmsConsentStatus.REVOKED, []) ?? "", /START/);
-    assert.match(consentBlockMessage(SmsConsentStatus.NONE, []) ?? "", /No consent on record/);
-  });
-
-  it("says a customer whose text may be a stop request is waiting on review, not that they never texted", () => {
-    const reviewText = "please don't stop working on the carb, I need it Saturday";
-    const waiting = consentBlockMessage(SmsConsentStatus.NONE, [reviewText]) ?? "";
-
-    assert.match(waiting, /may be a stop request/);
-    assert.match(waiting, /review/);
-    assert.doesNotMatch(waiting, /starts the conversation/);
-    assert.match(consentBlockMessage(SmsConsentStatus.NONE, ["yesterday"]) ?? "", /No consent on record/);
-    assert.match(consentBlockMessage(SmsConsentStatus.REVOKED, [reviewText]) ?? "", /START/);
-    assert.equal(consentBlockMessage(SmsConsentStatus.GRANTED, [reviewText]), null);
   });
 });

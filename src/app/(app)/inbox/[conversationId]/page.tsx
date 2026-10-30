@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { InboxView } from "@/components/inbox-view";
 import { getInboxData } from "@/lib/data";
 import { requireUser } from "@/lib/session";
+import { previewSendBlock } from "@/lib/sms-send";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,13 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     notFound();
   }
 
+  // The gate's dry run, from the same reads the send makes; the send decides again.
+  // It does not throw: a failed read comes back as a block, never as allowed.
+  const sendBlock = await previewSendBlock({
+    customerId: data.selectedConversation.customerId,
+    conversationId,
+  });
+
   return (
     <InboxView
       {...data}
@@ -31,6 +39,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
       searchParams={query}
       isDemo={Boolean(user.isDemo)}
       currentUser={user}
+      sendBlock={sendBlock}
     />
   );
 }

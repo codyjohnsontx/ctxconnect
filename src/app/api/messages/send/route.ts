@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
-import twilio from "twilio";
 import { z } from "zod";
-import { getTwilioConfig } from "@/lib/env";
-import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
-import { prisma } from "@/lib/prisma";
 import { smsTooLong } from "@/lib/sms-length";
-import { DeliveryStatus, MessageDirection, MessageKind, NotificationType, SmsConsentStatus } from "@/generated/prisma/client";
-import { consentBlockMessage } from "@/lib/consent";
+import { sendCustomerText } from "@/lib/sms-send";
 import { requireConversationAccess } from "@/lib/permissions";
-import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
 import { getActiveSessionUser } from "@/lib/session";
 
 // The length limit is checked after parsing rather than inside the schema, so a
@@ -66,112 +60,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to load conversation." }, { status: 500 });
   }
 
-  // Only a recorded grant sends. NONE is refused as firmly as a STOP: a row
-  // with no consent event has no reason on record to be texted. The full gate
-  // (quiet hours, the 18-month rule for texts the store starts) builds on this.
-  if (conversation.customer.smsConsent !== SmsConsentStatus.GRANTED) {
-    const customerTexts = await prisma.message.findMany({
-      where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
-      select: { body: true },
-    });
+  // Everything past the access guard - the consent gate, the write it
+  // licenses and the one call to Twilio - is the single send path.
+  const outcome = await sendCustomerText({ userId: user.id, conversation, body: parsed.data.body });
 
-    return NextResponse.json(
-      {
-        error: consentBlockMessage(
-          conversation.customer.smsConsent,
-          customerTexts.map((text) => text.body),
-        ),
-        reason: conversation.customer.smsConsent === SmsConsentStatus.REVOKED ? "REVOKED" : "NO_CONSENT",
-      },
-      { status: 403 },
-    );
-  }
-
-  const message = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      senderUserId: user.id,
-      direction: MessageDirection.OUTBOUND,
-      kind: MessageKind.SMS,
-      body: parsed.data.body,
-      deliveryStatus: DeliveryStatus.QUEUED,
-    },
-  });
-
-  const { accountSid, authToken, phoneNumber, messagingServiceSid, isConfigured } = getTwilioConfig();
-
-  // Compliance: production SMS traffic in the US requires approved A2P 10DLC
-  // registration for the dealership brand/campaign before this route is used.
-  if (!isConfigured || !accountSid || !authToken) {
-    await prisma.message.update({
-      where: { id: message.id },
-      data: {
-        deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage: TEXTING_NOT_CONNECTED,
-      },
-    });
-
-    await notifyManagers({
-      type: NotificationType.MESSAGE_FAILED,
-      title: "Message failed",
-      body: `${conversation.customer.name}: texting is not connected for the dealership.`,
-      conversationId: conversation.id,
-      messageId: message.id,
-      department: conversation.department,
-      subjectPriority: conversation.priority,
-    });
-
-    return NextResponse.json({ error: TEXTING_NOT_CONNECTED }, { status: 503 });
-  }
-
-  try {
-    const client = twilio(accountSid, authToken);
-    const sent = await client.messages.create({
-      body: parsed.data.body,
-      to: conversation.customer.phone,
-      ...(messagingServiceSid ? { messagingServiceSid } : { from: phoneNumber }),
-    });
-
-    await prisma.$transaction([
-      prisma.message.update({
-        where: { id: message.id },
-        data: {
-          deliveryStatus: DeliveryStatus.SENT,
-          twilioSid: sent.sid,
-        },
-      }),
-      prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: new Date(),
-          unread: false,
-        },
-      }),
-    ]);
-
-    await resolveConversationNotifications(conversation.id, [NotificationType.SLA_MISSED]);
-
-    return NextResponse.json({ ok: true, messageId: message.id, twilioSid: sent.sid });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Twilio send failed.";
-    await prisma.message.update({
-      where: { id: message.id },
-      data: {
-        deliveryStatus: DeliveryStatus.FAILED,
-        errorMessage,
-      },
-    });
-
-    await notifyManagers({
-      type: NotificationType.MESSAGE_FAILED,
-      title: "Message failed",
-      body: `${conversation.customer.name}: ${errorMessage}`,
-      conversationId: conversation.id,
-      messageId: message.id,
-      department: conversation.department,
-      subjectPriority: conversation.priority,
-    });
-
-    return NextResponse.json({ error: errorMessage }, { status: 502 });
-  }
+  return NextResponse.json(outcome.payload, { status: outcome.status });
 }

@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { SendHorizonal } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { LocalTimestamp } from "@/components/local-timestamp";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
+import type { SendBlock } from "@/lib/send-gate";
 import { smsTooLong } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
 import type { Department } from "@/generated/prisma/client";
@@ -31,8 +33,8 @@ type MessageComposerProps = {
   unit: string | null;
   department: Department;
   templates: Template[];
-  /** Why Attend will not text this customer, or null when it will. */
-  consentBlock?: string | null;
+  /** Why the send gate will not let a text go to this customer, or null when it will. */
+  sendBlock?: SendBlock | null;
   demoBlocked?: boolean;
   /** The last reply staff wrote that the customer never received, if any. */
   unsentBody?: string | null;
@@ -99,16 +101,16 @@ export function MessageComposer({
   unit,
   department,
   templates,
-  consentBlock,
+  sendBlock,
   demoBlocked,
   unsentBody,
 }: MessageComposerProps) {
-  const disabled = Boolean(consentBlock);
+  const disabled = Boolean(sendBlock);
   const router = useRouter();
   // What she has typed here in this visit, or null while the box is still
   // showing whatever she left behind last time.
   const [edited, setEdited] = useState<Draft | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; deliveryUnknown: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // Whether this browser has actually kept anything. Held here and set from the
@@ -209,10 +211,26 @@ export function MessageComposer({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? "The message was not sent. Nothing reached the customer.");
-        // The send already recorded the attempt as undelivered, so refresh to put
-        // it in the thread where she will still see it after leaving this screen.
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          deliveryUnknown?: boolean;
+        } | null;
+        // A response with no reason is not proof nothing went out, so this does
+        // not claim it.
+        setError({
+          message: payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.",
+          deliveryUnknown: Boolean(payload?.deliveryUnknown),
+        });
+
+        // Twilio may already have delivered it, so the draft goes rather than
+        // waiting in the box for a second press.
+        if (payload?.deliveryUnknown) {
+          commitDraft(EMPTY_DRAFT);
+        }
+
+        // Refresh either way: a failed send is in the thread as undelivered, and
+        // a refused one comes back as the block below, dated, with the draft
+        // still in the box.
         router.refresh();
         return;
       }
@@ -265,7 +283,7 @@ export function MessageComposer({
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
-              : consentBlock
+              : sendBlock
                 ? "Texting is blocked for this customer."
                 : "Type a customer message..."
           }
@@ -293,8 +311,23 @@ export function MessageComposer({
         <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
           Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
         </p>
-      ) : consentBlock ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{consentBlock}</p>
+      ) : sendBlock ? (
+        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+          {sendBlock.headline}
+          {sendBlock.at ? (
+            <>
+              {" on "}
+              <LocalTimestamp value={sendBlock.at} />
+            </>
+          ) : null}
+          .{" "}
+          {sendBlock.opensAt ? (
+            <>
+              Texting opens again <LocalTimestamp value={sendBlock.opensAt} />.{" "}
+            </>
+          ) : null}
+          {sendBlock.instruction}
+        </p>
       ) : null}
       {/* Says out loud that leaving the thread is safe - the reassurance is
           most of the point - and it is what makes an already-filled box she
@@ -311,7 +344,9 @@ export function MessageComposer({
           </button>
         </p>
       ) : null}
-      {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+      {/* Once the refreshed thread carries the block, a refusal says the same thing with the date. A delivery
+          it cannot vouch for is not a refusal, so it stays whatever the block says. */}
+      {error && (!sendBlock || error.deliveryUnknown) ? <p className="mt-2 text-sm text-red-600">{error.message}</p> : null}
     </div>
   );
 }
