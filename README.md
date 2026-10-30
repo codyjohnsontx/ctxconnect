@@ -10,6 +10,9 @@ An ambient AI layer summarizes conversations as they evolve, identifies the
 next action, and ranks the inbox by what actually needs attention, not
 simply by which message arrived last.
 
+**Live:** <https://ctxconnect.vercel.app>. The `View demo` button on the login
+page signs in as the demo service advisor in one click.
+
 ## What it includes
 
 - Shared customer texting across the dealership
@@ -37,9 +40,32 @@ Screens below show the local demo UI, signed in as the service advisor.
 - `Neon Postgres`
 - `Auth.js` credentials login
 - `Twilio` SMS/MMS route structure
+- `OpenAI` for the AI ops briefs
+- `node:test` (run through `tsx`) for the test suite
 - `Vercel` for local/preview/production deployment targets
 
 Route-by-route auth and API contracts are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Tests
+
+```bash
+pnpm prisma:generate
+pnpm test
+```
+
+`pnpm test` runs the 34 `tests/*.test.ts` files with Node's built-in test runner.
+The Prisma client has to be generated first, because the tests import it; no
+database is needed. Suites that need a real Postgres read `TEST_DATABASE_URL` and
+skip when it is unset.
+
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every pull
+request and every push to `main`, and runs the suite twice:
+
+- the `verify` job runs lint, typecheck and the tests with no database, so the
+  Postgres suites skip;
+- the `build` job runs `pnpm build` (including `prisma migrate deploy`) against a
+  fresh Postgres container, then runs the whole suite again against that
+  migrated database with `TEST_DATABASE_URL` set.
 
 ## Environment Contract
 
