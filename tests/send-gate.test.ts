@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 import { Client } from "pg";
 import { type ConsentEventFacts, type ConsentState, consentState } from "../src/lib/consent";
@@ -527,6 +528,53 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     const again = await smsSend.sendCustomerText(target(conversation), { transport: mustNotSend });
     assert.equal(again.status, 403);
     assert.equal((await blockedAudits(conversation.id)).length, 2);
+  });
+
+  it("tells her delivery is unknown, not that nothing went, when Twilio took the text but the write after failed", async () => {
+    const { conversation } = await customerWhoTexted();
+    let calls = 0;
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        calls += 1;
+        // Twilio has accepted it; then the row the send would mark SENT is gone,
+        // so the write recording the send throws.
+        await prisma.message.deleteMany({ where: { conversationId: conversation.id, direction: MessageDirection.OUTBOUND } });
+        return { sid: `SMlost${suffix}${count}` };
+      },
+    });
+
+    assert.equal(calls, 1);
+    assert.equal(outcome.status, 500);
+    assert.equal(outcome.payload.deliveryUnknown, true);
+    assert.equal(outcome.payload.error, smsSend.DELIVERY_UNKNOWN);
+    assert.match(String(outcome.payload.error), /Delivery unknown/);
+    assert.doesNotMatch(String(outcome.payload.error), /Nothing reached|was not sent/);
+
+    // The composer clears the draft on that answer instead of inviting a second
+    // press, and no longer claims nothing reached the customer when it has no reason.
+    const composer = readFileSync(new URL("../src/components/message-composer.tsx", import.meta.url), "utf8");
+    assert.match(composer, /if \(payload\?\.deliveryUnknown\) \{\s*commitDraft\(EMPTY_DRAFT\);/);
+    assert.doesNotMatch(composer, /Nothing reached the customer/);
+  });
+
+  it("shows sending as blocked, never allowed, when the composer's preview cannot read the ledger", async () => {
+    const { customer, conversation } = await customerWhoTexted();
+    const thread = { customerId: customer.id, conversationId: conversation.id };
+    const unreadable = {
+      consentEvent: {
+        findMany: async () => {
+          throw new Error("Connection terminated unexpectedly");
+        },
+      },
+    };
+
+    assert.equal(await smsSend.previewSendBlock(thread), null);
+
+    const block = await smsSend.previewSendBlock(thread, unreadable as never);
+    assert.deepEqual(block, smsSend.PREVIEW_UNREADABLE);
+    assert.equal(block?.reason, "UNREADABLE");
+    assert.ok(block?.headline && block.instruction);
   });
 
   it("sends nothing when the ledger cannot be read", async () => {

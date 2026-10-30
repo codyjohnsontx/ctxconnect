@@ -211,8 +211,20 @@ export function MessageComposer({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? "The message was not sent. Nothing reached the customer.");
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          deliveryUnknown?: boolean;
+        } | null;
+        // A response with no reason is not proof nothing went out, so this does
+        // not claim it.
+        setError(payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.");
+
+        // Twilio may already have delivered it, so the draft goes rather than
+        // waiting in the box for a second press.
+        if (payload?.deliveryUnknown) {
+          commitDraft(EMPTY_DRAFT);
+        }
+
         // Refresh either way: a failed send is in the thread as undelivered, and
         // a refused one comes back as the block below, dated, with the draft
         // still in the box.

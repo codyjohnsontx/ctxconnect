@@ -160,7 +160,8 @@ export function decideSend(input: SendGateInput): SendDecision {
  * (see `src/lib/dealership-day.ts`); `opensAt` is when quiet hours end.
  */
 export type SendBlock = {
-  reason: SendRefusal;
+  /** `UNREADABLE` is no refusal of the gate's: the composer's preview could not ask it. */
+  reason: SendRefusal | "UNREADABLE";
   headline: string;
   at: Date | null;
   instruction: string;

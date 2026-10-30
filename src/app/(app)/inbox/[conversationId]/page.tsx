@@ -26,6 +26,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   }
 
   // The gate's dry run, from the same reads the send makes; the send decides again.
+  // It does not throw: a failed read comes back as a block, never as allowed.
   const sendBlock = await previewSendBlock({
     customerId: data.selectedConversation.customerId,
     conversationId,

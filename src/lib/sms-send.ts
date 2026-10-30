@@ -60,6 +60,10 @@ export const TWILIO_UNSUBSCRIBED = 21610;
 export const CONSENT_UNREADABLE =
   "Attend could not read this customer's consent record, so nothing was sent. Try again in a moment.";
 
+/** Twilio accepted the text and the write recording that failed, so whether it arrived is not known here. */
+export const DELIVERY_UNKNOWN =
+  "Delivery unknown: Twilio accepted this text, but Attend could not record it as sent, so it may already have reached the customer. Do not send it again until you know it did not.";
+
 export type SmsTransport = (message: { to: string; body: string }) => Promise<{ sid: string }>;
 
 export type SendTarget = {
@@ -154,15 +158,39 @@ async function blockFor(
   return describeRefusal(refusal, { event: consent.event, awaitingReview });
 }
 
+/** What the composer shows when the preview could not read the gate's inputs. */
+export const PREVIEW_UNREADABLE: SendBlock = {
+  reason: "UNREADABLE",
+  headline: "Attend could not read this customer's consent record",
+  at: null,
+  instruction: "Sending stays off until it can. Reload the page to try again.",
+  opensAt: null,
+};
+
 /**
  * What the composer will be told if she presses Send, from the same reads the
  * send makes, for the thread page to render before she types. The send itself
  * decides again; this only saves her writing a text that cannot go.
+ *
+ * It fails closed and soft: a read that throws keeps the composer shut rather
+ * than taking the thread page down with it, and never reads as allowed, which
+ * is what `null` means. `db` exists only for tests/send-gate.test.ts.
  */
-export async function previewSendBlock(target: { customerId: string; conversationId: string }) {
-  const { decision, consent } = await readGate(prisma, target, new Date());
+export async function previewSendBlock(
+  target: { customerId: string; conversationId: string },
+  db: Prisma.TransactionClient = prisma,
+): Promise<SendBlock | null> {
+  try {
+    const { decision, consent } = await readGate(db, target, new Date());
 
-  return decision.allowed ? null : blockFor(prisma, decision, consent, target.conversationId);
+    return decision.allowed ? null : await blockFor(db, decision, consent, target.conversationId);
+  } catch (error) {
+    console.error("The send gate's preview could not read the consent record; sending is shown as blocked.", {
+      conversationId: target.conversationId,
+      error,
+    });
+    return PREVIEW_UNREADABLE;
+  }
 }
 
 async function auditBlocked(
@@ -338,24 +366,39 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
   const sent = await sendSms(permit, conversation.customer.phone, body, transport);
 
   if (sent.ok) {
-    await prisma.$transaction([
-      prisma.message.update({
-        where: { id: messageId },
-        data: {
-          deliveryStatus: DeliveryStatus.SENT,
-          twilioSid: sent.sid,
-        },
-      }),
-      prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: new Date(),
-          unread: false,
-        },
-      }),
-    ]);
+    try {
+      await prisma.$transaction([
+        prisma.message.update({
+          where: { id: messageId },
+          data: {
+            deliveryStatus: DeliveryStatus.SENT,
+            twilioSid: sent.sid,
+          },
+        }),
+        prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: new Date(),
+            unread: false,
+          },
+        }),
+      ]);
+    } catch (error) {
+      // Twilio has the text, so "not sent" would be a lie that invites her to
+      // send it twice. The row stays QUEUED with no sid to reconcile it by.
+      console.error("Twilio accepted a text but Attend could not record it as sent.", {
+        conversationId: conversation.id,
+        messageId,
+        twilioSid: sent.sid,
+        error,
+      });
+      return { status: 500, payload: { error: DELIVERY_UNKNOWN, deliveryUnknown: true, messageId } };
+    }
 
-    await resolveConversationNotifications(conversation.id, [NotificationType.SLA_MISSED]);
+    // The text went and is recorded; a stale alert is not worth telling her otherwise.
+    await resolveConversationNotifications(conversation.id, [NotificationType.SLA_MISSED]).catch((error) => {
+      console.error("A sent text could not clear the thread's unanswered alert.", { conversationId: conversation.id, error });
+    });
 
     return { status: 200, payload: { ok: true, messageId, twilioSid: sent.sid } };
   }
