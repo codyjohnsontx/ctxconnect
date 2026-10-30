@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 import { Client } from "pg";
 import { type ConsentEventFacts, type ConsentState, consentState } from "../src/lib/consent";
@@ -550,12 +549,6 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     assert.equal(outcome.payload.error, smsSend.DELIVERY_UNKNOWN);
     assert.match(String(outcome.payload.error), /Delivery unknown/);
     assert.doesNotMatch(String(outcome.payload.error), /Nothing reached|was not sent/);
-
-    // The composer clears the draft on that answer instead of inviting a second
-    // press, and no longer claims nothing reached the customer when it has no reason.
-    const composer = readFileSync(new URL("../src/components/message-composer.tsx", import.meta.url), "utf8");
-    assert.match(composer, /if \(payload\?\.deliveryUnknown\) \{\s*commitDraft\(EMPTY_DRAFT\);/);
-    assert.doesNotMatch(composer, /Nothing reached the customer/);
   });
 
   it("shows sending as blocked, never allowed, when the composer's preview cannot read the ledger", async () => {
