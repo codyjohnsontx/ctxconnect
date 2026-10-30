@@ -329,10 +329,14 @@ PR 2:
   that commit. Anything thrown inside the transaction is a 503 with nothing
   sent. On 21610 the queued row is deleted, a `REVOKED / PROVIDER_BLOCK` event
   dated by the database clock is written, the refusal is audited, and the
-  advisor is told the carrier holds a STOP.
+  advisor is told the carrier holds a STOP. If Twilio accepts the text but the
+  write marking it sent fails, the advisor is told delivery is unknown
+  (`DELIVERY_UNKNOWN`), not that nothing went; a durable send-attempt record
+  that prevents a duplicate is a follow-up.
 - The thread page runs the same reads as a dry run (`previewSendBlock`) and
   hands the composer `sendBlock`; the date in it is printed by
-  `LocalTimestamp` in the browser.
+  `LocalTimestamp` in the browser. A read that throws shows sending as blocked
+  (`UNREADABLE`) rather than taking the thread page down, never as allowed.
 - `Message.consentEventId` is nullable: texts sent before PR 2 name no grant.
 
 ## Portfolio Notes
