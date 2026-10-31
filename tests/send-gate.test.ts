@@ -621,28 +621,6 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     }
   });
 
-  it("tells her delivery is unknown, not that nothing went, when Twilio took the text but the write after failed", async () => {
-    const { conversation } = await customerWhoTexted();
-    let calls = 0;
-
-    const outcome = await smsSend.sendCustomerText(target(conversation), {
-      transport: async () => {
-        calls += 1;
-        // Twilio has accepted it; then the row the send would mark SENT is gone,
-        // so the write recording the send throws.
-        await prisma.message.deleteMany({ where: { conversationId: conversation.id, direction: MessageDirection.OUTBOUND } });
-        return { sid: `SMlost${suffix}${count}` };
-      },
-    });
-
-    assert.equal(calls, 1);
-    assert.equal(outcome.status, 500);
-    assert.equal(outcome.payload.deliveryUnknown, true);
-    assert.equal(outcome.payload.error, smsSend.DELIVERY_UNKNOWN);
-    assert.match(String(outcome.payload.error), /Delivery unknown/);
-    assert.doesNotMatch(String(outcome.payload.error), /Nothing reached|was not sent/);
-  });
-
   // Twilio creates the message before it answers, so a request whose answer
   // never came back may well have reached the customer. Marking it FAILED tells
   // her it did not and offers "Rewrite it", which sends the same text twice.
@@ -732,8 +710,11 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
         },
       });
 
+      // She is told delivery is unknown, not that nothing went.
       assert.equal(first.status, 500);
       assert.equal(first.payload.deliveryUnknown, true);
+      assert.equal(first.payload.error, smsSend.DELIVERY_UNKNOWN);
+      assert.doesNotMatch(String(first.payload.error), /Nothing reached|was not sent/);
       await refusesTheSecondPress(conversation, twilio);
     } finally {
       await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON "Message"`);

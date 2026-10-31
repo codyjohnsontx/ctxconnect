@@ -75,7 +75,31 @@ export const DELIVERY_UNKNOWN =
 export const TWILIO_DID_NOT_ANSWER =
   "Delivery unknown: Twilio did not answer while this text was being sent, so it may already have reached the customer. Attend will not send another text on this thread until it knows whether this one went.";
 
-export type SmsTransport = (message: { to: string; body: string }) => Promise<{ sid: string }>;
+export type SmsTransport = (message: { to: string; body: string; statusCallback?: string }) => Promise<{ sid: string }>;
+
+/**
+ * Where Twilio reports this text's progress, naming the row so the webhook
+ * can find it before Attend has recorded the sid - Twilio's first callback can
+ * land before the write that would record it, and a write that fails leaves
+ * no sid at all. Null when the app's URL is not configured: Twilio then falls
+ * back to the Messaging Service's callback, which cannot carry the id.
+ */
+export function statusCallbackUrl(messageId: string) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  if (!appUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL("/api/twilio/status", appUrl);
+    url.searchParams.set("messageId", messageId);
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 export type SendTarget = {
   userId: string;
@@ -249,10 +273,11 @@ function twilioTransport(): SmsTransport | null {
 
   const client = twilio(accountSid, authToken);
 
-  return ({ to, body }) =>
+  return ({ to, body, statusCallback }) =>
     client.messages.create({
       body,
       to,
+      ...(statusCallback ? { statusCallback } : {}),
       ...(messagingServiceSid ? { messagingServiceSid } : { from: phoneNumber }),
     });
 }
@@ -283,13 +308,19 @@ function isDefiniteRefusal(error: unknown) {
 }
 
 /** Spends a permit. Not exported: `sendCustomerText` is the only way in. */
-async function sendSms(permit: SendPermit, to: string, body: string, transport: SmsTransport): Promise<SmsResult> {
+async function sendSms(
+  permit: SendPermit,
+  message: { to: string; body: string; messageId: string },
+  transport: SmsTransport,
+): Promise<SmsResult> {
   if (!isSendPermit(permit)) {
     throw new Error("A text needs a permit from the send gate.");
   }
 
+  const statusCallback = statusCallbackUrl(message.messageId);
+
   try {
-    const sent = await transport({ to, body });
+    const sent = await transport({ to: message.to, body: message.body, ...(statusCallback ? { statusCallback } : {}) });
 
     return { ok: true, sid: sent.sid };
   } catch (error) {
@@ -421,13 +452,15 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
     return { status: 503, payload: { error: TEXTING_NOT_CONNECTED } };
   }
 
-  const sent = await sendSms(permit, conversation.customer.phone, body, transport);
+  const sent = await sendSms(permit, { to: conversation.customer.phone, body, messageId }, transport);
 
   if (sent.ok) {
     try {
       await prisma.$transaction([
-        prisma.message.update({
-          where: { id: messageId },
+        // Only while it is still SENDING: Twilio's callback can land first and
+        // has already said more - delivered, or undelivered - than SENT does.
+        prisma.message.updateMany({
+          where: { id: messageId, deliveryStatus: DeliveryStatus.SENDING },
           data: {
             deliveryStatus: DeliveryStatus.SENT,
             twilioSid: sent.sid,

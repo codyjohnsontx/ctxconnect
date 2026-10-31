@@ -5,19 +5,32 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
-import { DeliveryStatus, Department, MessageDirection } from "../src/generated/prisma/enums";
+import twilio from "twilio";
+import {
+  ConsentEventKind,
+  ConsentMethod,
+  DeliveryStatus,
+  Department,
+  MessageDirection,
+  Role,
+} from "../src/generated/prisma/enums";
 
 // A text Attend has handed to Twilio and not heard back about is a `SENDING`
 // row, and while one stands the gate refuses the next text on that thread
 // (the table in tests/send-gate.test.ts). This suite asks the database for the
 // half the gate cannot promise on its own - one such row per thread - and
 // replays the migration that introduced the state over rows written before it.
+// Then it drives how a SENDING row settles: Twilio's status callback, which
+// names the row in its URL.
 //
 // It writes, so it runs only when TEST_DATABASE_URL names a migrated,
 // disposable database; CI's build job points it at its throwaway Postgres.
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 type Db = typeof import("../src/lib/prisma").prisma;
+type SmsSend = typeof import("../src/lib/sms-send");
+type Ledger = typeof import("../src/lib/consent-ledger");
+type StatusRoute = typeof import("../src/app/api/twilio/status/route");
 
 const suffix = randomUUID().replace(/-/g, "").slice(0, 10);
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "prisma", "migrations");
@@ -177,5 +190,175 @@ describe("one send in flight per thread", { skip: !databaseUrl && "TEST_DATABASE
         );
       },
     );
+  });
+});
+
+// Stand-ins, never real credentials: the token only signs and verifies the
+// callbacks below, and the URL is where the send tells Twilio to report.
+const AUTH_TOKEN = "test-auth-token-not-a-secret";
+const APP_URL = "https://attend.example.test";
+
+describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DATABASE_URL is not set" }, () => {
+  let prisma: Db;
+  let smsSend: SmsSend;
+  let ledger: Ledger;
+  let statusRoute: StatusRoute;
+  let advisorId: string;
+  let count = 0;
+
+  before(async () => {
+    process.env.DATABASE_URL = databaseUrl;
+    process.env.TWILIO_AUTH_TOKEN = AUTH_TOKEN;
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+    ({ prisma } = await import("../src/lib/prisma"));
+    smsSend = await import("../src/lib/sms-send");
+    ledger = await import("../src/lib/consent-ledger");
+    statusRoute = await import("../src/app/api/twilio/status/route");
+
+    const advisor = await prisma.user.create({
+      data: {
+        name: `In flight ${suffix}`,
+        email: `in-flight-${suffix}@example.test`,
+        passwordHash: "x",
+        role: Role.SERVICE,
+        department: Department.SERVICE,
+      },
+    });
+    advisorId = advisor.id;
+  });
+
+  after(async () => {
+    await prisma?.$disconnect();
+  });
+
+  /** A customer who texted the store first, as the webhook records one. */
+  async function customerWhoTexted() {
+    count += 1;
+    const phone = `+1777${suffix.slice(0, 4)}${String(count).padStart(3, "0")}`;
+    const customer = await prisma.customer.create({ data: { name: `In flight ${suffix} ${count}`, phone } });
+    const conversation = await prisma.conversation.create({
+      data: { customerId: customer.id, department: Department.SERVICE, assignedUserId: advisorId },
+      include: { customer: true },
+    });
+    const text = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: MessageDirection.INBOUND,
+        body: "Is my bike ready?",
+        deliveryStatus: DeliveryStatus.RECEIVED,
+        createdAt: new Date(Date.now() - 60_000),
+      },
+    });
+    await prisma.$transaction((tx) =>
+      ledger.recordConsentEvent(tx, {
+        customerId: customer.id,
+        kind: ConsentEventKind.GRANTED,
+        method: ConsentMethod.CUSTOMER_TEXTED_FIRST,
+        messageId: text.id,
+        occurredAt: text.createdAt,
+      }),
+    );
+
+    return conversation;
+  }
+
+  const target = (conversation: Awaited<ReturnType<typeof customerWhoTexted>>, body = "Yes, ready at 3.") => ({
+    userId: advisorId,
+    conversation,
+    body,
+  });
+
+  const outbound = (conversationId: string) =>
+    prisma.message.findMany({ where: { conversationId, direction: MessageDirection.OUTBOUND }, orderBy: { createdAt: "asc" } });
+
+  /** Twilio's status callback, signed the way Twilio signs it, to the URL it was given. */
+  async function callback(url: string, fields: Record<string, string>) {
+    const signature = twilio.getExpectedTwilioSignature(AUTH_TOKEN, url, fields);
+    const response = await statusRoute.POST(
+      new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature },
+        body: new URLSearchParams(fields).toString(),
+      }),
+    );
+
+    assert.equal(response.status, 200);
+    return response.text();
+  }
+
+  it("hands Twilio a callback URL naming the row", async () => {
+    const conversation = await customerWhoTexted();
+    const handed: Array<{ statusCallback?: string }> = [];
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async (message) => {
+        handed.push(message);
+        return { sid: `SMurl${suffix}${count}` };
+      },
+    });
+
+    assert.equal(outcome.status, 200);
+    assert.equal(handed[0].statusCallback, `${APP_URL}/api/twilio/status?messageId=${outcome.payload.messageId}`);
+    assert.equal(smsSend.statusCallbackUrl("abc"), `${APP_URL}/api/twilio/status?messageId=abc`);
+  });
+
+  it("keeps what Twilio's callback said when it lands before Attend records the send", async () => {
+    const conversation = await customerWhoTexted();
+    const sid = `SMearly${suffix}${count}`;
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async (message) => {
+        // Twilio has created the message and reports it delivered before its
+        // answer to the create call reaches Attend.
+        assert.ok(message.statusCallback);
+        assert.equal(await callback(message.statusCallback, { MessageSid: sid, MessageStatus: "delivered" }), "ok");
+        return { sid };
+      },
+    });
+
+    assert.equal(outcome.status, 200);
+    const [row] = await outbound(conversation.id);
+    assert.equal(row.twilioSid, sid);
+    assert.equal(row.deliveryStatus, DeliveryStatus.DELIVERED, "the SENT write must not downgrade what Twilio said");
+  });
+
+  it("settles a send whose answer was lost, by the id in the URL, and lets the next text go", async () => {
+    const conversation = await customerWhoTexted();
+    let statusCallback = "";
+
+    const lost = await smsSend.sendCustomerText(target(conversation), {
+      transport: async (message) => {
+        statusCallback = message.statusCallback ?? "";
+        throw Object.assign(new Error("timeout of 30000ms exceeded"), { code: "ETIMEDOUT" });
+      },
+    });
+    assert.equal(lost.status, 500);
+    assert.equal((await outbound(conversation.id))[0].deliveryStatus, DeliveryStatus.SENDING);
+
+    const sid = `SMlate${suffix}${count}`;
+    assert.equal(await callback(statusCallback, { MessageSid: sid, MessageStatus: "sent" }), "ok");
+
+    const [settled] = await outbound(conversation.id);
+    assert.equal(settled.deliveryStatus, DeliveryStatus.SENT);
+    assert.equal(settled.twilioSid, sid);
+
+    const next = await smsSend.sendCustomerText(target(conversation, "See you then."), {
+      transport: async () => ({ sid: `SMnext${suffix}${count}` }),
+    });
+    assert.equal(next.status, 200);
+  });
+
+  it("does not let a URL's id claim a row Twilio already named with another sid", async () => {
+    const conversation = await customerWhoTexted();
+    const sent = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => ({ sid: `SMmine${suffix}${count}` }),
+    });
+
+    const url = smsSend.statusCallbackUrl(String(sent.payload.messageId)) ?? "";
+    assert.equal(await callback(url, { MessageSid: `SMother${suffix}${count}`, MessageStatus: "failed" }), "ignored");
+
+    const [row] = await outbound(conversation.id);
+    assert.equal(row.twilioSid, `SMmine${suffix}${count}`);
+    assert.equal(row.deliveryStatus, DeliveryStatus.SENT);
   });
 });

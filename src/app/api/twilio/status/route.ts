@@ -33,17 +33,23 @@ export async function POST(request: Request) {
   }
 
   const mappedStatus = twilioStatusMap[status];
+  const include = { conversation: { include: { customer: true } } } as const;
 
-  const message = await prisma.message.findUnique({
-    where: { twilioSid: sid },
-    include: {
-      conversation: { include: { customer: true } },
-    },
-  });
+  // The send names its row in the callback URL, because Twilio's first
+  // callback can land before Attend has written the sid, and a send whose
+  // write failed has no sid at all. The id is only trusted for a row whose sid
+  // is unset or the same; anything else is found by sid, as before.
+  const messageId = new URL(request.url).searchParams.get("messageId")?.trim() || null;
+  const named = messageId ? await prisma.message.findUnique({ where: { id: messageId }, include }) : null;
+  const message =
+    named && (named.twilioSid === null || named.twilioSid === sid)
+      ? named
+      : await prisma.message.findUnique({ where: { twilioSid: sid }, include });
 
   if (!message || message.direction !== MessageDirection.OUTBOUND || !message.conversation) {
     logAuthenticatedTwilioPayloadIssue("status", "unknown-message-sid", {
       url: request.url,
+      messageId,
       twilioSid: sid,
       status,
     });
@@ -52,7 +58,9 @@ export async function POST(request: Request) {
 
   const normalizedErrorMessage = errorMessage || null;
   const isUnchanged =
-    message.deliveryStatus === mappedStatus && (message.errorMessage ?? null) === normalizedErrorMessage;
+    message.twilioSid === sid &&
+    message.deliveryStatus === mappedStatus &&
+    (message.errorMessage ?? null) === normalizedErrorMessage;
 
   if (isUnchanged) {
     return new NextResponse("ok", { status: 200 });
@@ -66,6 +74,7 @@ export async function POST(request: Request) {
     await tx.message.update({
       where: { id: message.id },
       data: {
+        twilioSid: sid,
         deliveryStatus: mappedStatus,
         errorMessage: normalizedErrorMessage,
       },
