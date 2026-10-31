@@ -216,6 +216,7 @@ export function MessageComposer({
       const outcome = sendOutcome(
         response && {
           ok: response.ok,
+          status: response.status,
           payload: response.ok ? null : ((await response.json().catch(() => null)) as SendAnswer["payload"]),
         },
       );

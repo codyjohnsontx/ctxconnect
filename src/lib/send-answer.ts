@@ -9,6 +9,7 @@ export const UNCONFIRMED_SEND = "Attend could not confirm this text was sent. Ch
 
 export type SendAnswer = {
   ok: boolean;
+  status: number;
   payload: { error?: string; deliveryUnknown?: boolean } | null;
 };
 
@@ -33,7 +34,13 @@ export function sendOutcome(answer: SendAnswer | null): SendOutcome {
     return { error: null, clearDraft: true };
   }
 
-  const deliveryUnknown = Boolean(answer.payload?.deliveryUnknown);
+  // A body the route did not write - a platform's function timeout or crash
+  // page, a proxy's gateway error - came from somewhere that cannot know
+  // whether Twilio already took the text. A 5xx is the only status such a
+  // place answers after the route started sending; a 4xx is the platform
+  // refusing before the route ran, so the draft is safe to keep.
+  const unreadable = typeof answer.payload?.error !== "string";
+  const deliveryUnknown = Boolean(answer.payload?.deliveryUnknown) || (unreadable && answer.status >= 500);
 
   return {
     error: { message: answer.payload?.error ?? UNCONFIRMED_SEND, deliveryUnknown },
