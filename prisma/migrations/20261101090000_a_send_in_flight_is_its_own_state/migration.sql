@@ -12,7 +12,8 @@ WHERE m."direction" = 'OUTBOUND' AND m."deliveryStatus" = 'QUEUED' AND m."twilio
     SELECT 1 FROM "Message" newer
     WHERE newer."conversationId" = m."conversationId"
       AND newer."direction" = 'OUTBOUND' AND newer."deliveryStatus" = 'QUEUED' AND newer."twilioSid" IS NULL
-      AND newer."createdAt" > m."createdAt"
+      AND (newer."createdAt" > m."createdAt"
+        OR (newer."createdAt" = m."createdAt" AND newer."id" > m."id"))
   );
 
 UPDATE "Message"
