@@ -29,6 +29,13 @@ export const SEND_SETTLEMENT_MS = 2 * 60 * 1000;
 /** Clock difference tolerated between Attend writing the row and Twilio dating the message. */
 export const SEND_CLOCK_SKEW_MS = 60 * 1000;
 
+/**
+ * How long the lookup may take before Attend gives up and leaves the send
+ * standing. It sits in the thread page's render and in front of every send,
+ * so a slow Twilio must not hold either for the SDK's own 30 seconds.
+ */
+export const TWILIO_LOOKUP_TIMEOUT_MS = 5 * 1000;
+
 /** How many of Twilio's newest messages to the number are read. */
 export const TWILIO_LOOKUP_LIMIT = 20;
 

@@ -65,6 +65,7 @@ import {
 import {
   NEVER_REACHED_TWILIO,
   TWILIO_LOOKUP_LIMIT,
+  TWILIO_LOOKUP_TIMEOUT_MS,
   type TwilioMessage,
   needsSettling,
   settleSend,
@@ -134,6 +135,8 @@ export type SendTestHooks = {
   transport?: SmsTransport | null;
   /** Stands in for Twilio's message list; null is texting not connected. */
   lookup?: SmsLookup | null;
+  /** Replaces `TWILIO_LOOKUP_TIMEOUT_MS`, so a test of the deadline need not wait it out. */
+  lookupTimeoutMs?: number;
   /** Runs inside the transaction, under the customer's lock, before the ledger is read. */
   afterLock?: (tx: Prisma.TransactionClient) => Promise<void>;
 };
@@ -237,7 +240,7 @@ export const PREVIEW_UNREADABLE: SendBlock = {
 export async function previewSendBlock(
   target: { customerId: string; conversationId: string },
   db: Prisma.TransactionClient = prisma,
-  hooks: Pick<SendTestHooks, "lookup"> = {},
+  hooks: Pick<SendTestHooks, "lookup" | "lookupTimeoutMs"> = {},
 ): Promise<SendBlock | null> {
   await settleSendInFlight(target.conversationId, hooks);
 
@@ -437,16 +440,53 @@ async function recordFailedSend(conversation: SendTarget["conversation"], messag
   }
 }
 
+/** `work`, or a rejection once `ms` have passed without it. */
+async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} took longer than ${ms}ms.`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * What the SENT write does to the thread, for a reply whose SENT was recorded
+ * later - by Twilio's callback or the reconciler - so it is not left unread or
+ * out of place in the queue. Dated when the reply was written, and only while
+ * nothing newer has landed: a customer text that arrived since keeps the
+ * thread unread and its own place.
+ */
+export async function recordLateSentReply(
+  db: Prisma.TransactionClient,
+  reply: { conversationId: string; createdAt: Date },
+) {
+  await db.conversation.updateMany({
+    where: { id: reply.conversationId, lastMessageAt: { lte: reply.createdAt } },
+    data: { lastMessageAt: reply.createdAt, unread: false },
+  });
+}
+
 /**
  * Settles the thread's `SENDING` row, if it has stood past the grace period,
  * from Twilio's list of messages to the customer: `SENT` with the sid when
  * Twilio has it, `FAILED` when Twilio still has no record of it once the
  * settlement bound has passed (`src/lib/send-settlement.ts`). Anything less
  * certain leaves it standing, and the gate keeps refusing: that is the
- * fail-closed answer, including when Twilio cannot be reached or texting is
- * not connected. Never throws, because both callers go on to ask the gate.
+ * fail-closed answer, including when Twilio cannot be reached, does not
+ * answer within `TWILIO_LOOKUP_TIMEOUT_MS`, or texting is not connected.
+ * Never throws, because both callers go on to ask the gate.
  */
-export async function settleSendInFlight(conversationId: string, hooks: Pick<SendTestHooks, "lookup"> = {}) {
+export async function settleSendInFlight(
+  conversationId: string,
+  hooks: Pick<SendTestHooks, "lookup" | "lookupTimeoutMs"> = {},
+) {
   try {
     const now = new Date();
     const send = await prisma.message.findFirst({
@@ -465,7 +505,11 @@ export async function settleSendInFlight(conversationId: string, hooks: Pick<Sen
     }
 
     const unconfirmed = { to: send.conversation.customer.phone, body: send.body, createdAt: send.createdAt };
-    const found = await lookup({ to: unconfirmed.to, limit: TWILIO_LOOKUP_LIMIT });
+    const found = await withDeadline(
+      lookup({ to: unconfirmed.to, limit: TWILIO_LOOKUP_LIMIT }),
+      hooks.lookupTimeoutMs ?? TWILIO_LOOKUP_TIMEOUT_MS,
+      "Twilio's message list",
+    );
     const held = await prisma.message.findMany({
       where: { twilioSid: { in: found.map((message) => message.sid) }, id: { not: send.id } },
       select: { twilioSid: true },
@@ -473,9 +517,15 @@ export async function settleSendInFlight(conversationId: string, hooks: Pick<Sen
     const settlement = settleSend(unconfirmed, found, new Set(held.map((row) => row.twilioSid ?? "")), now);
 
     if (settlement.status === "SENT") {
-      await prisma.message.updateMany({
-        where: { id: send.id, deliveryStatus: DeliveryStatus.SENDING },
-        data: { deliveryStatus: DeliveryStatus.SENT, twilioSid: settlement.sid },
+      await prisma.$transaction(async (tx) => {
+        const { count } = await tx.message.updateMany({
+          where: { id: send.id, deliveryStatus: DeliveryStatus.SENDING },
+          data: { deliveryStatus: DeliveryStatus.SENT, twilioSid: settlement.sid },
+        });
+
+        if (count > 0) {
+          await recordLateSentReply(tx, send);
+        }
       });
     } else if (settlement.status === "FAILED") {
       await recordFailedSend(send.conversation, send.id, NEVER_REACHED_TWILIO, NEVER_REACHED_TWILIO);

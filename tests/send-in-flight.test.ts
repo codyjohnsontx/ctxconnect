@@ -231,6 +231,16 @@ describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DA
       },
     });
     advisorId = advisor.id;
+
+    // Someone for a failed send's alert to reach.
+    await prisma.user.create({
+      data: {
+        name: `In flight manager ${suffix}`,
+        email: `in-flight-manager-${suffix}@example.test`,
+        passwordHash: "x",
+        role: Role.MANAGER,
+      },
+    });
   });
 
   after(async () => {
@@ -514,5 +524,78 @@ describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DA
     const settled = await prisma.message.findUniqueOrThrow({ where: { id: row.id } });
     assert.equal(settled.deliveryStatus, DeliveryStatus.FAILED);
     assert.equal(settled.twilioSid, null);
+  });
+
+  it("gives up on a Twilio lookup that does not answer in time, and keeps the thread held", async () => {
+    const { conversation } = await unconfirmedSend(twoMinutes());
+    const started = Date.now();
+
+    const block = await smsSend.previewSendBlock(thread(conversation), undefined, {
+      lookup: () => new Promise<TwilioMessage[]>(() => {}),
+      lookupTimeoutMs: 50,
+    });
+
+    assert.ok(Date.now() - started < 2_000, "the page does not wait out a silent Twilio");
+    assert.equal(block?.reason, "SEND_UNCONFIRMED");
+    assert.equal((await outbound(conversation.id))[0].deliveryStatus, DeliveryStatus.SENDING);
+    assert.equal(settlement.TWILIO_LOOKUP_TIMEOUT_MS, 5_000);
+  });
+
+  /** The thread as the customer's text left it: unread, last touched when they texted. */
+  async function waitingOnUs(conversationId: string) {
+    const text = await prisma.message.findFirstOrThrow({
+      where: { conversationId, direction: MessageDirection.INBOUND },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { unread: true, lastMessageAt: text.createdAt },
+    });
+  }
+
+  const threadState = (conversationId: string) =>
+    prisma.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { unread: true, lastMessageAt: true } });
+
+  it("moves the thread on as the SENT write would have, when the reconciler settles a reply as sent", async () => {
+    const { conversation, row } = await unconfirmedSend(settlement.SEND_GRACE_MS + 5_000);
+    await waitingOnUs(conversation.id);
+
+    await smsSend.settleSendInFlight(conversation.id, {
+      lookup: async () => [atTwilio(row, conversation.customer.phone, `SMlate${suffix}${count}`)],
+    });
+
+    assert.deepEqual(await threadState(conversation.id), { unread: false, lastMessageAt: row.createdAt });
+  });
+
+  it("moves the thread on when Twilio's callback settles a reply Attend never recorded", async () => {
+    const { conversation, row } = await unconfirmedSend(settlement.SEND_GRACE_MS + 5_000);
+    await waitingOnUs(conversation.id);
+
+    const url = smsSend.statusCallbackUrl(row.id) ?? "";
+    assert.equal(await callback(url, { MessageSid: `SMcb${suffix}${count}`, MessageStatus: "delivered" }), "ok");
+
+    assert.deepEqual(await threadState(conversation.id), { unread: false, lastMessageAt: row.createdAt });
+  });
+
+  it("leaves a thread a customer texted since the reply unread and in its place", async () => {
+    const { conversation, row } = await unconfirmedSend(settlement.SEND_GRACE_MS + 5_000);
+    const since = new Date(row.createdAt.getTime() + 10_000);
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: MessageDirection.INBOUND,
+        body: "Thanks! Also, can you check the chain?",
+        deliveryStatus: DeliveryStatus.RECEIVED,
+        createdAt: since,
+      },
+    });
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { unread: true, lastMessageAt: since } });
+
+    await smsSend.settleSendInFlight(conversation.id, {
+      lookup: async () => [atTwilio(row, conversation.customer.phone, `SMnewer${suffix}${count}`)],
+    });
+
+    assert.equal((await outbound(conversation.id))[0].deliveryStatus, DeliveryStatus.SENT);
+    assert.deepEqual(await threadState(conversation.id), { unread: true, lastMessageAt: since });
   });
 });

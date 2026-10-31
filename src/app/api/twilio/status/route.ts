@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { DeliveryStatus, MessageDirection, NotificationType } from "@/generated/prisma/client";
 import { notifyManagersTx, resolveConversationNotificationsTx } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
+import { recordLateSentReply } from "@/lib/sms-send";
 import { logAuthenticatedTwilioPayloadIssue, twilioStatusMap, verifyTwilioWebhook } from "@/lib/twilio";
 
 export async function POST(request: Request) {
@@ -70,7 +71,16 @@ export async function POST(request: Request) {
   const enteredDelivered =
     message.deliveryStatus !== DeliveryStatus.DELIVERED && mappedStatus === DeliveryStatus.DELIVERED;
 
+  // Twilio has a text Attend never recorded as sent - its own write failed or
+  // has not landed yet - so the thread gets what that write would have done.
+  const settlesUnconfirmedSend =
+    message.deliveryStatus === DeliveryStatus.SENDING && mappedStatus !== DeliveryStatus.FAILED;
+
   await prisma.$transaction(async (tx) => {
+    if (settlesUnconfirmedSend) {
+      await recordLateSentReply(tx, message);
+    }
+
     await tx.message.update({
       where: { id: message.id },
       data: {
