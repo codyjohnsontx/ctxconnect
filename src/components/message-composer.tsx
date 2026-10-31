@@ -42,6 +42,9 @@ type MessageComposerProps = {
 
 const EMPTY_DRAFT: Draft = { body: "", blanks: [] };
 
+/** A send with no answer is not proof nothing went out, so this does not claim it. */
+const UNCONFIRMED_SEND = "Attend could not confirm this text was sent. Check the thread before sending it again.";
+
 function readStoredDraft(key: string): Draft | null {
   try {
     return parseDraft(window.localStorage.getItem(key), Date.now());
@@ -204,21 +207,27 @@ export function MessageComposer({
 
     setError(null);
     startTransition(async () => {
+      // The route may have sent it and died before answering, so a request that
+      // never came back is unknown, not failed.
       const response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, body }),
-      });
+      }).catch(() => null);
+
+      if (!response) {
+        setError({ message: UNCONFIRMED_SEND, deliveryUnknown: true });
+        router.refresh();
+        return;
+      }
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
           error?: string;
           deliveryUnknown?: boolean;
         } | null;
-        // A response with no reason is not proof nothing went out, so this does
-        // not claim it.
         setError({
-          message: payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.",
+          message: payload?.error ?? UNCONFIRMED_SEND,
           deliveryUnknown: Boolean(payload?.deliveryUnknown),
         });
 

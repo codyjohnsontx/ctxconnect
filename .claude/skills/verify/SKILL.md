@@ -30,6 +30,8 @@ Twilio is normally unconfigured locally, so a send is persisted and then marked 
 
 "View demo" signs in as whichever account `DEMO_USER_EMAIL` names, and that account has to exist in the database you are pointed at: if it does not, the button bounces back to `/login?reason=inactive` with no server-side error. Restart the dev server with `DEMO_USER_EMAIL=service@ctxchat.local` to get a passwordless login as the service advisor against seeded data.
 
+To see a send whose Twilio answer was lost (`deliveryUnknown`, row left `QUEUED`), start the dev server with fake `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_PHONE_NUMBER` and `HTTP_PROXY` at a local listener that answers the CONNECT with `HTTP/1.1 200 Connection established` and then closes: the SDK reads that as a dropped TLS connection. A listener that closes without answering the CONNECT hangs the SDK forever instead - its 30s timeout does not apply behind `HTTP_PROXY`.
+
 An inbound text from a number nobody has met is filed under `GENERAL` and unassigned, so a service advisor gets a 404 opening it until it is handed to her department (`conversation.department`). To sign the replay locally, start the dev server with any `TWILIO_AUTH_TOKEN` and pass the same value to `scripts/twilio-replay.ts` (`--url http://localhost:<port>/api/twilio/inbound --field From=+1... --field To=+1... --field Body=...`).
 
 ## Driving auth flows without a browser

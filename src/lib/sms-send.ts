@@ -64,6 +64,10 @@ export const CONSENT_UNREADABLE =
 export const DELIVERY_UNKNOWN =
   "Delivery unknown: Twilio accepted this text, but Attend could not record it as sent, so it may already have reached the customer. Do not send it again until you know it did not.";
 
+/** Twilio's answer never came back, and it creates the message before it answers, so it may have gone. */
+export const TWILIO_DID_NOT_ANSWER =
+  "Delivery unknown: Twilio did not answer while this text was being sent, so it may already have reached the customer. Do not send it again until you know it did not.";
+
 export type SmsTransport = (message: { to: string; body: string }) => Promise<{ sid: string }>;
 
 export type SendTarget = {
@@ -237,7 +241,23 @@ function twilioTransport(): SmsTransport | null {
     });
 }
 
-type SmsResult = { ok: true; sid: string } | { ok: false; carrierBlock: boolean; error: string };
+type SmsResult =
+  | { ok: true; sid: string }
+  | { ok: false; refused: true; carrierBlock: boolean; error: string }
+  | { ok: false; refused: false; error: string };
+
+/**
+ * Whether Twilio answered with a refusal, so the text certainly did not go.
+ * Only a 4xx is: both of the SDK's exceptions carry the HTTP status it got. A
+ * timeout or dropped connection carries none, and a 5xx can follow Twilio
+ * creating the message - sending is not idempotent - so neither proves
+ * anything, and calling them failed invites the same text a second time.
+ */
+function isDefiniteRefusal(error: unknown) {
+  const status = (error as { status?: unknown } | null)?.status;
+
+  return typeof status === "number" && status >= 400 && status < 500;
+}
 
 /** Spends a permit. Not exported: `sendCustomerText` is the only way in. */
 async function sendSms(permit: SendPermit, to: string, body: string, transport: SmsTransport): Promise<SmsResult> {
@@ -250,10 +270,17 @@ async function sendSms(permit: SendPermit, to: string, body: string, transport: 
 
     return { ok: true, sid: sent.sid };
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Twilio send failed.";
+
+    if (!isDefiniteRefusal(error)) {
+      return { ok: false, refused: false, error: message };
+    }
+
     return {
       ok: false,
+      refused: true,
       carrierBlock: (error as { code?: unknown } | null)?.code === TWILIO_UNSUBSCRIBED,
-      error: error instanceof Error ? error.message : "Twilio send failed.",
+      error: message,
     };
   }
 }
@@ -409,6 +436,17 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
     });
 
     return { status: 200, payload: { ok: true, messageId, twilioSid: sent.sid } };
+  }
+
+  if (!sent.refused) {
+    // Like the failed write above: the row stays QUEUED, because FAILED would
+    // tell her the customer never got it and offer to send it again.
+    console.error("Twilio did not answer a send, so whether the text went is not known.", {
+      conversationId: conversation.id,
+      messageId,
+      error: sent.error,
+    });
+    return { status: 500, payload: { error: TWILIO_DID_NOT_ANSWER, deliveryUnknown: true, messageId } };
   }
 
   if (sent.carrierBlock) {
