@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { InboxView } from "@/components/inbox-view";
 import { getInboxData } from "@/lib/data";
+import { canAccessConversation } from "@/lib/permissions";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { previewSendBlock } from "@/lib/sms-send";
 
@@ -19,18 +21,25 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   const user = await requireUser();
   const { conversationId } = await params;
   const query = await searchParams;
-  const data = await getInboxData(user, query, conversationId);
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { customerId: true, assignedUserId: true, department: true },
+  });
 
-  if (!data.selectedConversation) {
+  if (!conversation || !canAccessConversation(user, conversation)) {
     notFound();
   }
 
   // The gate's dry run, from the same reads the send makes; the send decides again.
   // It does not throw: a failed read comes back as a block, never as allowed.
-  const sendBlock = await previewSendBlock({
-    customerId: data.selectedConversation.customerId,
-    conversationId,
-  });
+  // It runs before the thread is read because it may settle the thread's last
+  // text, and the bubbles have to show what it settled.
+  const sendBlock = await previewSendBlock({ customerId: conversation.customerId, conversationId });
+  const data = await getInboxData(user, query, conversationId);
+
+  if (!data.selectedConversation) {
+    notFound();
+  }
 
   return (
     <InboxView

@@ -50,6 +50,10 @@ enum MessageKind {
 
 enum DeliveryStatus {
   QUEUED
+  /// Attend is handing this text to Twilio and has not heard back. At most one
+  /// outbound row per thread holds it: a partial unique index that exists only
+  /// in prisma/migrations/20261101090000_a_send_in_flight_is_its_own_state.
+  SENDING
   SENT
   DELIVERED
   FAILED

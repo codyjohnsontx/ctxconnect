@@ -89,6 +89,8 @@ Point Twilio at the deployed app URL:
 
 If you are using a Twilio Messaging Service, configure those values on the Messaging Service used for outbound sends.
 
+Each outbound text also names its own status callback, `<NEXT_PUBLIC_APP_URL>/api/twilio/status?messageId=<id>`, which Twilio uses instead of the Messaging Service's. That is how a text whose send answer was lost is still settled, so `NEXT_PUBLIC_APP_URL` must be the URL Twilio can reach: the signature covers the query string.
+
 ## Validation Checklist
 
 After deployment:
@@ -106,4 +108,4 @@ After deployment:
 
 - `403` usually means the Twilio callback URL does not exactly match the deployed URL receiving the request, or the signature is otherwise invalid.
 - `503` means `TWILIO_AUTH_TOKEN` is missing from the deployed environment.
-- If outbound sends work but no status callbacks arrive, the sender or Messaging Service callback configuration is incomplete in Twilio.
+- If outbound sends work but no status callbacks arrive, check `NEXT_PUBLIC_APP_URL` first - each send names its own callback from it - then the sender or Messaging Service callback configuration in Twilio.

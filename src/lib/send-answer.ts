@@ -4,6 +4,8 @@
  * is decided somewhere a test can reach.
  */
 
+import type { SendBlock } from "@/lib/send-gate";
+
 /** A send with no answer is not proof nothing went out, so this does not claim it. */
 export const UNCONFIRMED_SEND = "Attend could not confirm this text was sent. Check the thread before sending it again.";
 
@@ -46,4 +48,26 @@ export function sendOutcome(answer: SendAnswer | null): SendOutcome {
     error: { message: answer.payload?.error ?? UNCONFIRMED_SEND, deliveryUnknown },
     clearDraft: deliveryUnknown,
   };
+}
+
+/**
+ * Whether the composer still shows the route's error once the refreshed thread
+ * carries a block. A refusal says the same thing as the block, with the date.
+ * A delivery the route could not vouch for is not a refusal, so it stays -
+ * unless the block is SEND_UNCONFIRMED, which is that same unconfirmed send
+ * said accurately, and red beside it overstates an outcome nobody knows yet.
+ */
+export function showsSendError(
+  error: SendOutcome["error"],
+  sendBlock: Pick<SendBlock, "reason"> | null | undefined,
+): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (!sendBlock) {
+    return true;
+  }
+
+  return error.deliveryUnknown && sendBlock.reason !== "SEND_UNCONFIRMED";
 }

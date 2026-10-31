@@ -2,10 +2,14 @@
  * Whether a text may leave for a customer right now, decided by plain code.
  *
  * The owner's rule: no recorded consent, outside quiet hours, or after a STOP
- * reply means the send is blocked, with no model involved. This module is that
- * rule and nothing else. Its inputs are the consent ledger's answer, the
- * clock, the recipient's time zone, whether the text answers the customer or
- * starts something, and the contact-window policy. Nothing from the AI brief,
+ * reply means the send is blocked, with no model involved. So does a text on
+ * the thread that Attend handed to Twilio and has not heard back about:
+ * sending is not idempotent, so a second text while the first is unconfirmed
+ * may be the customer's second copy of it. This module is that rule and
+ * nothing else. Its inputs are the consent ledger's answer, the clock, the
+ * recipient's time zone, whether the text answers the customer or starts
+ * something, whether a send is in flight on the thread, and the
+ * contact-window policy. Nothing from the AI brief,
  * the draft or any model output is a parameter, and the signature is what
  * makes that visible in review.
  *
@@ -21,7 +25,7 @@
 import { ConsentMethod, SmsConsentStatus } from "@/generated/prisma/enums";
 import type { ConsentEventFacts, ConsentState } from "@/lib/consent";
 
-export type SendRefusal = "NO_CONSENT" | "REVOKED" | "LAPSED" | "QUIET_HOURS";
+export type SendRefusal = "NO_CONSENT" | "REVOKED" | "LAPSED" | "QUIET_HOURS" | "SEND_UNCONFIRMED";
 
 /**
  * `REPLY` answers a customer text from the last day that nobody has answered
@@ -78,6 +82,12 @@ export type SendGateInput = {
   /** The customer's newest text to the store, on any thread. */
   lastCustomerTextAt: Date | null;
   outbound: OutboundClass;
+  /**
+   * The thread's `SENDING` row, if one stands: a text handed to Twilio whose
+   * outcome Attend does not know yet. However old it is, settling it is the
+   * reconciler's job in `src/lib/sms-send.ts`, never the gate's.
+   */
+  sendInFlight: { since: Date } | null;
   now: Date;
   recipientTimeZone: string;
   policy: ContactWindowPolicy;
@@ -122,6 +132,10 @@ export function decideSend(input: SendGateInput): SendDecision {
 
   if (consent.status !== SmsConsentStatus.GRANTED || !consent.event) {
     return { allowed: false, reason: "NO_CONSENT", opensAt: null };
+  }
+
+  if (input.sendInFlight) {
+    return { allowed: false, reason: "SEND_UNCONFIRMED", opensAt: null };
   }
 
   // A reply answers a text from the last day, so it is never stale and is
@@ -220,6 +234,12 @@ export function describeRefusal(
         headline: "It is outside texting hours for this customer",
         instruction: "The draft stays here until then.",
         opensAt: refusal.opensAt,
+      };
+    case "SEND_UNCONFIRMED":
+      return {
+        ...blank,
+        headline: "Your last text to this customer is still being confirmed",
+        instruction: "Attend will not send another until it knows whether it went.",
       };
   }
 }

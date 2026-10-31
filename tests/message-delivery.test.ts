@@ -11,7 +11,7 @@ import {
   undeliveredDetail,
 } from "../src/lib/message-delivery";
 
-const { DELIVERED, FAILED, INTERNAL: INTERNAL_STATUS, QUEUED, RECEIVED, SENT } = DeliveryStatus;
+const { DELIVERED, FAILED, INTERNAL: INTERNAL_STATUS, QUEUED, RECEIVED, SENDING, SENT } = DeliveryStatus;
 const { INBOUND, INTERNAL, OUTBOUND } = MessageDirection;
 
 type Message = { direction: MessageDirection; deliveryStatus: DeliveryStatus; body: string };
@@ -28,8 +28,10 @@ describe("isUndelivered", () => {
     assert.equal(isUndelivered(message(OUTBOUND, FAILED)), true);
   });
 
-  it("is false for a reply that went out", () => {
-    for (const status of [QUEUED, SENT, DELIVERED]) {
+  // SENDING is a text whose outcome is not known yet. Calling it undelivered
+  // would offer "Rewrite it" for a text that may already be on her phone.
+  it("is false for a reply that went out or may have", () => {
+    for (const status of [QUEUED, SENDING, SENT, DELIVERED]) {
       assert.equal(isUndelivered(message(OUTBOUND, status)), false, status);
     }
   });
