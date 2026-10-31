@@ -247,16 +247,23 @@ type SmsResult =
   | { ok: false; refused: false; error: string };
 
 /**
- * Whether Twilio answered with a refusal, so the text certainly did not go.
- * Only a 4xx is: both of the SDK's exceptions carry the HTTP status it got. A
- * timeout or dropped connection carries none, and a 5xx can follow Twilio
- * creating the message - sending is not idempotent - so neither proves
- * anything, and calling them failed invites the same text a second time.
+ * A connection that never opened - the host did not resolve, or it (or the
+ * proxy) refused the connect - so no byte of the request reached Twilio.
+ */
+const NEVER_CONNECTED = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED"]);
+
+/**
+ * Whether the text certainly did not go: Twilio answered with a 4xx - both of
+ * the SDK's exceptions carry the HTTP status it got - or the request never
+ * left. A timeout or a connection dropped after it opened carries no status,
+ * and a 5xx can follow Twilio creating the message - sending is not idempotent
+ * - so none of those proves anything, and calling them failed invites the same
+ * text a second time.
  */
 function isDefiniteRefusal(error: unknown) {
-  const status = (error as { status?: unknown } | null)?.status;
+  const { status, code } = (error ?? {}) as { status?: unknown; code?: unknown };
 
-  return typeof status === "number" && status >= 400 && status < 500;
+  return (typeof status === "number" && status >= 400 && status < 500) || NEVER_CONNECTED.has(code as string);
 }
 
 /** Spends a permit. Not exported: `sendCustomerText` is the only way in. */

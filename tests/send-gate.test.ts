@@ -336,6 +336,15 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
       },
     });
     advisorId = advisor.id;
+
+    await prisma.user.create({
+      data: {
+        name: `Send gate manager ${suffix}`,
+        email: `send-gate-manager-${suffix}@example.test`,
+        passwordHash: "x",
+        role: Role.MANAGER,
+      },
+    });
   });
 
   after(async () => {
@@ -626,6 +635,40 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
         0,
       );
       assert.deepEqual(twilio, ["Yes, ready at 3."]);
+    });
+  }
+
+  // Errors raised before any byte reached Twilio: the text certainly did not go.
+  const neverConnected: Array<[string, () => Error]> = [
+    ["the host did not resolve", () => Object.assign(new Error("getaddrinfo ENOTFOUND api.twilio.com"), { code: "ENOTFOUND" })],
+    ["DNS was unavailable", () => Object.assign(new Error("getaddrinfo EAI_AGAIN api.twilio.com"), { code: "EAI_AGAIN" })],
+    ["the connect was refused", () => Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:443"), { code: "ECONNREFUSED" })],
+  ];
+
+  for (const [name, error] of neverConnected) {
+    it(`marks the text failed and tells managers when ${name}, because the request never reached Twilio`, async () => {
+      const { conversation } = await customerWhoTexted();
+      const thrown = error();
+
+      const outcome = await smsSend.sendCustomerText(target(conversation), {
+        transport: async () => {
+          throw thrown;
+        },
+      });
+
+      assert.equal(outcome.status, 502);
+      assert.equal(outcome.payload.deliveryUnknown, undefined);
+      assert.equal(outcome.payload.error, thrown.message);
+
+      const rows = await outboundRows(conversation.id);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].deliveryStatus, DeliveryStatus.FAILED);
+      assert.equal(isUndelivered(rows[0]), true);
+      assert.ok(
+        (await prisma.notification.count({
+          where: { conversationId: conversation.id, type: NotificationType.MESSAGE_FAILED },
+        })) > 0,
+      );
     });
   }
 
