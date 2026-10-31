@@ -66,12 +66,17 @@ const closedUntil =
   (opensAt: Date): ContactWindowPolicy =>
   () => ({ open: false, opensAt });
 const NINE_AM = new Date("2026-10-21T14:00:00Z");
+// A text handed to Twilio a moment ago, and one handed over long before the
+// reconciler would ask about it; the gate refuses on both.
+const justSent = { since: new Date(NOW.getTime() - 1_000) };
+const longUnconfirmed = { since: new Date(NOW.getTime() - 60 * 60 * 1000) };
 
 function input(overrides: Partial<SendGateInput> & { consent: ConsentState }): SendGateInput {
   return {
     customerId: "customer-1",
     lastCustomerTextAt: null,
     outbound: "INITIATED",
+    sendInFlight: null,
     now: NOW,
     recipientTimeZone: "America/Chicago",
     policy: ALWAYS_OPEN,
@@ -130,6 +135,36 @@ describe("decideSend", () => {
       "a lapsed relationship with the window closed",
       input({ consent: granted(justTooOld), policy: closedUntil(NINE_AM) }),
       "LAPSED",
+    ],
+    [
+      "a reply while the last text is still being confirmed",
+      input({ consent: granted(), outbound: "REPLY", sendInFlight: justSent }),
+      "SEND_UNCONFIRMED",
+    ],
+    [
+      "starting a conversation while the last text is still being confirmed",
+      input({ consent: granted(), sendInFlight: justSent }),
+      "SEND_UNCONFIRMED",
+    ],
+    [
+      "a text unconfirmed for an hour, which is the reconciler's to settle, not the gate's",
+      input({ consent: granted(), outbound: "REPLY", sendInFlight: longUnconfirmed }),
+      "SEND_UNCONFIRMED",
+    ],
+    [
+      "a STOP while a text is unconfirmed",
+      input({ consent: revoked, sendInFlight: justSent }),
+      "REVOKED",
+    ],
+    [
+      "no consent while a text is unconfirmed",
+      input({ consent: none, sendInFlight: justSent }),
+      "NO_CONSENT",
+    ],
+    [
+      "a lapsed relationship while a text is unconfirmed",
+      input({ consent: granted(justTooOld), sendInFlight: justSent }),
+      "SEND_UNCONFIRMED",
     ],
   ];
 
@@ -288,8 +323,18 @@ describe("describeRefusal", () => {
     assert.equal(quiet.opensAt, NINE_AM);
   });
 
+  it("says a text still being confirmed holds the next one, in the composer's sentence", () => {
+    const block = describeRefusal({ reason: "SEND_UNCONFIRMED", opensAt: null }, { event: null, awaitingReview: false });
+
+    assert.equal(
+      refusalSentence(block),
+      "Your last text to this customer is still being confirmed. Attend will not send another until it knows whether it went.",
+    );
+    assert.equal(block.at, null);
+  });
+
   it("has words for every refusal", () => {
-    const reasons: SendRefusal[] = ["NO_CONSENT", "REVOKED", "LAPSED", "QUIET_HOURS"];
+    const reasons: SendRefusal[] = ["NO_CONSENT", "REVOKED", "LAPSED", "QUIET_HOURS", "SEND_UNCONFIRMED"];
 
     for (const reason of reasons) {
       const block = describeRefusal({ reason, opensAt: null }, { event: null, awaitingReview: false });
@@ -627,7 +672,7 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
       const rows = await outboundRows(conversation.id);
       assert.equal(rows.length, 1);
       assert.equal(outcome.payload.messageId, rows[0].id);
-      assert.equal(rows[0].deliveryStatus, DeliveryStatus.QUEUED);
+      assert.equal(rows[0].deliveryStatus, DeliveryStatus.SENDING);
       assert.equal(rows[0].errorMessage, null);
       assert.equal(isUndelivered(rows[0]), false, "the thread must not say the customer never got it, nor offer Rewrite it");
       assert.equal(
@@ -637,6 +682,100 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
       assert.deepEqual(twilio, ["Yes, ready at 3."]);
     });
   }
+
+  // The two double sends the plan reproduced, inverted. Each first send leaves
+  // a text Twilio may hold with nothing recorded to say so; the second press -
+  // hers after a reload, or a colleague's - must not hand Twilio the same text.
+  async function refusesTheSecondPress(conversation: Parameters<typeof target>[0], twilio: string[]) {
+    const second = await smsSend.sendCustomerText(target(conversation), { transport: mustNotSend });
+
+    assert.equal(second.status, 403);
+    assert.equal(second.payload.reason, "SEND_UNCONFIRMED");
+    assert.equal(
+      second.payload.error,
+      "Your last text to this customer is still being confirmed. Attend will not send another until it knows whether it went.",
+    );
+    assert.deepEqual(twilio, ["Yes, ready at 3."], "Twilio was handed the reply once");
+
+    const rows = await outboundRows(conversation.id);
+    assert.deepEqual(
+      rows.map((row) => row.deliveryStatus),
+      [DeliveryStatus.SENDING],
+    );
+    const [audit] = await blockedAudits(conversation.id);
+    assert.equal((audit.metadata as { reason?: string }).reason, "SEND_UNCONFIRMED");
+
+    const block = await smsSend.previewSendBlock({ customerId: conversation.customerId, conversationId: conversation.id });
+    assert.equal(block?.reason, "SEND_UNCONFIRMED");
+  }
+
+  it("refuses a second press after Twilio took the text and the write recording it failed", async () => {
+    const { conversation } = await customerWhoTexted();
+    const sid = `SMfirst${suffix}${count}`;
+    const trigger = `test_refuse_sent_${suffix}_${count}`;
+    const twilio: string[] = [];
+
+    // Stands in for the database going away between Twilio accepting and the
+    // write: only the update that would record this sid fails.
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION ${trigger}() RETURNS trigger AS $$
+      BEGIN IF NEW."twilioSid" = '${sid}' THEN RAISE EXCEPTION 'connection lost (simulated)'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER ${trigger} BEFORE UPDATE ON "Message" FOR EACH ROW EXECUTE FUNCTION ${trigger}()`,
+    );
+
+    try {
+      const first = await smsSend.sendCustomerText(target(conversation), {
+        transport: async (message) => {
+          twilio.push(message.body);
+          return { sid };
+        },
+      });
+
+      assert.equal(first.status, 500);
+      assert.equal(first.payload.deliveryUnknown, true);
+      await refusesTheSecondPress(conversation, twilio);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON "Message"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+    }
+  });
+
+  it("refuses a second press after Twilio's answer was lost to a timeout", async () => {
+    const { conversation } = await customerWhoTexted();
+    const twilio: string[] = [];
+
+    const first = await smsSend.sendCustomerText(target(conversation), {
+      transport: async (message) => {
+        twilio.push(message.body);
+        throw Object.assign(new Error("timeout of 30000ms exceeded"), { code: "ETIMEDOUT" });
+      },
+    });
+
+    assert.equal(first.status, 500);
+    assert.equal(first.payload.deliveryUnknown, true);
+    await refusesTheSecondPress(conversation, twilio);
+  });
+
+  it("lets one of two presses landing together through, and refuses the other", async () => {
+    const { conversation } = await customerWhoTexted();
+    const twilio: string[] = [];
+    const transport = async (message: { body: string }) => {
+      twilio.push(message.body);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    };
+
+    const outcomes = await Promise.all([
+      smsSend.sendCustomerText(target(conversation), { transport }),
+      smsSend.sendCustomerText(target(conversation), { transport }),
+    ]);
+
+    assert.deepEqual(outcomes.map((outcome) => outcome.status).sort(), [403, 500]);
+    assert.equal(outcomes.find((outcome) => outcome.status === 403)?.payload.reason, "SEND_UNCONFIRMED");
+    assert.deepEqual(twilio, ["Yes, ready at 3."]);
+    assert.equal((await outboundRows(conversation.id)).length, 1);
+  });
 
   // Errors raised before any byte reached Twilio: the text certainly did not go.
   const neverConnected: Array<[string, () => Error]> = [

@@ -21,6 +21,13 @@
  * decision 10); the draft stays in the composer.
  *
  * The gate fails closed: if the ledger cannot be read, nothing is sent.
+ *
+ * The row is written `SENDING` - handed to Twilio, outcome unknown - and only
+ * Twilio's answer moves it on. While it stands the gate refuses the next text
+ * on that thread, and the database holds a thread to one such row (the
+ * partial index in `20261101090000_a_send_in_flight_is_its_own_state`),
+ * because sending is not idempotent: a retry after an answer that never came
+ * back can reach the customer twice.
  */
 import twilio from "twilio";
 import {
@@ -62,11 +69,11 @@ export const CONSENT_UNREADABLE =
 
 /** Twilio accepted the text and the write recording that failed, so whether it arrived is not known here. */
 export const DELIVERY_UNKNOWN =
-  "Delivery unknown: Twilio accepted this text, but Attend could not record it as sent, so it may already have reached the customer. Do not send it again until you know it did not.";
+  "Delivery unknown: Twilio accepted this text, but Attend could not record it as sent, so it may already have reached the customer. Attend will not send another text on this thread until it knows whether this one went.";
 
 /** Twilio's answer never came back, and it creates the message before it answers, so it may have gone. */
 export const TWILIO_DID_NOT_ANSWER =
-  "Delivery unknown: Twilio did not answer while this text was being sent, so it may already have reached the customer. Do not send it again until you know it did not.";
+  "Delivery unknown: Twilio did not answer while this text was being sent, so it may already have reached the customer. Attend will not send another text on this thread until it knows whether this one went.";
 
 export type SmsTransport = (message: { to: string; body: string }) => Promise<{ sid: string }>;
 
@@ -117,6 +124,14 @@ async function readGate(
     orderBy: { createdAt: "desc" },
     select: { createdAt: true },
   });
+  const inFlight = await db.message.findFirst({
+    where: {
+      conversationId: target.conversationId,
+      direction: MessageDirection.OUTBOUND,
+      deliveryStatus: DeliveryStatus.SENDING,
+    },
+    select: { createdAt: true },
+  });
   const threadReply = await db.message.findFirst({
     where: {
       conversationId: target.conversationId,
@@ -136,6 +151,7 @@ async function readGate(
       latestReplyAt: threadReply?.createdAt ?? null,
       now,
     }),
+    sendInFlight: inFlight ? { since: inFlight.createdAt } : null,
     now,
     recipientTimeZone: dealershipTimeZone(),
     policy: CONTACT_WINDOW,
@@ -374,7 +390,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
           direction: MessageDirection.OUTBOUND,
           kind: MessageKind.SMS,
           body,
-          deliveryStatus: DeliveryStatus.QUEUED,
+          deliveryStatus: DeliveryStatus.SENDING,
           consentEventId: decision.permit.consentEventId,
         },
       });
@@ -427,7 +443,8 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
       ]);
     } catch (error) {
       // Twilio has the text, so "not sent" would be a lie that invites her to
-      // send it twice. The row stays QUEUED with no sid to reconcile it by.
+      // send it twice. The row stays SENDING, which refuses the next text on
+      // the thread until it is settled.
       console.error("Twilio accepted a text but Attend could not record it as sent.", {
         conversationId: conversation.id,
         messageId,
@@ -446,7 +463,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
   }
 
   if (!sent.refused) {
-    // Like the failed write above: the row stays QUEUED, because FAILED would
+    // Like the failed write above: the row stays SENDING, because FAILED would
     // tell her the customer never got it and offer to send it again.
     console.error("Twilio did not answer a send, so whether the text went is not known.", {
       conversationId: conversation.id,

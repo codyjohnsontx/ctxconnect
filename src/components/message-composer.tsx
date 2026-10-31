@@ -277,8 +277,10 @@ export function MessageComposer({
           placeholder={
             demoBlocked
               ? "SMS sending is disabled in demo mode."
-              : sendBlock
-                ? "Texting is blocked for this customer."
+              : sendBlock?.reason === "SEND_UNCONFIRMED"
+                ? "Waiting to hear whether your last text went."
+                : sendBlock
+                  ? "Texting is blocked for this customer."
                 : "Type a customer message..."
           }
           disabled={disabled || demoBlocked || isPending}
