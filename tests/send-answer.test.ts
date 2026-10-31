@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { UNCONFIRMED_SEND, sendOutcome } from "../src/lib/send-answer";
+import { UNCONFIRMED_SEND, sendOutcome, showsSendError } from "../src/lib/send-answer";
 
 describe("sendOutcome", () => {
   // The request reached the route, Twilio sent the text, and the connection
@@ -58,4 +58,33 @@ describe("sendOutcome", () => {
   it("clears the draft and the error once the text is sent", () => {
     assert.deepEqual(sendOutcome({ ok: true, status: 200, payload: null }), { error: null, clearDraft: true });
   });
+});
+
+describe("showsSendError", () => {
+  const unknown = { message: "Twilio did not answer.", deliveryUnknown: true };
+  const refused = { message: "Texting is blocked for this customer.", deliveryUnknown: false };
+
+  const cases: Array<{
+    name: string;
+    error: { message: string; deliveryUnknown: boolean } | null;
+    block: { reason: "SEND_UNCONFIRMED" | "REVOKED" | "QUIET_HOURS" | "UNREADABLE" } | null;
+    shown: boolean;
+  }> = [
+    { name: "nothing to show without an error", error: null, block: null, shown: false },
+    { name: "a refusal before the refreshed thread lands", error: refused, block: null, shown: true },
+    { name: "an unknown delivery before the refreshed thread lands", error: unknown, block: null, shown: true },
+    // The amber SEND_UNCONFIRMED banner is this same send, said accurately; a
+    // red banner beside it overstated an outcome nobody knows yet.
+    { name: "not an unknown delivery once the thread is held for it", error: unknown, block: { reason: "SEND_UNCONFIRMED" }, shown: false },
+    { name: "an unknown delivery beside a consent block, which says nothing about it", error: unknown, block: { reason: "REVOKED" }, shown: true },
+    { name: "an unknown delivery beside quiet hours", error: unknown, block: { reason: "QUIET_HOURS" }, shown: true },
+    { name: "not a refusal the block already states with its date", error: refused, block: { reason: "REVOKED" }, shown: false },
+    { name: "not a refusal beside the held-thread block", error: refused, block: { reason: "SEND_UNCONFIRMED" }, shown: false },
+  ];
+
+  for (const { name, error, block, shown } of cases) {
+    it(`${shown ? "shows" : "hides"} ${name}`, () => {
+      assert.equal(showsSendError(error, block), shown);
+    });
+  }
 });

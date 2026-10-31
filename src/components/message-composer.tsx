@@ -7,7 +7,7 @@ import { LocalTimestamp } from "@/components/local-timestamp";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
-import { type SendAnswer, sendOutcome } from "@/lib/send-answer";
+import { type SendAnswer, sendOutcome, showsSendError } from "@/lib/send-answer";
 import type { SendBlock } from "@/lib/send-gate";
 import { smsTooLong } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
@@ -340,9 +340,7 @@ export function MessageComposer({
           </button>
         </p>
       ) : null}
-      {/* Once the refreshed thread carries the block, a refusal says the same thing with the date. A delivery
-          it cannot vouch for is not a refusal, so it stays whatever the block says. */}
-      {error && (!sendBlock || error.deliveryUnknown) ? <p className="mt-2 text-sm text-red-600">{error.message}</p> : null}
+      {error && showsSendError(error, sendBlock) ? <p className="mt-2 text-sm text-red-600">{error.message}</p> : null}
     </div>
   );
 }
