@@ -277,7 +277,7 @@ async function sendSms(permit: SendPermit, to: string, body: string, transport: 
 
     return { ok: true, sid: sent.sid };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Twilio send failed.";
+    const message = (error instanceof Error && error.message) || "Twilio send failed.";
 
     if (!isDefiniteRefusal(error)) {
       return { ok: false, refused: false, error: message };

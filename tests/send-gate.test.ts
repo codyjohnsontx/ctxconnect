@@ -672,6 +672,23 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     });
   }
 
+  it("says why a refused connect failed even when the error carries no message", async () => {
+    const { conversation } = await customerWhoTexted();
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        throw Object.assign(new AggregateError([], ""), { code: "ECONNREFUSED" });
+      },
+    });
+
+    assert.equal(outcome.status, 502);
+    assert.equal(outcome.payload.error, "Twilio send failed.");
+
+    const rows = await outboundRows(conversation.id);
+    assert.equal(rows[0].deliveryStatus, DeliveryStatus.FAILED);
+    assert.equal(rows[0].errorMessage, "Twilio send failed.");
+  });
+
   it("still marks the text failed when Twilio definitely refused it with a 4xx", async () => {
     const { conversation } = await customerWhoTexted();
 
