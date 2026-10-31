@@ -7,6 +7,7 @@ import { LocalTimestamp } from "@/components/local-timestamp";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
+import { type SendAnswer, sendOutcome } from "@/lib/send-answer";
 import type { SendBlock } from "@/lib/send-gate";
 import { smsTooLong } from "@/lib/sms-length";
 import { fillTemplate, listBlanks, remainingBlanks } from "@/lib/templates";
@@ -204,40 +205,33 @@ export function MessageComposer({
 
     setError(null);
     startTransition(async () => {
+      // The route may have sent it and died before answering, so a request that
+      // never came back is unknown, not failed.
       const response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, body }),
-      });
+      }).catch(() => null);
 
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-          deliveryUnknown?: boolean;
-        } | null;
-        // A response with no reason is not proof nothing went out, so this does
-        // not claim it.
-        setError({
-          message: payload?.error ?? "Attend could not confirm this text was sent. Check the thread before sending it again.",
-          deliveryUnknown: Boolean(payload?.deliveryUnknown),
-        });
+      const outcome = sendOutcome(
+        response && {
+          ok: response.ok,
+          status: response.status,
+          payload: response.ok ? null : ((await response.json().catch(() => null)) as SendAnswer["payload"]),
+        },
+      );
 
-        // Twilio may already have delivered it, so the draft goes rather than
-        // waiting in the box for a second press.
-        if (payload?.deliveryUnknown) {
-          commitDraft(EMPTY_DRAFT);
-        }
-
-        // Refresh either way: a failed send is in the thread as undelivered, and
-        // a refused one comes back as the block below, dated, with the draft
-        // still in the box.
-        router.refresh();
-        return;
-      }
+      setError(outcome.error);
 
       // An empty edit rather than no edit: it clears the box and, with it, the
-      // stored draft the sent reply came from.
-      commitDraft(EMPTY_DRAFT);
+      // stored draft the reply came from. A refused send keeps it in the box.
+      if (outcome.clearDraft) {
+        commitDraft(EMPTY_DRAFT);
+      }
+
+      // Refresh either way: a failed send is in the thread as undelivered, and
+      // a refused one comes back as the block below, dated, with the draft
+      // still in the box.
       router.refresh();
     });
   }

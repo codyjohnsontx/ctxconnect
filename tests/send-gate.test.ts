@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Client } from "pg";
 import { type ConsentEventFacts, type ConsentState, consentState } from "../src/lib/consent";
+import { isUndelivered } from "../src/lib/message-delivery";
 import {
   ALWAYS_OPEN,
   CONTACT_WINDOW,
@@ -22,6 +23,7 @@ import {
   ConsentChannel,
   ConsentEventKind,
   ConsentMethod,
+  DeliveryStatus,
   Department,
   MessageDirection,
   NotificationType,
@@ -334,6 +336,15 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
       },
     });
     advisorId = advisor.id;
+
+    await prisma.user.create({
+      data: {
+        name: `Send gate manager ${suffix}`,
+        email: `send-gate-manager-${suffix}@example.test`,
+        passwordHash: "x",
+        role: Role.MANAGER,
+      },
+    });
   });
 
   after(async () => {
@@ -585,6 +596,116 @@ describe("the send path", { skip: !databaseUrl && "TEST_DATABASE_URL is not set"
     assert.equal(outcome.payload.error, smsSend.DELIVERY_UNKNOWN);
     assert.match(String(outcome.payload.error), /Delivery unknown/);
     assert.doesNotMatch(String(outcome.payload.error), /Nothing reached|was not sent/);
+  });
+
+  // Twilio creates the message before it answers, so a request whose answer
+  // never came back may well have reached the customer. Marking it FAILED tells
+  // her it did not and offers "Rewrite it", which sends the same text twice.
+  const unanswered: Array<[string, () => Error]> = [
+    ["a timeout", () => Object.assign(new Error("timeout of 30000ms exceeded"), { code: "ETIMEDOUT" })],
+    ["a dropped connection", () => Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })],
+    ["a Twilio 5xx", () => Object.assign(new Error("[HTTP 503] Failed to execute request"), { status: 503 })],
+  ];
+
+  for (const [name, error] of unanswered) {
+    it(`leaves the text pending and says delivery is unknown when Twilio's answer is lost to ${name}, so a rewrite cannot send it twice`, async () => {
+      const { conversation } = await customerWhoTexted();
+      const twilio: string[] = [];
+
+      const outcome = await smsSend.sendCustomerText(target(conversation), {
+        transport: async (message) => {
+          twilio.push(message.body);
+          throw error();
+        },
+      });
+
+      assert.equal(outcome.status, 500);
+      assert.equal(outcome.payload.deliveryUnknown, true);
+      assert.equal(outcome.payload.error, smsSend.TWILIO_DID_NOT_ANSWER);
+      assert.doesNotMatch(String(outcome.payload.error), /never got|was not sent|Nothing reached/);
+
+      const rows = await outboundRows(conversation.id);
+      assert.equal(rows.length, 1);
+      assert.equal(outcome.payload.messageId, rows[0].id);
+      assert.equal(rows[0].deliveryStatus, DeliveryStatus.QUEUED);
+      assert.equal(rows[0].errorMessage, null);
+      assert.equal(isUndelivered(rows[0]), false, "the thread must not say the customer never got it, nor offer Rewrite it");
+      assert.equal(
+        await prisma.notification.count({ where: { conversationId: conversation.id, type: NotificationType.MESSAGE_FAILED } }),
+        0,
+      );
+      assert.deepEqual(twilio, ["Yes, ready at 3."]);
+    });
+  }
+
+  // Errors raised before any byte reached Twilio: the text certainly did not go.
+  const neverConnected: Array<[string, () => Error]> = [
+    ["the host did not resolve", () => Object.assign(new Error("getaddrinfo ENOTFOUND api.twilio.com"), { code: "ENOTFOUND" })],
+    ["DNS was unavailable", () => Object.assign(new Error("getaddrinfo EAI_AGAIN api.twilio.com"), { code: "EAI_AGAIN" })],
+    ["the connect was refused", () => Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:443"), { code: "ECONNREFUSED" })],
+  ];
+
+  for (const [name, error] of neverConnected) {
+    it(`marks the text failed and tells managers when ${name}, because the request never reached Twilio`, async () => {
+      const { conversation } = await customerWhoTexted();
+      const thrown = error();
+
+      const outcome = await smsSend.sendCustomerText(target(conversation), {
+        transport: async () => {
+          throw thrown;
+        },
+      });
+
+      assert.equal(outcome.status, 502);
+      assert.equal(outcome.payload.deliveryUnknown, undefined);
+      assert.equal(outcome.payload.error, thrown.message);
+
+      const rows = await outboundRows(conversation.id);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].deliveryStatus, DeliveryStatus.FAILED);
+      assert.equal(isUndelivered(rows[0]), true);
+      assert.ok(
+        (await prisma.notification.count({
+          where: { conversationId: conversation.id, type: NotificationType.MESSAGE_FAILED },
+        })) > 0,
+      );
+    });
+  }
+
+  it("says why a refused connect failed even when the error carries no message", async () => {
+    const { conversation } = await customerWhoTexted();
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        throw Object.assign(new AggregateError([], ""), { code: "ECONNREFUSED" });
+      },
+    });
+
+    assert.equal(outcome.status, 502);
+    assert.equal(outcome.payload.error, "Twilio send failed.");
+
+    const rows = await outboundRows(conversation.id);
+    assert.equal(rows[0].deliveryStatus, DeliveryStatus.FAILED);
+    assert.equal(rows[0].errorMessage, "Twilio send failed.");
+  });
+
+  it("still marks the text failed when Twilio definitely refused it with a 4xx", async () => {
+    const { conversation } = await customerWhoTexted();
+
+    const outcome = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        throw Object.assign(new Error("The 'To' number is not a valid phone number."), { code: 21211, status: 400 });
+      },
+    });
+
+    assert.equal(outcome.status, 502);
+    assert.equal(outcome.payload.deliveryUnknown, undefined);
+    assert.equal(outcome.payload.error, "The 'To' number is not a valid phone number.");
+
+    const rows = await outboundRows(conversation.id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].deliveryStatus, DeliveryStatus.FAILED);
+    assert.equal(isUndelivered(rows[0]), true);
   });
 
   it("shows sending as blocked, never allowed, when the composer's preview cannot read the ledger", async () => {
