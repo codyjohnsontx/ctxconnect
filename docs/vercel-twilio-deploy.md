@@ -89,6 +89,8 @@ Point Twilio at the deployed app URL:
 
 If you are using a Twilio Messaging Service, configure those values on the Messaging Service used for outbound sends.
 
+Each outbound text also names its own status callback, `https://<NEXT_PUBLIC_APP_URL>/api/twilio/status?messageId=<id>`, which Twilio uses instead of the Messaging Service's. That is how a text whose send answer was lost is still settled, so `NEXT_PUBLIC_APP_URL` must be the URL Twilio can reach: the signature covers the query string.
+
 ## Validation Checklist
 
 After deployment:

@@ -12,6 +12,7 @@ import {
   DeliveryStatus,
   Department,
   MessageDirection,
+  NotificationType,
   Role,
 } from "../src/generated/prisma/enums";
 
@@ -21,7 +22,8 @@ import {
 // half the gate cannot promise on its own - one such row per thread - and
 // replays the migration that introduced the state over rows written before it.
 // Then it drives how a SENDING row settles: Twilio's status callback, which
-// names the row in its URL.
+// names the row in its URL, and the reconciler, which asks a fake of Twilio's
+// message list on the thread page and before the next send.
 //
 // It writes, so it runs only when TEST_DATABASE_URL names a migrated,
 // disposable database; CI's build job points it at its throwaway Postgres.
@@ -31,6 +33,8 @@ type Db = typeof import("../src/lib/prisma").prisma;
 type SmsSend = typeof import("../src/lib/sms-send");
 type Ledger = typeof import("../src/lib/consent-ledger");
 type StatusRoute = typeof import("../src/app/api/twilio/status/route");
+type Settlement = typeof import("../src/lib/send-settlement");
+type TwilioMessage = import("../src/lib/send-settlement").TwilioMessage;
 
 const suffix = randomUUID().replace(/-/g, "").slice(0, 10);
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "prisma", "migrations");
@@ -203,6 +207,7 @@ describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DA
   let smsSend: SmsSend;
   let ledger: Ledger;
   let statusRoute: StatusRoute;
+  let settlement: Settlement;
   let advisorId: string;
   let count = 0;
 
@@ -214,6 +219,7 @@ describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DA
     smsSend = await import("../src/lib/sms-send");
     ledger = await import("../src/lib/consent-ledger");
     statusRoute = await import("../src/app/api/twilio/status/route");
+    settlement = await import("../src/lib/send-settlement");
 
     const advisor = await prisma.user.create({
       data: {
@@ -360,5 +366,153 @@ describe("a send settled by Twilio's callback", { skip: !databaseUrl && "TEST_DA
     const [row] = await outbound(conversation.id);
     assert.equal(row.twilioSid, `SMmine${suffix}${count}`);
     assert.equal(row.deliveryStatus, DeliveryStatus.SENT);
+  });
+
+  /** A send whose answer was lost, made to have been handed to Twilio `ageMs` ago. */
+  async function unconfirmedSend(ageMs: number) {
+    const conversation = await customerWhoTexted();
+    const lost = await smsSend.sendCustomerText(target(conversation), {
+      transport: async () => {
+        throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+      },
+    });
+    assert.equal(lost.status, 500);
+
+    const createdAt = new Date(Date.now() - ageMs);
+    const row = await prisma.message.update({ where: { id: String(lost.payload.messageId) }, data: { createdAt } });
+    assert.equal(row.deliveryStatus, DeliveryStatus.SENDING);
+
+    return { conversation, row };
+  }
+
+  const atTwilio = (row: { body: string; createdAt: Date }, phone: string, sid: string): TwilioMessage => ({
+    sid,
+    to: phone,
+    body: row.body,
+    direction: "outbound-api",
+    dateCreated: new Date(row.createdAt.getTime() + 300),
+  });
+
+  const thread = (conversation: Awaited<ReturnType<typeof customerWhoTexted>>) => ({
+    customerId: conversation.customerId,
+    conversationId: conversation.id,
+  });
+
+  const twoMinutes = () => settlement.SEND_SETTLEMENT_MS + 5_000;
+
+  it("settles a stale send Twilio has as sent, on the thread page, and opens the composer again", async () => {
+    const { conversation, row } = await unconfirmedSend(settlement.SEND_GRACE_MS + 5_000);
+    const sid = `SMfound${suffix}${count}`;
+    const asked: Array<{ to: string; limit: number }> = [];
+
+    const block = await smsSend.previewSendBlock(thread(conversation), undefined, {
+      lookup: async (query) => {
+        asked.push(query);
+        return [atTwilio(row, conversation.customer.phone, sid)];
+      },
+    });
+
+    assert.equal(block, null);
+    assert.deepEqual(asked, [{ to: conversation.customer.phone, limit: settlement.TWILIO_LOOKUP_LIMIT }]);
+    const [settled] = await outbound(conversation.id);
+    assert.equal(settled.deliveryStatus, DeliveryStatus.SENT);
+    assert.equal(settled.twilioSid, sid);
+  });
+
+  it("settles a stale send Twilio never got as failed, before the next send, and lets the rewrite go once", async () => {
+    const { conversation } = await unconfirmedSend(twoMinutes());
+    const twilio: string[] = [];
+
+    const rewrite = await smsSend.sendCustomerText(target(conversation, "Yes, ready at 3pm."), {
+      lookup: async () => [],
+      transport: async (message) => {
+        twilio.push(message.body);
+        return { sid: `SMrewrite${suffix}${count}` };
+      },
+    });
+
+    assert.equal(rewrite.status, 200);
+    assert.deepEqual(twilio, ["Yes, ready at 3pm."]);
+    const [failed, sent] = await outbound(conversation.id);
+    assert.equal(failed.deliveryStatus, DeliveryStatus.FAILED);
+    assert.equal(failed.errorMessage, settlement.NEVER_REACHED_TWILIO);
+    assert.match(failed.errorMessage ?? "", /^Did not reach Twilio/);
+    assert.equal(sent.deliveryStatus, DeliveryStatus.SENT);
+    assert.ok(
+      (await prisma.notification.count({
+        where: { conversationId: conversation.id, messageId: failed.id, type: NotificationType.MESSAGE_FAILED },
+      })) > 0,
+      "managers are told a text did not go",
+    );
+  });
+
+  it("leaves a stale send standing while Twilio's silence is not yet proof", async () => {
+    const { conversation } = await unconfirmedSend(settlement.SEND_GRACE_MS + 5_000);
+
+    const block = await smsSend.previewSendBlock(thread(conversation), undefined, { lookup: async () => [] });
+
+    assert.equal(block?.reason, "SEND_UNCONFIRMED");
+    assert.equal((await outbound(conversation.id))[0].deliveryStatus, DeliveryStatus.SENDING);
+  });
+
+  it("keeps the thread held when Twilio cannot be asked", async () => {
+    const { conversation } = await unconfirmedSend(twoMinutes());
+
+    const refused = await smsSend.sendCustomerText(target(conversation), {
+      lookup: async () => {
+        throw Object.assign(new Error("[HTTP 503] Service Unavailable"), { status: 503 });
+      },
+      transport: async () => {
+        throw new Error("Twilio was called while the last text is unconfirmed.");
+      },
+    });
+
+    assert.equal(refused.status, 403);
+    assert.equal(refused.payload.reason, "SEND_UNCONFIRMED");
+    assert.equal((await outbound(conversation.id))[0].deliveryStatus, DeliveryStatus.SENDING);
+
+    // And when texting is not connected at all, there is nobody to ask.
+    const block = await smsSend.previewSendBlock(thread(conversation), undefined, { lookup: null });
+    assert.equal(block?.reason, "SEND_UNCONFIRMED");
+  });
+
+  it("does not ask Twilio about a send still inside the grace period", async () => {
+    const { conversation } = await unconfirmedSend(1_000);
+
+    const block = await smsSend.previewSendBlock(thread(conversation), undefined, {
+      lookup: async () => {
+        throw new Error("Twilio was asked about a send inside the grace period.");
+      },
+    });
+
+    assert.equal(block?.reason, "SEND_UNCONFIRMED");
+  });
+
+  it("does not claim the Twilio message an earlier text with the same words already holds", async () => {
+    const conversation = await customerWhoTexted();
+    const earlierSid = `SMearlier${suffix}${count}`;
+    const first = await smsSend.sendCustomerText(target(conversation, "Yes."), {
+      transport: async () => ({ sid: earlierSid }),
+    });
+    assert.equal(first.status, 200);
+    const second = await smsSend.sendCustomerText(target(conversation, "Yes."), {
+      lookup: async () => [],
+      transport: async () => {
+        throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+      },
+    });
+    const row = await prisma.message.update({
+      where: { id: String(second.payload.messageId) },
+      data: { createdAt: new Date(Date.now() - twoMinutes()) },
+    });
+
+    // Twilio holds only the first "Yes."; the second never reached it.
+    await smsSend.settleSendInFlight(conversation.id, {
+      lookup: async () => [{ ...atTwilio(row, conversation.customer.phone, earlierSid), body: "Yes." }],
+    });
+
+    const settled = await prisma.message.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(settled.deliveryStatus, DeliveryStatus.FAILED);
+    assert.equal(settled.twilioSid, null);
   });
 });

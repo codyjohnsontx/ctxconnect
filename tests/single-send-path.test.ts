@@ -64,8 +64,9 @@ function filesMatching(pattern: RegExp) {
 // `import twilio from "twilio"`, `import { Twilio } from "twilio/lib/..."`,
 // `import "twilio"`, `require("twilio")` and `await import("twilio")`.
 const TWILIO_PACKAGE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["']twilio(?:\/[^"']*)?["']/;
-// The client factory, `new Twilio(...)`, or the send call on any client.
-const TWILIO_CLIENT = /\btwilio\s*\(|\bnew\s+Twilio\b|\bmessages\s*\.\s*create\s*\(/;
+// The client factory, `new Twilio(...)`, or the send or list call on any
+// client: the reconciler's read of Twilio's messages lives with the sender too.
+const TWILIO_CLIENT = /\btwilio\s*\(|\bnew\s+Twilio\b|\bmessages\s*\.\s*(?:create|list)\s*\(/;
 // Any way of telling the compiler an object is a permit without the gate making it.
 const PERMIT_CAST = /\bas\s+(?:unknown\s+as\s+)?SendPermit\b|<\s*SendPermit\s*>|\bsatisfies\s+SendPermit\b/;
 const TWILIO_SECRETS = /\bTWILIO_(?:ACCOUNT_SID|AUTH_TOKEN)\b/;
@@ -75,7 +76,7 @@ describe("the single send path", () => {
     assert.deepEqual(filesMatching(TWILIO_PACKAGE), [REPLAY_SCRIPT, WEBHOOK_VERIFIER, SENDER].sort());
   });
 
-  it("builds a Twilio client and calls its send API in one module", () => {
+  it("builds a Twilio client and calls its send and list APIs in one module", () => {
     assert.deepEqual(filesMatching(TWILIO_CLIENT), [SENDER]);
   });
 
