@@ -41,8 +41,9 @@ stale. To recapture them the same way (last done 2026-11-01):
    `pnpm prisma:migrate:deploy` and `pnpm prisma:seed` with `SEED_AI_BRIEFS=false`.
    Migrations and the seed read `DIRECT_URL` first and fall back to `DATABASE_URL`
    (`prisma.config.ts`, `prisma/seed.ts`), and an unset variable is filled from
-   `.env`, so leaving `DIRECT_URL` alone can migrate and seed some other database. The seed's written briefs are
-   what the screens show; no `OPENAI_API_KEY` is needed for the content. Set the
+   `.env`, so leaving `DIRECT_URL` alone can migrate and seed some other database.
+   The seed's written briefs are what the screens show; no `OPENAI_API_KEY` is
+   needed for the content. Set the
    key to any placeholder value anyway, because the inbox checks only that one is
    present and otherwise shows a "not configured" banner where `Run pass` belongs.
 2. Start `pnpm dev` with `DEMO_USER_EMAIL=service@ctxchat.local`, so `View demo`
