@@ -32,6 +32,34 @@ Screens below show the local demo UI, signed in as the service advisor.
 | --- | --- | --- |
 | ![Attend login screen](public/screenshots/login.png) | ![Attend inbox ranked by AI risk, with a conversation open and its AI ops brief](public/screenshots/inbox.png) | ![Attend follow-up task queue](public/screenshots/tasks.png) |
 
+### Regenerating the screenshots
+
+The images are not produced by a script, so a UI change leaves them quietly
+stale. To recapture them the same way (last done 2026-11-01):
+
+1. Point both `DATABASE_URL` and `DIRECT_URL` at an empty local Postgres, run
+   `pnpm prisma:migrate:deploy` and `pnpm prisma:seed` with `SEED_AI_BRIEFS=false`.
+   Migrations and the seed read `DIRECT_URL` first and fall back to `DATABASE_URL`
+   (`prisma.config.ts`, `prisma/seed.ts`), and an unset variable is filled from
+   `.env`, so leaving `DIRECT_URL` alone can migrate and seed some other database.
+   The seed's written briefs are what the screens show; no `OPENAI_API_KEY` is
+   needed for the content. Set the
+   key to any placeholder value anyway, because the inbox checks only that one is
+   present and otherwise shows a "not configured" banner where `Run pass` belongs.
+2. Start `pnpm dev` with `DEMO_USER_EMAIL=service@ctxchat.local`, so `View demo`
+   signs in as the seeded service advisor with the demo SMS cap in place, and with
+   `NEXTAUTH_URL` set to the URL that server is listening on (`http://localhost:3000`
+   by default). Auth.js redirects there after sign-in, so a value left over from
+   another port turns a successful `View demo` into an unreachable page.
+3. In Chrome, emulate a 1440x900 viewport at a device scale factor of 2 (the PNGs
+   are 2880x1800) with a light color scheme, and remove the `nextjs-portal`
+   element before capturing so the dev-tools bubble stays out of the frame.
+4. Capture `/login` signed out, then press `View demo` and capture
+   `/inbox/<id>` for Renee Whitlock's conversation (the first row in the ranked
+   queue) and `/tasks`.
+
+Keep the filenames, so the links above keep working.
+
 ## Stack
 
 - `Next.js` App Router
