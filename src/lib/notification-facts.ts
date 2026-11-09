@@ -144,6 +144,50 @@ export const readResolvesNotificationTypes: NotificationType[] = [
 ];
 
 /**
+ * The alerts somebody attending to the customer withdraws: a reply the moment
+ * it is recorded as sent, or a note a person typed the moment it is written.
+ *
+ * Opening an unread thread already withdraws "a message arrived", but a thread
+ * that was on her screen when the text landed, or one she put back to unread,
+ * is never opened again before she answers it - so the alert outlived the
+ * answer and the rail filled with work already done. What counts as answering
+ * is `attendsToCustomer` in `src/lib/sla.ts`, the rule the response-time alert
+ * already stops on, so "called her, left a voicemail" clears both and a note
+ * Attend wrote itself clears neither.
+ *
+ * A reply is sent, not merely written: one Twilio has not taken yet may still
+ * fail, and a failed reply answered nobody. So the three places that record a
+ * reply as sent - the send itself, Twilio's status callback and the
+ * reconciler, all through `recordLateSentReply` but the first - each withdraw
+ * it in the write that records it, as `recordStaffNote` does for a note. The
+ * rest of the thread's alerts are not answered this way: an unowned thread
+ * still has no owner, a failed text is still failed, and the response clock is
+ * `src/lib/sla.ts`'s to stop.
+ *
+ * An answer covers the texts that came before it and none after. A customer
+ * who texts again before a reply is recorded as sent - the length of one
+ * Twilio round trip, or as long as a lost answer takes to settle - is owed
+ * another one, and `notificationFactKey` keeps one alert per thread, so the
+ * standing alert is that text's as well. `answeredAlertsWhere` leaves it
+ * standing.
+ */
+export const answerResolvesNotificationTypes: NotificationType[] = [
+  NotificationType.NEW_INBOUND_MESSAGE,
+];
+
+/** The standing alerts an answer written at `answer.createdAt` on its thread withdraws - see `answerResolvesNotificationTypes`. */
+export function answeredAlertsWhere(answer: { conversationId: string; createdAt: Date }) {
+  return {
+    conversationId: answer.conversationId,
+    type: { in: answerResolvesNotificationTypes },
+    status: { not: NotificationStatus.RESOLVED },
+    conversation: {
+      messages: { none: { direction: MessageDirection.INBOUND, createdAt: { gt: answer.createdAt } } },
+    },
+  } satisfies Prisma.NotificationWhereInput;
+}
+
+/**
  * The alerts a thread raises against whoever is holding it, which is why they
  * follow the thread when it changes hands. A row is stored per recipient, so an
  * alert left addressed to an advisor who has gone away is an alert nobody's
@@ -611,13 +655,13 @@ export function dedupeNotificationFacts<T extends NotificationCopy>(
  *
  * How many copies that is has no ceiling. It was once the recipient count -
  * the managers plus an assignee - but a thread collects an alert per inbound
- * text and keeps them until it is closed, so one busy urgent thread can spend
- * the whole scan on itself and push other facts behind the "more in Command
- * Center" row. The screen stays honest either way, because that row is the
+ * text and keeps them until it is answered or closed, so one busy urgent
+ * thread can spend the whole scan on itself and push other facts behind the
+ * "more in Command Center" row. The screen stays honest either way, because that row is the
  * difference between the badge and the list rather than a silent shortfall.
- * The bound that would fix it belongs on the write side, where an answered
- * thread should stop holding an alert per text, and is filed separately for the
- * reason in
+ * The bound that would fix it belongs on the write side. An answer now
+ * withdraws the thread's new-message alert (`answerResolvesNotificationTypes`);
+ * the rest is filed separately for the reason in
  * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md.
  */
 export const notificationScanLimit = 60;
@@ -692,8 +736,8 @@ export function activeNotificationsWhere(user: AppUser): Prisma.NotificationWher
  *
  * The alternative is reading back a row per stored copy and collapsing them
  * here, and the rows are not bounded by anything the reader can see: a thread
- * holds an alert per inbound text until it is closed, and this runs on every
- * page load. So the same fact key is counted distinct in SQL, over the same
+ * holds an alert per inbound text until it is answered or closed, and this
+ * runs on every page load. So the same fact key is counted distinct in SQL, over the same
  * rows `activeNotificationsWhere` describes.
  */
 export function notificationFactCountQuery(user: AppUser, type?: string): Prisma.Sql {
