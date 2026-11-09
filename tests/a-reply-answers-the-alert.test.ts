@@ -274,6 +274,49 @@ describe("a reply answers the new-message alert", { skip: !databaseUrl && "TEST_
     assert.ok((await standing(thread.id, advisor)) > 0, "the later text is still waiting on an answer");
   });
 
+  it("leaves standing a text still being written when a lost reply settles as sent", async () => {
+    const thread = await waitingThread();
+    let statusCallback = "";
+
+    await reply(thread, async (message) => {
+      statusCallback = message.statusCallback ?? "";
+      throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    });
+    // Something since the reply has already moved the thread on.
+    await prisma.conversation.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date(Date.now() + 60_000) },
+    });
+
+    let textWritten!: () => void;
+    const written = new Promise<void>((resolve) => (textWritten = resolve));
+    let commitText!: () => void;
+    const committing = new Promise<void>((resolve) => (commitText = resolve));
+    const texting = prisma.$transaction(
+      async (tx) => {
+        await inbound.recordInboundText(tx, {
+          from: thread.customer.phone,
+          body: "Actually, can it be 4 instead?",
+          twilioSid: `SMin${suffix}${randomUUID().replace(/-/g, "").slice(0, 16)}`,
+          mediaUrl: null,
+          numMedia: 0,
+        });
+        textWritten();
+        await committing;
+      },
+      { timeout: 20_000 },
+    );
+
+    await written;
+    const settling = callback(statusCallback, { MessageSid: `SMmid${suffix}${count}`, MessageStatus: "sent" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    commitText();
+    await Promise.all([texting, settling]);
+
+    // Each text keeps the row it raised, so the settling reply cannot reach the new one.
+    assert.ok((await standing(thread.id, advisor)) > 0, "the text that landed is still waiting on an answer");
+  });
+
   it("leaves another thread's alert alone", async () => {
     const answered = await waitingThread();
     const other = await waitingThread();
