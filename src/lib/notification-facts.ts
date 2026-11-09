@@ -144,6 +144,45 @@ export const readResolvesNotificationTypes: NotificationType[] = [
 ];
 
 /**
+ * The alerts a reply on the thread withdraws, the moment the reply is recorded
+ * as sent.
+ *
+ * Opening an unread thread already withdraws "a message arrived", but a thread
+ * that was on her screen when the text landed, or one she put back to unread,
+ * is never opened again before she answers it - so the alert outlived the
+ * answer and the rail filled with work already done. A reply is the answer.
+ *
+ * Sent, not merely written: a reply Twilio has not taken yet may still fail,
+ * and a failed reply answered nobody. So the three places that record a reply
+ * as sent - the send itself, Twilio's status callback and the reconciler, all
+ * through `recordLateSentReply` but the first - each withdraw it in the write
+ * that records it, and nothing else does. The rest of the thread's alerts are
+ * not answered by a reply: an unowned thread still has no owner, a failed text
+ * is still failed, and the response clock is `src/lib/sla.ts`'s to stop.
+ *
+ * A reply answers the texts that came before it and none after. A customer who
+ * texts again before it is recorded as sent - the length of one Twilio round
+ * trip, or as long as a lost answer takes to settle - is owed another one, and
+ * `notificationFactKey` keeps one alert per thread, so the standing alert is
+ * that text's as well. `answeredAlertsWhere` leaves it standing.
+ */
+export const replyResolvesNotificationTypes: NotificationType[] = [
+  NotificationType.NEW_INBOUND_MESSAGE,
+];
+
+/** The standing alerts a reply written at `reply.createdAt` on its thread answers - see `replyResolvesNotificationTypes`. */
+export function answeredAlertsWhere(reply: { conversationId: string; createdAt: Date }) {
+  return {
+    conversationId: reply.conversationId,
+    type: { in: replyResolvesNotificationTypes },
+    status: { not: NotificationStatus.RESOLVED },
+    conversation: {
+      messages: { none: { direction: MessageDirection.INBOUND, createdAt: { gt: reply.createdAt } } },
+    },
+  } satisfies Prisma.NotificationWhereInput;
+}
+
+/**
  * The alerts a thread raises against whoever is holding it, which is why they
  * follow the thread when it changes hands. A row is stored per recipient, so an
  * alert left addressed to an advisor who has gone away is an alert nobody's

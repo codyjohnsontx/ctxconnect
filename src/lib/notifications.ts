@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { attendedSinceInbound, slaMinutesForDepartment } from "@/lib/sla";
 import {
   activeNotificationWhere,
+  answeredAlertsWhere,
   assigneeAddressedNotificationsWhere,
   latestCustomerTextsQuery,
   notificationFactCountQuery,
@@ -352,6 +353,20 @@ export async function resolveConversationNotificationsTx(
   }
 
   await resolveConversationNotificationsWithClient(client, conversationId, types);
+}
+
+/**
+ * Withdraws the alerts a reply answers, in the transaction that records the
+ * reply as sent - see `replyResolvesNotificationTypes`.
+ */
+export async function resolveAnsweredNotificationsTx(
+  client: Prisma.TransactionClient,
+  reply: { conversationId: string; createdAt: Date },
+) {
+  await client.notification.updateMany({
+    where: answeredAlertsWhere(reply),
+    data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
+  });
 }
 
 /**
