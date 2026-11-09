@@ -655,13 +655,13 @@ export function dedupeNotificationFacts<T extends NotificationCopy>(
  *
  * How many copies that is has no ceiling. It was once the recipient count -
  * the managers plus an assignee - but a thread collects an alert per inbound
- * text and keeps them until it is closed, so one busy urgent thread can spend
- * the whole scan on itself and push other facts behind the "more in Command
- * Center" row. The screen stays honest either way, because that row is the
+ * text and keeps them until it is answered or closed, so one busy urgent
+ * thread can spend the whole scan on itself and push other facts behind the
+ * "more in Command Center" row. The screen stays honest either way, because that row is the
  * difference between the badge and the list rather than a silent shortfall.
- * The bound that would fix it belongs on the write side, where an answered
- * thread should stop holding an alert per text, and is filed separately for the
- * reason in
+ * The bound that would fix it belongs on the write side. An answer now
+ * withdraws the thread's new-message alert (`answerResolvesNotificationTypes`);
+ * the rest is filed separately for the reason in
  * content/decisions/2026-08-19-thread-alerts-keep-the-text-that-raised-them.md.
  */
 export const notificationScanLimit = 60;
@@ -736,8 +736,8 @@ export function activeNotificationsWhere(user: AppUser): Prisma.NotificationWher
  *
  * The alternative is reading back a row per stored copy and collapsing them
  * here, and the rows are not bounded by anything the reader can see: a thread
- * holds an alert per inbound text until it is closed, and this runs on every
- * page load. So the same fact key is counted distinct in SQL, over the same
+ * holds an alert per inbound text until it is answered or closed, and this
+ * runs on every page load. So the same fact key is counted distinct in SQL, over the same
  * rows `activeNotificationsWhere` describes.
  */
 export function notificationFactCountQuery(user: AppUser, type?: string): Prisma.Sql {
