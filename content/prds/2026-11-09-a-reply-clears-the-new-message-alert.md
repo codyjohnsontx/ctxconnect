@@ -10,7 +10,7 @@ Built
 
 ## Summary
 
-A thread's "New customer message" alert now leaves the alert rail as soon as a staff reply on that thread is recorded as sent. Before, a thread the advisor already had open when the text arrived, or one she had marked unread, kept its alert after she answered it. An advisor who answers everything and closes nothing ended the day with a rail full of work she had already done.
+A thread's "New customer message" alert now leaves the alert rail as soon as a staff reply on that thread is recorded as sent, or a staff member types an internal note on it. Before, a thread the advisor already had open when the text arrived, or one she had marked unread, kept its alert after she answered it. An advisor who answers everything and closes nothing ended the day with a rail full of work she had already done.
 
 ## Problem
 
@@ -27,7 +27,8 @@ After a reply goes out, the rail and the Command Center stop listing that thread
 ## v1 Scope
 
 - A staff reply recorded as sent withdraws that thread's `NEW_INBOUND_MESSAGE` alerts for every recipient. That covers the send itself, Twilio's status callback, and the reconciler that settles a send whose answer was lost.
-- The alert is resolved in the same database transaction that records the reply as sent, so it cannot clear without the reply going out.
+- A note a staff member types on the thread ("called her, left a voicemail") withdraws it the same way, the moment the note is written. What counts is `attendsToCustomer` in `src/lib/sla.ts`, the rule the response-time alert already stops on, so the two alerts agree on every thread. A note Attend writes itself, such as a hand-off note, does not count.
+- The alert is resolved in the same database transaction that records the reply as sent, or writes the note, so it cannot clear without the answer being recorded.
 - A customer text that arrives after the reply was written keeps the alert standing, and any later text raises it again.
 
 ## Non-Goals
@@ -41,6 +42,7 @@ After a reply goes out, the rail and the Command Center stop listing that thread
 - **A send still being confirmed does not clear the alert.** A reply handed to Twilio whose answer never came back (`SENDING`) may still turn out to have failed, and a failed reply answered nobody. The alert clears when that reply is later recorded as sent, by Twilio's callback or by the reconciler, and stays if it is recorded as failed.
 - **A failure Twilio reports after accepting the text does not re-raise the alert.** If Twilio accepts the reply and later reports it undelivered, the new-message alert stays cleared. The `MESSAGE_FAILED` alert to managers is the record of that failure.
 - **A reply answers the texts before it, not after.** If the customer texts again during the Twilio round trip, the alert stays, because that new text has not been answered.
+- **A typed note counts as an answer.** Owner's call during review: an advisor who phones the customer and notes it has seen to them, and the response-time alert already treats it that way. Reusing that rule keeps the rail and the response-time alert from disagreeing about the same thread.
 
 ## Acceptance Criteria
 
@@ -49,10 +51,12 @@ After a reply goes out, the rail and the Command Center stop listing that thread
 - Given the reply's Twilio answer was lost, then the alert stays until the reply is settled. It clears if the reply settles as sent and stays if it settles as failed.
 - Given a reply cleared the alert, when the customer texts again, then the alert is raised again.
 - Given two threads with alerts, when one is answered, then the other thread's alert stays.
+- Given a thread's new-message alert, when a staff member types an internal note on it, then the alert leaves every rail, and a later customer text raises it again.
+- Given the same, when Attend writes a note of its own on the thread, then the alert stays.
 
 ## Validation
 
-- `tests/a-reply-answers-the-alert.test.ts` (needs a real Postgres): ten cases covering every criterion above, plus a customer text landing mid-send and the thread's other alerts. The six tests that depend on the fix fail against the previous send path.
+- `tests/a-reply-answers-the-alert.test.ts` (needs a real Postgres): thirteen cases covering every criterion above, plus a customer text landing mid-send and the thread's other alerts. The six tests that depend on the fix fail against the previous send path.
 - Run in the app locally, with a stand-in for Twilio: an inbound text raised "New customer message" for the advisor, and her reply from the open thread removed it from the rail and the Command Center. Before the fix, the same steps left the alert standing.
 
 ## Risks / Open Questions

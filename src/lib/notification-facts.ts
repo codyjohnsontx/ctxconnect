@@ -144,40 +144,45 @@ export const readResolvesNotificationTypes: NotificationType[] = [
 ];
 
 /**
- * The alerts a reply on the thread withdraws, the moment the reply is recorded
- * as sent.
+ * The alerts somebody attending to the customer withdraws: a reply the moment
+ * it is recorded as sent, or a note a person typed the moment it is written.
  *
  * Opening an unread thread already withdraws "a message arrived", but a thread
  * that was on her screen when the text landed, or one she put back to unread,
  * is never opened again before she answers it - so the alert outlived the
- * answer and the rail filled with work already done. A reply is the answer.
+ * answer and the rail filled with work already done. What counts as answering
+ * is `attendsToCustomer` in `src/lib/sla.ts`, the rule the response-time alert
+ * already stops on, so "called her, left a voicemail" clears both and a note
+ * Attend wrote itself clears neither.
  *
- * Sent, not merely written: a reply Twilio has not taken yet may still fail,
- * and a failed reply answered nobody. So the three places that record a reply
- * as sent - the send itself, Twilio's status callback and the reconciler, all
- * through `recordLateSentReply` but the first - each withdraw it in the write
- * that records it, and nothing else does. The rest of the thread's alerts are
- * not answered by a reply: an unowned thread still has no owner, a failed text
- * is still failed, and the response clock is `src/lib/sla.ts`'s to stop.
+ * A reply is sent, not merely written: one Twilio has not taken yet may still
+ * fail, and a failed reply answered nobody. So the three places that record a
+ * reply as sent - the send itself, Twilio's status callback and the
+ * reconciler, all through `recordLateSentReply` but the first - each withdraw
+ * it in the write that records it, as `recordStaffNote` does for a note. The
+ * rest of the thread's alerts are not answered this way: an unowned thread
+ * still has no owner, a failed text is still failed, and the response clock is
+ * `src/lib/sla.ts`'s to stop.
  *
- * A reply answers the texts that came before it and none after. A customer who
- * texts again before it is recorded as sent - the length of one Twilio round
- * trip, or as long as a lost answer takes to settle - is owed another one, and
- * `notificationFactKey` keeps one alert per thread, so the standing alert is
- * that text's as well. `answeredAlertsWhere` leaves it standing.
+ * An answer covers the texts that came before it and none after. A customer
+ * who texts again before a reply is recorded as sent - the length of one
+ * Twilio round trip, or as long as a lost answer takes to settle - is owed
+ * another one, and `notificationFactKey` keeps one alert per thread, so the
+ * standing alert is that text's as well. `answeredAlertsWhere` leaves it
+ * standing.
  */
-export const replyResolvesNotificationTypes: NotificationType[] = [
+export const answerResolvesNotificationTypes: NotificationType[] = [
   NotificationType.NEW_INBOUND_MESSAGE,
 ];
 
-/** The standing alerts a reply written at `reply.createdAt` on its thread answers - see `replyResolvesNotificationTypes`. */
-export function answeredAlertsWhere(reply: { conversationId: string; createdAt: Date }) {
+/** The standing alerts an answer written at `answer.createdAt` on its thread withdraws - see `answerResolvesNotificationTypes`. */
+export function answeredAlertsWhere(answer: { conversationId: string; createdAt: Date }) {
   return {
-    conversationId: reply.conversationId,
-    type: { in: replyResolvesNotificationTypes },
+    conversationId: answer.conversationId,
+    type: { in: answerResolvesNotificationTypes },
     status: { not: NotificationStatus.RESOLVED },
     conversation: {
-      messages: { none: { direction: MessageDirection.INBOUND, createdAt: { gt: reply.createdAt } } },
+      messages: { none: { direction: MessageDirection.INBOUND, createdAt: { gt: answer.createdAt } } },
     },
   } satisfies Prisma.NotificationWhereInput;
 }

@@ -12,13 +12,15 @@ import {
 } from "../src/generated/prisma/enums";
 import type { AppUser } from "../src/lib/data";
 import { activeNotificationsWhere } from "../src/lib/notification-facts";
+import { attendedSinceInbound, systemNote } from "../src/lib/sla";
 
 // "New customer message" is the alert that says a customer is waiting on an
 // answer. Opening an unread thread withdraws it, but a thread already on the
 // advisor's screen when the text lands is never opened again before she
 // answers it, so the alert outlived the reply and the rail filled with work
 // already done. A reply recorded as sent now withdraws it, in the write that
-// records it - see `replyResolvesNotificationTypes`.
+// records it, and so does a note a person typed - see
+// `answerResolvesNotificationTypes`.
 //
 // Driven end to end through the webhook's writer and the one send path, with
 // Twilio faked. It writes, so it runs only when TEST_DATABASE_URL names a
@@ -29,6 +31,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 type Db = typeof import("../src/lib/prisma").prisma;
 type SmsSend = typeof import("../src/lib/sms-send");
 type Inbound = typeof import("../src/lib/inbound-text");
+type Notifications = typeof import("../src/lib/notifications");
 type StatusRoute = typeof import("../src/app/api/twilio/status/route");
 type Settlement = typeof import("../src/lib/send-settlement");
 type SmsTransport = import("../src/lib/sms-send").SmsTransport;
@@ -41,6 +44,7 @@ describe("a reply answers the new-message alert", { skip: !databaseUrl && "TEST_
   let prisma: Db;
   let smsSend: SmsSend;
   let inbound: Inbound;
+  let notifications: Notifications;
   let statusRoute: StatusRoute;
   let settlement: Settlement;
   let advisor: AppUser;
@@ -54,6 +58,7 @@ describe("a reply answers the new-message alert", { skip: !databaseUrl && "TEST_
     ({ prisma } = await import("../src/lib/prisma"));
     smsSend = await import("../src/lib/sms-send");
     inbound = await import("../src/lib/inbound-text");
+    notifications = await import("../src/lib/notifications");
     statusRoute = await import("../src/app/api/twilio/status/route");
     settlement = await import("../src/lib/send-settlement");
 
@@ -301,5 +306,52 @@ describe("a reply answers the new-message alert", { skip: !databaseUrl && "TEST_
       }),
       1,
     );
+  });
+
+  /** Whether the response-time rule reads the thread as attended to - the rule the alert must agree with. */
+  async function slaReadsAttended(conversationId: string) {
+    const messages = await prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "desc" } });
+    const latestInbound = messages.find((message) => message.direction === MessageDirection.INBOUND);
+    assert.ok(latestInbound);
+
+    return attendedSinceInbound(latestInbound.createdAt, messages);
+  }
+
+  it("withdraws it when the advisor types a note instead of texting back", async () => {
+    const thread = await waitingThread();
+
+    await notifications.recordStaffNote({
+      conversationId: thread.id,
+      senderUserId: advisor.id,
+      body: "Called her, left a voicemail.",
+    });
+
+    assert.equal(await standing(thread.id, advisor), 0);
+    assert.equal(await standing(thread.id, manager), 0);
+    assert.equal(await slaReadsAttended(thread.id), true, "the response-time rule agrees the customer was seen to");
+  });
+
+  it("raises it again when the customer texts after the note", async () => {
+    const thread = await waitingThread();
+    await notifications.recordStaffNote({ conversationId: thread.id, senderUserId: advisor.id, body: "Called her." });
+    assert.equal(await standing(thread.id, advisor), 0);
+
+    await customerTexts(thread, "Sorry I missed you - call back?");
+
+    assert.equal(await standing(thread.id, advisor), 1);
+  });
+
+  it("leaves it standing for a note Attend wrote itself, as the response-time rule does", async () => {
+    const thread = await waitingThread();
+
+    await prisma.$transaction(async (tx) => {
+      const note = await tx.message.create({
+        data: systemNote({ conversationId: thread.id, senderUserId: advisor.id, body: "Reassigned to a colleague." }),
+      });
+      await notifications.resolveAnsweredNotificationsTx(tx, note);
+    });
+
+    assert.equal(await standing(thread.id, advisor), 1);
+    assert.equal(await slaReadsAttended(thread.id), false);
   });
 });

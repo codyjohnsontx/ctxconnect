@@ -3,6 +3,7 @@ import {
   DeliveryStatus,
   Department,
   MessageDirection,
+  MessageKind,
   NotificationStatus,
   NotificationType,
   Priority,
@@ -13,7 +14,7 @@ import {
 import type { AppUser } from "@/lib/data";
 import { endOfDealershipDay } from "@/lib/dealership-day";
 import { prisma } from "@/lib/prisma";
-import { attendedSinceInbound, slaMinutesForDepartment } from "@/lib/sla";
+import { attendedSinceInbound, attendsToCustomer, slaMinutesForDepartment, type AttendedMessage } from "@/lib/sla";
 import {
   activeNotificationWhere,
   answeredAlertsWhere,
@@ -356,16 +357,47 @@ export async function resolveConversationNotificationsTx(
 }
 
 /**
- * Withdraws the alerts a reply answers, in the transaction that records the
- * reply as sent - see `replyResolvesNotificationTypes`.
+ * Withdraws the alerts a message answers, in the transaction that records it -
+ * a reply as sent, a typed note as written - when `attendsToCustomer` says it
+ * answers anything at all. See `answerResolvesNotificationTypes`.
  */
 export async function resolveAnsweredNotificationsTx(
   client: Prisma.TransactionClient,
-  reply: { conversationId: string; createdAt: Date },
+  message: AttendedMessage & { conversationId: string },
 ) {
+  if (!attendsToCustomer(message)) {
+    return;
+  }
+
   await client.notification.updateMany({
-    where: answeredAlertsWhere(reply),
+    where: answeredAlertsWhere(message),
     data: { status: NotificationStatus.RESOLVED, resolvedAt: new Date() },
+  });
+}
+
+/**
+ * A note a staff member typed on a thread - "called her, left a voicemail" -
+ * and what it does to the thread: it moves the thread in the queue and answers
+ * the customer's "new message" alert, in one transaction.
+ */
+export async function recordStaffNote(note: { conversationId: string; senderUserId: string; body: string }) {
+  await prisma.$transaction(async (tx) => {
+    const written = await tx.message.create({
+      data: {
+        conversationId: note.conversationId,
+        senderUserId: note.senderUserId,
+        direction: MessageDirection.INTERNAL,
+        kind: MessageKind.NOTE,
+        body: note.body,
+        deliveryStatus: DeliveryStatus.INTERNAL,
+      },
+    });
+
+    await tx.conversation.update({
+      where: { id: note.conversationId },
+      data: { lastMessageAt: written.createdAt },
+    });
+    await resolveAnsweredNotificationsTx(tx, written);
   });
 }
 

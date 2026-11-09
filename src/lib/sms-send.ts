@@ -37,6 +37,7 @@ import {
   ConsentMethod,
   DeliveryStatus,
   type Department,
+  type Message,
   MessageDirection,
   MessageKind,
   NotificationType,
@@ -466,7 +467,7 @@ async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Prom
  */
 export async function recordLateSentReply(
   db: Prisma.TransactionClient,
-  reply: { conversationId: string; createdAt: Date },
+  reply: Pick<Message, "conversationId" | "createdAt" | "direction" | "systemGenerated">,
 ) {
   await db.conversation.updateMany({
     where: { id: reply.conversationId, lastMessageAt: { lte: reply.createdAt } },
@@ -547,7 +548,7 @@ export async function settleSendInFlight(
 export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks = {}): Promise<SendOutcome> {
   const { conversation, userId, body } = target;
 
-  type Gated = { permit: SendPermit; messageId: string; writtenAt: Date } | { block: SendBlock };
+  type Gated = { permit: SendPermit; reply: Message } | { block: SendBlock };
   let gated: Gated;
 
   // Outside the gate's transaction, because it may wait on Twilio; the gate
@@ -583,7 +584,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
         },
       });
 
-      return { permit: decision.permit, messageId: message.id, writtenAt: message.createdAt };
+      return { permit: decision.permit, reply: message };
     });
   } catch (error) {
     console.error("The send gate could not read the consent record; nothing was sent.", {
@@ -598,7 +599,8 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
     return refused(gated.block);
   }
 
-  const { permit, messageId, writtenAt } = gated;
+  const { permit, reply } = gated;
+  const messageId = reply.id;
   const transport = hooks.transport === undefined ? twilioTransport() : hooks.transport;
 
   // Compliance: production SMS traffic in the US requires approved A2P 10DLC
@@ -635,7 +637,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
         // When the callback got here first it has already done this if Twilio
         // took the text, and must not be overruled if Twilio said it failed.
         if (count > 0) {
-          await resolveAnsweredNotificationsTx(tx, { conversationId: conversation.id, createdAt: writtenAt });
+          await resolveAnsweredNotificationsTx(tx, reply);
         }
       });
     } catch (error) {
