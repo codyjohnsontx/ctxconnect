@@ -56,7 +56,7 @@ After a reply goes out, the rail and the Command Center stop listing that thread
 
 ## Validation
 
-- `tests/a-reply-answers-the-alert.test.ts` (needs a real Postgres): thirteen cases covering every criterion above, plus a customer text landing mid-send and the thread's other alerts. The six tests that depend on the fix fail against the previous send path.
+- `tests/a-reply-answers-the-alert.test.ts` (needs a real Postgres): fourteen cases covering every criterion above, plus a customer text landing mid-send or mid-settle and the thread's other alerts. The eight tests that depend on the fix fail against the previous send and note paths.
 - Run in the app locally, with a stand-in for Twilio: an inbound text raised "New customer message" for the advisor, and her reply from the open thread removed it from the rail and the Command Center. Before the fix, the same steps left the alert standing.
 
 ## Risks / Open Questions
