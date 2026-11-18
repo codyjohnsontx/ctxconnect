@@ -8,11 +8,8 @@ import { remainingDemoBriefQuota } from "@/lib/ai/demo-cap";
 import { prisma } from "@/lib/prisma";
 import {
   ConversationStatus,
-  DeliveryStatus,
   Department,
   Prisma,
-  MessageDirection,
-  MessageKind,
   Priority,
   ProductEventType,
   TaskStatus,
@@ -23,6 +20,7 @@ import {
   notifyAssignee,
   notifyManagers,
   readdressAssigneeNotificationsTx,
+  recordStaffNote,
   reopenConversationNotifications,
   reopenTaskNotifications,
   resolveConversationNotifications,
@@ -274,22 +272,7 @@ export async function addInternalNote(formData: FormData) {
 
   await requireConversationAccess(user, conversationId);
 
-  await prisma.message.create({
-    data: {
-      conversationId,
-      senderUserId: user.id,
-      direction: MessageDirection.INTERNAL,
-      kind: MessageKind.NOTE,
-      body,
-      deliveryStatus: DeliveryStatus.INTERNAL,
-    },
-  });
-
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { lastMessageAt: new Date() },
-  });
-
+  await recordStaffNote({ conversationId, senderUserId: user.id, body });
   await resolveConversationNotifications(conversationId, [NotificationType.SLA_MISSED]);
   await recordAiInsightFormEvent({
     aiInsightId,

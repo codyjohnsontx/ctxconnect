@@ -76,17 +76,21 @@ export function attendedSinceInbound(
   latestInboundAt: Date,
   messages: ReadonlyArray<AttendedMessage>,
 ): boolean {
-  return messages.some((message) => {
-    if (message.createdAt <= latestInboundAt) {
-      return false;
-    }
+  return messages.some((message) => message.createdAt > latestInboundAt && attendsToCustomer(message));
+}
 
-    if (message.direction === MessageDirection.OUTBOUND) {
-      return true;
-    }
+/**
+ * Whether this one row is somebody attending to the customer - a reply, or a
+ * note a person typed - wherever it falls on the thread. The half of
+ * `attendedSinceInbound` that is about the row; the "new message" alert reads
+ * it too, so the two alerts cannot disagree about what counts.
+ */
+export function attendsToCustomer(message: Pick<AttendedMessage, "direction" | "systemGenerated">): boolean {
+  if (message.direction === MessageDirection.OUTBOUND) {
+    return true;
+  }
 
-    return message.direction === MessageDirection.INTERNAL && !message.systemGenerated;
-  });
+  return message.direction === MessageDirection.INTERNAL && !message.systemGenerated;
 }
 
 /**
@@ -97,7 +101,7 @@ export function attendedSinceInbound(
  * which is how this bug lived in ordinary reassignment long before coverage
  * made it visible. Building the row here is what leaves no site to forget it.
  *
- * A note a person types is deliberately not built here. `addInternalNote` writes
+ * A note a person types is deliberately not built here. `recordStaffNote` writes
  * its own unmarked row, because "called her, left a voicemail" is somebody doing
  * the work and must go on clearing the alert.
  */

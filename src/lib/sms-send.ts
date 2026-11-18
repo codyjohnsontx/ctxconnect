@@ -37,6 +37,7 @@ import {
   ConsentMethod,
   DeliveryStatus,
   type Department,
+  type Message,
   MessageDirection,
   MessageKind,
   NotificationType,
@@ -48,7 +49,7 @@ import { lockCustomerConsent, recordConsentEvent } from "@/lib/consent-ledger";
 import { dealershipTimeZone } from "@/lib/dealership-day";
 import { getTwilioConfig } from "@/lib/env";
 import { TEXTING_NOT_CONNECTED } from "@/lib/message-delivery";
-import { notifyManagers, resolveConversationNotifications } from "@/lib/notifications";
+import { notifyManagers, resolveAnsweredNotificationsTx, resolveConversationNotifications } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import {
   CONTACT_WINDOW,
@@ -459,18 +460,20 @@ async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Prom
 /**
  * What the SENT write does to the thread, for a reply whose SENT was recorded
  * later - by Twilio's callback or the reconciler - so it is not left unread or
- * out of place in the queue. Dated when the reply was written, and only while
- * nothing newer has landed: a customer text that arrived since keeps the
- * thread unread and its own place.
+ * out of place in the queue, and its "new message" alert does not outlive the
+ * answer. Dated when the reply was written, and only while nothing newer has
+ * landed: a customer text that arrived since keeps the thread unread, its own
+ * place and its alert.
  */
 export async function recordLateSentReply(
   db: Prisma.TransactionClient,
-  reply: { conversationId: string; createdAt: Date },
+  reply: Pick<Message, "conversationId" | "createdAt" | "direction" | "systemGenerated">,
 ) {
   await db.conversation.updateMany({
     where: { id: reply.conversationId, lastMessageAt: { lte: reply.createdAt } },
     data: { lastMessageAt: reply.createdAt, unread: false },
   });
+  await resolveAnsweredNotificationsTx(db, reply);
 }
 
 /**
@@ -545,7 +548,7 @@ export async function settleSendInFlight(
 export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks = {}): Promise<SendOutcome> {
   const { conversation, userId, body } = target;
 
-  type Gated = { permit: SendPermit; messageId: string } | { block: SendBlock };
+  type Gated = { permit: SendPermit; reply: Message } | { block: SendBlock };
   let gated: Gated;
 
   // Outside the gate's transaction, because it may wait on Twilio; the gate
@@ -581,7 +584,7 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
         },
       });
 
-      return { permit: decision.permit, messageId: message.id };
+      return { permit: decision.permit, reply: message };
     });
   } catch (error) {
     console.error("The send gate could not read the consent record; nothing was sent.", {
@@ -596,7 +599,8 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
     return refused(gated.block);
   }
 
-  const { permit, messageId } = gated;
+  const { permit, reply } = gated;
+  const messageId = reply.id;
   const transport = hooks.transport === undefined ? twilioTransport() : hooks.transport;
 
   // Compliance: production SMS traffic in the US requires approved A2P 10DLC
@@ -611,24 +615,31 @@ export async function sendCustomerText(target: SendTarget, hooks: SendTestHooks 
 
   if (sent.ok) {
     try {
-      await prisma.$transaction([
+      await prisma.$transaction(async (tx) => {
         // Only while it is still SENDING: Twilio's callback can land first and
         // has already said more - delivered, or undelivered - than SENT does.
-        prisma.message.updateMany({
+        const { count } = await tx.message.updateMany({
           where: { id: messageId, deliveryStatus: DeliveryStatus.SENDING },
           data: {
             deliveryStatus: DeliveryStatus.SENT,
             twilioSid: sent.sid,
           },
-        }),
-        prisma.conversation.update({
+        });
+        await tx.conversation.update({
           where: { id: conversation.id },
           data: {
             lastMessageAt: new Date(),
             unread: false,
           },
-        }),
-      ]);
+        });
+
+        // The reply is recorded as sent, so the alert it answers goes with it.
+        // When the callback got here first it has already done this if Twilio
+        // took the text, and must not be overruled if Twilio said it failed.
+        if (count > 0) {
+          await resolveAnsweredNotificationsTx(tx, reply);
+        }
+      });
     } catch (error) {
       // Twilio has the text, so "not sent" would be a lie that invites her to
       // send it twice. The row stays SENDING, which refuses the next text on
