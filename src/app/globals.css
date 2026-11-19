@@ -13,8 +13,8 @@
 
   A token in @theme becomes a utility: --color-surface gives bg-surface,
   border-surface and text-surface; --color-text-muted gives text-text-muted;
-  --radius-md gives rounded-md; --shadow-mid gives shadow-mid. The utility
-  references the variable, so a component that says bg-surface gets dark for
+  --radius-md gives rounded-md; --shadow-mid gives shadow-mid. A colour
+  utility references the variable, so a component that says bg-surface gets dark for
   free and never needs a dark: twin. Tokens Tailwind has no namespace for live
   on :root and are used as w-(--layout-nav-width) or var(--size-control-md).
 */
@@ -81,9 +81,11 @@
   --radius-md: 5px;
   --radius-lg: 8px;
 
-  /* Elevation: flat by default, a shadow only on things that float */
-  --shadow-low: 0 1px 2px rgba(26, 29, 35, 0.08);
-  --shadow-mid: 0 4px 16px rgba(26, 29, 35, 0.14), 0 1px 3px rgba(26, 29, 35, 0.08);
+  /* Elevation: flat by default, a shadow only on things that float. Tailwind
+     copies a literal shadow into the utility, so these point at :root and
+     .dark, where each theme sets its own. */
+  --shadow-low: var(--elevation-low);
+  --shadow-mid: var(--elevation-mid);
 }
 
 :root {
@@ -127,6 +129,9 @@
   /* Motion */
   --duration-fast: 120ms;
 
+  --elevation-low: 0 1px 2px rgba(26, 29, 35, 0.08);
+  --elevation-mid: 0 4px 16px rgba(26, 29, 35, 0.14), 0 1px 3px rgba(26, 29, 35, 0.08);
+
   /* The chevron a <select> paints; an image cannot read currentColor, so it
      carries each theme's muted text colour itself. */
   --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a616d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
@@ -168,8 +173,8 @@
   --color-focus: #58b7d6;
   --color-focus-ring: #1f4d5c;
 
-  --shadow-low: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-mid: 0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --elevation-low: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elevation-mid: 0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
 
   --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a2a9b4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
   color-scheme: dark;
