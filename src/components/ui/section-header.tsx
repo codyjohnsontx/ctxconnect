@@ -7,10 +7,8 @@ type SectionHeaderProps = {
   size?: "default" | "lg";
   /** The heading element; defaults to h2 for `lg` and h3 otherwise. */
   as?: "h1" | "h2" | "h3";
-  /** One count or state word beside the title, in muted text. */
-  meta?: ReactNode;
-  /** One action, usually a tertiary button or link. */
-  children?: ReactNode;
+  /** The one thing beside the title: a count in muted text, or an action such as a tertiary button. */
+  trailing?: ReactNode;
   className?: string;
 };
 
@@ -19,7 +17,7 @@ type SectionHeaderProps = {
  * sub-line under: if a section needs explaining, the explanation belongs in
  * its body.
  */
-export function SectionHeader({ title, size = "default", as, meta, children, className }: SectionHeaderProps) {
+export function SectionHeader({ title, size = "default", as, trailing, className }: SectionHeaderProps) {
   const Heading = as ?? (size === "lg" ? "h2" : "h3");
 
   return (
@@ -32,12 +30,7 @@ export function SectionHeader({ title, size = "default", as, meta, children, cla
       >
         {title}
       </Heading>
-      {meta != null || children ? (
-        <div className="flex shrink-0 items-center gap-2">
-          {meta != null ? <span className="text-200 text-text-muted">{meta}</span> : null}
-          {children}
-        </div>
-      ) : null}
+      {trailing != null ? <div className="flex shrink-0 items-center text-200 text-text-muted">{trailing}</div> : null}
     </div>
   );
 }
