@@ -142,7 +142,7 @@ export const consentMethodRules: Record<ConsentMethod, MethodRule> = {
   [ConsentMethod.SEED]: { kinds: EITHER, staffRecorded: false, reason: "demo data" },
 };
 
-export type ConsentTone = "green" | "red";
+export type ConsentTone = "success" | "critical";
 
 export type ConsentDescription = {
   status: SmsConsentStatus;
@@ -167,7 +167,7 @@ export function describeConsent(state: Pick<ConsentState, "status" | "event">): 
   if (state.status === SmsConsentStatus.GRANTED) {
     return {
       status: state.status,
-      tone: "green",
+      tone: "success",
       label: "Texting allowed",
       reason: event ? consentMethodRules[event.method].reason : null,
       since: event?.occurredAt ?? null,
@@ -177,14 +177,14 @@ export function describeConsent(state: Pick<ConsentState, "status" | "event">): 
   if (state.status === SmsConsentStatus.REVOKED) {
     return {
       status: state.status,
-      tone: "red",
+      tone: "critical",
       label: "Opted out",
       reason: event ? consentMethodRules[event.method].reason : null,
       since: event?.occurredAt ?? null,
     };
   }
 
-  return { status: state.status, tone: "red", label: "No consent on record", reason: null, since: null };
+  return { status: state.status, tone: "critical", label: "No consent on record", reason: null, since: null };
 }
 
 /**

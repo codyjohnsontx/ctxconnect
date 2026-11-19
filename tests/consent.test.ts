@@ -138,10 +138,10 @@ describe("inboundConsentEffect", () => {
 });
 
 describe("describeConsent", () => {
-  it("says no consent on record, in red, for NONE", () => {
+  it("says no consent on record, as critical, for NONE", () => {
     const described = describeConsent(consentState([]));
     assert.equal(described.label, "No consent on record");
-    assert.equal(described.tone, "red");
+    assert.equal(described.tone, "critical");
     assert.equal(described.since, null);
   });
 
@@ -152,14 +152,14 @@ describe("describeConsent", () => {
     assert.equal(described.label, "Opted out");
     assert.equal(described.reason, "they replied STOP");
     assert.equal(described.since, stop.occurredAt);
-    assert.equal(described.tone, "red");
+    assert.equal(described.tone, "critical");
 
     const granted = describeConsent(
       consentState([event(ConsentEventKind.GRANTED, "2026-09-03T15:00:00Z", { method: ConsentMethod.WRITTEN_FORM })]),
     );
     assert.equal(granted.label, "Texting allowed");
     assert.equal(granted.reason, "they signed a written form");
-    assert.equal(granted.tone, "green");
+    assert.equal(granted.tone, "success");
   });
 
   it("reads the same from the cache as from the ledger", () => {

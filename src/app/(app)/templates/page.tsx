@@ -23,7 +23,7 @@ export default async function TemplatesPage() {
                 <h2 className="font-semibold">{template.name}</h2>
                 <div className="mt-1 flex gap-2">
                   <Badge>{labelize(template.department)}</Badge>
-                  <Badge variant={template.active ? "green" : "neutral"}>{template.active ? "Active" : "Inactive"}</Badge>
+                  <Badge variant={template.active ? "success" : "neutral"}>{template.active ? "Active" : "Inactive"}</Badge>
                 </div>
               </div>
             </div>

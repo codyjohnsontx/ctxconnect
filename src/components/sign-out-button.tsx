@@ -29,7 +29,7 @@ function forgetDrafts(userId: string) {
 export function SignOutButton({ userId }: { userId: string }) {
   return (
     <Button
-      variant="ghost"
+      variant="tertiary"
       size="sm"
       onClick={() => {
         forgetDrafts(userId);
