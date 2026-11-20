@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import {
+  AlertTriangle,
+  ArrowRightLeft,
   ClipboardList,
+  Clock3,
   ContactRound,
   Inbox,
   LayoutDashboard,
@@ -14,8 +17,10 @@ import { AccountMenu } from "@/components/account-menu";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
+import type { NotificationType } from "@/generated/prisma/client";
+import { accountInitials } from "@/lib/account-identity";
 import type { getShellData } from "@/lib/data";
-import { cn } from "@/lib/utils";
+import { cn, labelize } from "@/lib/utils";
 
 type ShellData = Awaited<ReturnType<typeof getShellData>>;
 type CountKey = keyof ShellData["counts"];
@@ -33,6 +38,20 @@ const navItems: Array<{
   { href: "/command-center", label: "Command", icon: LayoutDashboard, countKey: "command" },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+// The one mark of colour on an alert row is its icon, in the tone the alert
+// means: critical for what has already gone wrong, warning for what is waiting,
+// info for a hand-off.
+const alertIcons: Record<NotificationType, { icon: typeof Inbox; tone: string }> = {
+  NEW_INBOUND_MESSAGE: { icon: Clock3, tone: "text-warning" },
+  CONVERSATION_ASSIGNED: { icon: ArrowRightLeft, tone: "text-info" },
+  CONVERSATION_REASSIGNED: { icon: ArrowRightLeft, tone: "text-info" },
+  FOLLOW_UP_DUE: { icon: Clock3, tone: "text-warning" },
+  FOLLOW_UP_OVERDUE: { icon: AlertTriangle, tone: "text-critical" },
+  MESSAGE_FAILED: { icon: AlertTriangle, tone: "text-critical" },
+  SLA_MISSED: { icon: AlertTriangle, tone: "text-critical" },
+  UNASSIGNED_CONVERSATION: { icon: Inbox, tone: "text-warning" },
+};
 
 type AppShellProps = {
   children: ReactNode;
@@ -54,21 +73,20 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
   const unlistedAlerts = Math.max(shellData.counts.command - shellData.latestNotifications.length, 0);
 
   return (
-    <div className="min-h-dvh bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:flex lg:flex-col">
-        <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-          <Link href="/inbox" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zinc-950 text-lg font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
+    <div className="min-h-dvh">
+      {/* A shade darker than the content, so the columns read as one tool
+          rather than as cards laid side by side. */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-(--layout-nav-width) border-r border-border bg-surface-raised lg:flex lg:flex-col">
+        <div className="border-b border-border px-4 py-3">
+          <Link href="/inbox" className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded-md bg-accent text-400 font-semibold text-text-on-accent">
               A
-            </div>
-            <div>
-              <div className="text-sm font-semibold">Attend</div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">Dealership inbox</div>
-            </div>
+            </span>
+            <span className="text-400 font-semibold tracking-tight">Attend</span>
           </Link>
         </div>
 
-        <nav className="space-y-1 px-3 py-4">
+        <nav className="flex flex-col gap-px p-2">
           {visibleNavItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
@@ -78,58 +96,62 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition",
-                  active
-                    ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
-                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50",
+                  "flex h-8 items-center gap-2 rounded-md px-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus-ring",
+                  active ? "bg-accent-surface text-accent" : "text-text-muted hover:bg-surface-strong hover:text-text",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="size-4" />
                 <span className="flex-1">{item.label}</span>
                 {count > 0 ? (
-                  <span className={cn("rounded-full px-2 py-0.5 text-[11px]", active ? "bg-white/20" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200")}>
+                  <Badge count className={cn("bg-surface", active && "border-accent-border text-accent")}>
                     {count}
-                  </span>
+                  </Badge>
                 ) : null}
               </Link>
             );
           })}
         </nav>
 
-        <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <div className="flex min-h-0 flex-1 flex-col border-t border-border px-2 pt-2 pb-3">
           {/* The heading is the way out of the rail: a short screen cuts the
               list off wherever it runs out of room, so the number always has a
               destination that can show all of it. */}
           <Link
             href="/command-center#alerts"
-            className="mb-2 flex items-center justify-between rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+            className="mb-px flex items-center justify-between rounded-md px-2 py-1 text-200 font-semibold text-text-muted transition-colors hover:bg-surface-strong hover:text-text"
           >
-            <span className="text-xs font-medium uppercase tracking-wide">Alerts</span>
-            <Badge variant={shellData.counts.command > 0 ? "warning" : "success"}>
+            <span>Alerts</span>
+            <Badge count variant={shellData.counts.command > 0 ? "warning" : "success"}>
               {shellData.counts.command}
             </Badge>
           </Link>
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+          <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto">
             {shellData.latestNotifications.length === 0 ? (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">No active alerts.</p>
+              <p className="px-2 py-1 text-200 text-text-muted">No active alerts.</p>
             ) : (
-              shellData.latestNotifications.map((notification) => (
-                <Link
-                  key={notification.id}
-                  href={notification.href}
-                  className="block rounded-md px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                >
-                  <span className="line-clamp-1 font-medium">{notification.title}</span>
-                  <span className="line-clamp-1 text-zinc-500 dark:text-zinc-500">
-                    {notification.conversation?.customer.name ?? notification.task?.customer.name ?? notification.body}
-                  </span>
-                </Link>
-              ))
+              shellData.latestNotifications.map((notification) => {
+                const { icon: Icon, tone } = alertIcons[notification.type];
+                return (
+                  <Link
+                    key={notification.id}
+                    href={notification.href}
+                    className="block rounded-md px-2 py-1 text-200 transition-colors hover:bg-surface-strong"
+                  >
+                    <span className="flex items-center gap-1 font-medium text-text">
+                      <Icon className={cn("size-3 shrink-0", tone)} />
+                      <span className="line-clamp-1">{notification.title}</span>
+                    </span>
+                    <span className="line-clamp-1 text-text-muted">
+                      {notification.conversation?.customer.name ?? notification.task?.customer.name ?? notification.body}
+                    </span>
+                  </Link>
+                );
+              })
             )}
             {unlistedAlerts > 0 ? (
               <Link
                 href="/command-center#alerts"
-                className="block rounded-md px-2 py-1.5 text-xs font-medium text-zinc-600 underline underline-offset-2 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                className="block rounded-md px-2 py-1 text-200 font-medium text-text-muted underline underline-offset-2 transition-colors hover:bg-surface-strong hover:text-text"
               >
                 {unlistedAlerts} more in Command Center
               </Link>
@@ -137,10 +159,18 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
           </div>
         </div>
 
-        <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="mb-3 min-w-0">
-            <div className="truncate text-sm font-medium">{user.name}</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">{user.role}</div>
+        <div className="flex flex-col gap-2 border-t border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-strong text-100 font-semibold text-text-muted"
+            >
+              {accountInitials(user.name)}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{user.name}</span>
+              <span className="block text-200 text-text-muted">{labelize(user.role)}</span>
+            </span>
           </div>
           {/* Not in the navigation: arranging cover is something an advisor does
               on her last day before a holiday, not a place she works from, and
@@ -148,9 +178,9 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
               is about instead. */}
           <Link
             href="/coverage"
-            className="mb-3 flex items-center gap-2 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
+            className="inline-flex items-center gap-1 self-start text-200 font-medium text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
           >
-            <UserRoundCheck className="h-3.5 w-3.5" />
+            <UserRoundCheck className="size-3.5" />
             Coverage
           </Link>
           <div className="flex gap-2">
@@ -160,10 +190,10 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
         </div>
       </aside>
 
-      <main className="min-h-dvh pb-20 lg:pl-64 lg:pb-0">{children}</main>
+      <main className="min-h-dvh pb-16 lg:pl-(--layout-nav-width) lg:pb-0">{children}</main>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid h-14 border-t border-border bg-surface lg:hidden"
         style={{ gridTemplateColumns: `repeat(${mobileNavColumns}, minmax(0, 1fr))` }}
       >
         {visibleNavItems.map((item) => {
@@ -175,17 +205,17 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
               key={item.href}
               href={item.href}
               className={cn(
-                "relative flex h-16 flex-col items-center justify-center gap-1 text-[10px] font-medium",
-                active ? "text-zinc-950 dark:text-zinc-50" : "text-zinc-500 dark:text-zinc-400",
+                "relative flex min-w-0 flex-col items-center justify-center gap-1",
+                active ? "text-accent" : "text-text-muted",
               )}
             >
-              <Icon className="h-5 w-5" />
+              <Icon className="size-5" />
               {count > 0 ? (
-                <span className="absolute mt-[-30px] ml-6 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                <Badge count variant="critical" className="absolute top-1 left-1/2 ml-1">
                   {count}
-                </span>
+                </Badge>
               ) : null}
-              <span className="max-w-full truncate px-1">{item.label}</span>
+              <span className="max-w-full truncate px-1 text-100 font-medium">{item.label}</span>
             </Link>
           );
         })}

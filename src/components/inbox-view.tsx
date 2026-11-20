@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRightLeft, ChevronRight, Circle, Clock3, MessageCircle, Sparkles, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronRight, Clock3, MessageCircle, Search, Sparkles, StickyNote } from "lucide-react";
 import { addInternalNote, createTask, markConversationUnread, updateTaskStatus } from "@/app/actions";
 import { AiOpsBrief } from "@/components/ai-ops-brief";
 import { ConsentBadge } from "@/components/consent-badge";
@@ -12,9 +12,11 @@ import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
 import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { ThreadMessages } from "@/components/thread-messages";
+import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Textarea } from "@/components/ui/field";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
+import { SectionHeader } from "@/components/ui/section-header";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
 import { hasCurrentBrief } from "@/lib/ai/ambient-pass";
 import { cachedConsentState, describeConsent } from "@/lib/consent";
@@ -52,11 +54,11 @@ const statusTone: Record<ConversationStatus, BadgeVariant> = {
 };
 
 // A previewed message that is not the customer's gets a label in the voice's
-// own colour: amber for a note, matching the amber note bubble in the thread,
-// and plain zinc for a staff reply, which is ordinary rather than notable.
+// own colour: warning for a note, matching the note bubble in the thread, and
+// plain muted for a staff reply, which is ordinary rather than notable.
 const authorTone: Record<PreviewAuthor, string> = {
-  staff: "text-zinc-500 dark:text-zinc-400",
-  note: "text-amber-700 dark:text-amber-400",
+  staff: "text-text-muted",
+  note: "text-warning",
 };
 
 const aiRiskTone: Record<Priority, BadgeVariant> = {
@@ -65,6 +67,15 @@ const aiRiskTone: Record<Priority, BadgeVariant> = {
   HIGH: "warning",
   URGENT: "critical",
 };
+
+// The one link style for leaving a search or a filter behind.
+const linkClass = "text-200 font-medium text-accent underline-offset-2 hover:underline";
+const mutedLinkClass =
+  "inline-flex items-center gap-1 text-200 font-medium text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline";
+
+// Every section of the right-hand panel: one rule under it, the same padding,
+// and whatever it holds stacked at the same gap.
+const panelSectionClass = "flex flex-col gap-3 border-b border-border p-4";
 
 type InboxViewProps = InboxData & {
   selectedId?: string;
@@ -183,20 +194,18 @@ export function InboxView({
   const latestMessage = selectedConversation?.messages.at(-1) ?? null;
 
   return (
-    <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[390px_minmax(0,1fr)] lg:grid-rows-1">
-      <section className={cn("min-h-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950", selectedConversation ? "hidden lg:flex" : "flex")}>
-        <div className="relative z-10 shrink-0 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {searchTerm
-                  ? `${conversations.length} ${conversations.length === 1 ? "match" : "matches"} for “${searchTerm}”`
-                  : `${conversations.length} conversations, ranked by what the AI flagged`}
-              </p>
-            </div>
+    <div className="grid h-dvh min-h-0 grid-rows-[minmax(0,1fr)] lg:grid-cols-[var(--layout-queue-width)_minmax(0,1fr)] lg:grid-rows-1">
+      <section className={cn("min-h-0 flex-col border-r border-border bg-surface", selectedConversation ? "hidden lg:flex" : "flex")}>
+        <div className="relative z-10 flex shrink-0 flex-col gap-2 border-b border-border bg-surface px-4 py-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h1 className="text-600 font-semibold tracking-tight">Inbox</h1>
             <Badge variant="info">Shared</Badge>
           </div>
+          <p className="text-text-muted">
+            {searchTerm
+              ? `${conversations.length} ${conversations.length === 1 ? "match" : "matches"} for “${searchTerm}”`
+              : `${conversations.length} conversations, ranked by what the AI flagged`}
+          </p>
           {/* Set by a save that moved a thread out of this advisor's reach.
               Without it the save silently swaps her open conversation for a bare
               404, which reads like the app lost her place. It says which of the
@@ -204,24 +213,22 @@ export function InboxView({
               an assignment can carry the thread off without the department
               moving anywhere. */}
           {movedTo ? (
-            <p className="mb-3 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950 dark:text-blue-100">
-              <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>
-                {movedWhy === "department"
-                  ? `Handed off to ${labelize(movedTo)}. That conversation has left your inbox.`
-                  : "That conversation was taken off you. It has left your inbox."}
-              </span>
-            </p>
+            <Alert variant="info" inline>
+              {movedWhy === "department"
+                ? `Handed off to ${labelize(movedTo)}. That conversation has left your inbox.`
+                : "That conversation was taken off you. It has left your inbox."}
+            </Alert>
           ) : null}
           <QueueStatus status={queueStatus} />
           {/* Above the filters rather than among them: a customer on the phone
               is the one moment the advisor cannot scroll a queue, and the
               filters cannot narrow to a person at all. */}
-          <div className="mb-3">
+          <div>
             {/* Keyed by the term for the same reason the controls below are:
                 the box is uncontrolled, so across a same-page navigation React
-                would keep showing the term she has just cleared. */}
-            <form key={`search-${searchTerm}`} className="flex gap-2" action="/inbox">
+                would keep showing the term she has just cleared. Enter submits
+                it; the glyph says what the box is for. */}
+            <form key={`search-${searchTerm}`} className="relative" action="/inbox">
               {/* The filters she already set survive a search, the same way the
                   search survives pressing Filter. */}
               {INBOX_FILTER_KEYS.map((key) =>
@@ -229,23 +236,22 @@ export function InboxView({
                   <input key={key} type="hidden" name={key} value={searchParams[key]} />
                 ) : null,
               )}
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-text-faint"
+                aria-hidden="true"
+              />
               <Input
                 type="search"
                 name="q"
                 defaultValue={searchTerm}
                 placeholder="Search name, phone, or text"
                 aria-label="Search conversations"
+                className="pl-8"
               />
-              <Button type="submit" variant="secondary">
-                Search
-              </Button>
             </form>
             {searchTerm ? (
               <div className="mt-1 flex justify-end">
-                <Link
-                  href={clearSearchTarget}
-                  className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
-                >
+                <Link href={clearSearchTarget} className={linkClass}>
                   Clear search
                 </Link>
               </div>
@@ -254,8 +260,8 @@ export function InboxView({
           {/* On a phone the ranked queue is what she opened the app for, and the
               controls that narrow it were pushing the first row most of the way
               down the screen, so below `lg` they fold away behind their own
-              summary. The wide layout has a 390px rail with room for both and is
-              left as it was.
+              summary. The wide layout has a rail with room for both and is left
+              as it was.
 
               A checkbox rather than <details>: only CSS can collapse the same
               markup at one breakpoint and leave it open at the other, and no
@@ -274,11 +280,11 @@ export function InboxView({
           />
           <label
             htmlFor="inbox-filters-toggle"
-            className="mb-2 flex h-10 cursor-pointer items-center gap-2 text-sm text-zinc-600 peer-checked:[&>svg]:rotate-90 dark:text-zinc-300 lg:hidden"
+            className="flex h-7 cursor-pointer items-center gap-1 text-text-muted peer-checked:[&>svg]:rotate-90 lg:hidden"
           >
-            <ChevronRight className="h-4 w-4 shrink-0 transition-transform" />
+            <ChevronRight className="size-4 shrink-0 transition-transform" />
             Filters
-            {activeFilterCount > 0 ? <Badge variant="info">{activeFilterCount} active</Badge> : null}
+            {activeFilterCount > 0 ? <Badge variant="accent">{activeFilterCount} active</Badge> : null}
           </label>
           <div id="inbox-filters" className="hidden peer-checked:block lg:block">
             <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
@@ -319,18 +325,14 @@ export function InboxView({
                   </option>
                 ))}
               </Select>
-              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-                <input name="unread" value="true" type="checkbox" defaultChecked={searchParams.unread === "true"} />
-                Unread
-              </label>
-              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-                <input name="failed" value="true" type="checkbox" defaultChecked={searchParams.failed === "true"} />
-                Failed
-              </label>
-              <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-200 px-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-                <input name="needsAction" value="true" type="checkbox" defaultChecked={searchParams.needsAction === "true"} />
-                Needs action
-              </label>
+              <Checkbox name="unread" value="true" defaultChecked={searchParams.unread === "true"} label="Unread" />
+              <Checkbox name="failed" value="true" defaultChecked={searchParams.failed === "true"} label="Failed" />
+              <Checkbox
+                name="needsAction"
+                value="true"
+                defaultChecked={searchParams.needsAction === "true"}
+                label="Needs action"
+              />
               <Button type="submit" variant="secondary">
                 Filter
               </Button>
@@ -341,7 +343,7 @@ export function InboxView({
                 exits. */}
             {activeFilterCount > 0 && conversations.length > 0 ? (
               <div className="mt-2 flex justify-end">
-                <Link href={clearFiltersTarget} className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300">
+                <Link href={clearFiltersTarget} className={linkClass}>
                   Clear filters
                 </Link>
               </div>
@@ -349,19 +351,16 @@ export function InboxView({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-16 lg:pb-0">
           {conversations.length === 0 ? (
-            <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">
+            <div className="p-6 text-text-muted">
               {searchTerm ? (
                 // Named as the cause, with the way out beside it: a search that
                 // came up empty behind a filter she forgot about is the one dead
                 // end an advisor reads as "the customer isn't here".
                 <>
                   Nothing in your inbox matches “{searchTerm}”.{" "}
-                  <Link
-                    href={clearSearchTarget}
-                    className="font-medium text-blue-700 hover:underline dark:text-blue-300"
-                  >
+                  <Link href={clearSearchTarget} className="font-medium text-accent hover:underline">
                     Clear search
                   </Link>
                   .
@@ -369,7 +368,7 @@ export function InboxView({
               ) : activeFilterCount > 0 ? (
                 <>
                   No conversations match these filters.{" "}
-                  <Link href={clearFiltersTarget} className="font-medium text-blue-700 hover:underline dark:text-blue-300">
+                  <Link href={clearFiltersTarget} className="font-medium text-accent hover:underline">
                     Clear filters
                   </Link>{" "}
                   to see the whole queue.
@@ -382,177 +381,169 @@ export function InboxView({
               )}
             </div>
           ) : (
-            <div className="divide-y divide-zinc-100">
-              {conversations.map((conversation) => {
-                // The newest message somebody's voice is in: the query loads
-                // one message and leaves out the notes Attend wrote itself, so
-                // a book just handed over does not arrive as rows all
-                // previewing the same sentence about the hand-off.
-                const lastMessage = conversation.messages[0] ?? null;
-                // Asked of the last reply staff sent, not of the message being
-                // previewed. A note or a customer message written afterwards
-                // takes over the preview without undoing the failure, and a row
-                // that goes quiet then is worse than one that never spoke: this
-                // is the surface she scans to decide what to skip.
-                const undeliveredReply = hasUndeliveredReply(conversation.newestReply);
-                // Whose words the preview is. An inbound message gets nothing:
-                // the customer's voice is what a row is read as by default, and
-                // her name is already in bold on the line above.
-                const previewAuthor = previewAttribution(lastMessage, currentUser.id);
-                const hasOpenTask = conversation.tasks.length > 0;
-                const selected = selectedConversation?.id === conversation.id;
-                const insight = conversation.aiInsights[0];
-                // The freshness rule the header counter uses, read from the one
-                // place that defines it. A row that presented a brief older than
-                // the thread's newest message as the current read would contradict
-                // the counter that already excluded it.
-                const briefIsCurrent = hasCurrentBrief(conversation);
+            conversations.map((conversation) => {
+              // The newest message somebody's voice is in: the query loads
+              // one message and leaves out the notes Attend wrote itself, so
+              // a book just handed over does not arrive as rows all
+              // previewing the same sentence about the hand-off.
+              const lastMessage = conversation.messages[0] ?? null;
+              // Asked of the last reply staff sent, not of the message being
+              // previewed. A note or a customer message written afterwards
+              // takes over the preview without undoing the failure, and a row
+              // that goes quiet then is worse than one that never spoke: this
+              // is the surface she scans to decide what to skip.
+              const undeliveredReply = hasUndeliveredReply(conversation.newestReply);
+              // Whose words the preview is. An inbound message gets nothing:
+              // the customer's voice is what a row is read as by default, and
+              // her name is already in bold on the line above.
+              const previewAuthor = previewAttribution(lastMessage, currentUser.id);
+              const hasOpenTask = conversation.tasks.length > 0;
+              const selected = selectedConversation?.id === conversation.id;
+              const insight = conversation.aiInsights[0];
+              // The freshness rule the header counter uses, read from the one
+              // place that defines it. A row that presented a brief older than
+              // the thread's newest message as the current read would contradict
+              // the counter that already excluded it.
+              const briefIsCurrent = hasCurrentBrief(conversation);
 
-                return (
-                  <Link
-                    key={conversation.id}
-                    href={buildHref(conversation.id, searchParams)}
-                    className={cn(
-                      "block p-4 transition hover:bg-zinc-50 dark:hover:bg-zinc-900",
-                      selected && "bg-zinc-100 hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-900",
-                    )}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          {conversation.unread ? <Circle className="h-2.5 w-2.5 fill-blue-600 text-blue-600" /> : null}
-                          <p className="truncate text-sm font-semibold">{conversation.customer.name}</p>
-                        </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">{formatPhone(conversation.customer.phone)}</p>
-                      </div>
-                      <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-                        {formatDistanceToNow(conversation.lastMessageAt, { addSuffix: true })}
-                      </span>
-                    </div>
-                    {undeliveredReply ? (
-                      // Its own line above the preview rather than a prefix on it:
-                      // the failed reply is usually no longer the text being
-                      // previewed, and a prefix would read as though whatever is
-                      // previewed had failed.
-                      <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-600 dark:text-red-400">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        {UNDELIVERED_ROW_LABEL}
-                      </p>
-                    ) : null}
-                    <p className="line-clamp-2 break-words text-sm text-zinc-600 dark:text-zinc-300">
-                      {previewAuthor ? (
-                        <span className={cn("font-semibold", authorTone[previewAuthor.author])}>
-                          {previewAuthor.label}{" "}
-                        </span>
-                      ) : null}
-                      {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
+              return (
+                // The selected row is the one place the queue uses the accent:
+                // a two-pixel left edge and the accent surface.
+                <Link
+                  key={conversation.id}
+                  href={buildHref(conversation.id, searchParams)}
+                  className={cn(
+                    "block border-b border-l-2 border-border border-l-transparent px-4 py-3 transition-colors hover:bg-surface-raised",
+                    selected && "border-l-accent bg-accent-surface hover:bg-accent-surface",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      {conversation.unread ? <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" /> : null}
+                      <span className="truncate">{conversation.customer.name}</span>
+                    </span>
+                    <span className="shrink-0 text-200 text-text-faint">
+                      {formatDistanceToNow(conversation.lastMessageAt, { addSuffix: true })}
+                    </span>
+                  </div>
+                  <p className="text-200 text-text-faint">{formatPhone(conversation.customer.phone)}</p>
+                  {undeliveredReply ? (
+                    // Its own line above the preview rather than a prefix on it:
+                    // the failed reply is usually no longer the text being
+                    // previewed, and a prefix would read as though whatever is
+                    // previewed had failed.
+                    <p className="mt-1 flex items-center gap-1 text-200 font-semibold text-critical">
+                      <AlertTriangle className="size-3.5 shrink-0" />
+                      {UNDELIVERED_ROW_LABEL}
                     </p>
-                    {/* Only when the preview does not already carry the term: a
-                        row matched on an older message otherwise looks like a
-                        result the search made up. */}
-                    {searchTerm &&
-                    search.snippets[conversation.id] &&
-                    !containsTerm(lastMessage?.body ?? "", searchTerm) ? (
-                      <p className="mt-1 line-clamp-2 break-words text-xs text-zinc-500 dark:text-zinc-400">
-                        <span className="font-medium">Matched message:</span>{" "}
-                        {search.snippets[conversation.id]}
-                      </p>
+                  ) : null}
+                  <p className="mt-1 line-clamp-2 break-words text-text-muted">
+                    {previewAuthor ? (
+                      <span className={cn("font-semibold", authorTone[previewAuthor.author])}>
+                        {previewAuthor.label}{" "}
+                      </span>
                     ) : null}
-                    {insight && !insight.dismissedAt ? (
-                      <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">
-                        <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span className="line-clamp-2">
-                          {briefIsCurrent
-                            ? insight.suggestedNextAction
-                            : `Earlier brief: ${insight.suggestedNextAction}`}
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {insight ? (
-                        insight.dismissedAt ? (
-                          <Badge>Dismissed</Badge>
-                        ) : (
-                          <Badge variant={briefIsCurrent ? aiRiskTone[insight.riskLevel] : "neutral"}>
-                            <Sparkles className="mr-1 h-3 w-3" />
-                            {briefIsCurrent
-                              ? labelize(insight.riskLevel)
-                              : `${labelize(insight.riskLevel)} · earlier brief`}
-                          </Badge>
-                        )
+                    {lastMessage?.body ?? conversation.subject ?? "No messages yet"}
+                  </p>
+                  {/* Only when the preview does not already carry the term: a
+                      row matched on an older message otherwise looks like a
+                      result the search made up. */}
+                  {searchTerm &&
+                  search.snippets[conversation.id] &&
+                  !containsTerm(lastMessage?.body ?? "", searchTerm) ? (
+                    <p className="mt-1 line-clamp-2 break-words text-200 text-text-muted">
+                      <span className="font-medium">Matched message:</span>{" "}
+                      {search.snippets[conversation.id]}
+                    </p>
+                  ) : null}
+                  {insight && !insight.dismissedAt ? (
+                    // The AI's voice is the info tone, as a line rather than a box.
+                    <p className="mt-1 flex gap-1 text-200 text-info">
+                      <Sparkles className="mt-px size-3 shrink-0" aria-hidden="true" />
+                      <span className="line-clamp-2">
+                        {briefIsCurrent
+                          ? insight.suggestedNextAction
+                          : `Earlier brief: ${insight.suggestedNextAction}`}
+                      </span>
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    {insight ? (
+                      insight.dismissedAt ? (
+                        <Badge>Dismissed</Badge>
                       ) : (
-                        <Badge>Not briefed</Badge>
-                      )}
-                      {insight?.escalationRecommended && !insight.dismissedAt ? (
-                        <Badge variant={briefIsCurrent ? "critical" : "neutral"}>
-                          {briefIsCurrent ? "Escalate" : "Escalate · earlier brief"}
+                        <Badge variant={briefIsCurrent ? aiRiskTone[insight.riskLevel] : "neutral"}>
+                          <Sparkles className="size-3" aria-hidden="true" />
+                          {briefIsCurrent
+                            ? labelize(insight.riskLevel)
+                            : `${labelize(insight.riskLevel)} · earlier brief`}
                         </Badge>
-                      ) : null}
-                      <Badge>{labelize(conversation.department)}</Badge>
-                      <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>
-                      {/* The staff-set priority is only worth a badge where the AI is not
-                          currently rating the thread; otherwise the two say the same word
-                          twice. A dismissed brief counts as not rating it: dismissing the
-                          AI's opinion must not erase the human's. */}
-                      {(!insight || insight.dismissedAt) &&
-                      (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
-                        <Badge variant="critical">
-                          <AlertTriangle className="mr-1 h-3 w-3" />
-                          {labelize(conversation.priority)}
-                        </Badge>
-                      ) : null}
-                      {hasOpenTask ? (
-                        <Badge variant="warning">
-                          <Clock3 className="mr-1 h-3 w-3" />
-                          Follow-up
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {conversation.tags.map(({ tag }) => (
-                        <span key={tag.id} className="rounded px-1.5 py-0.5 text-[11px]" style={{ background: `${tag.color}18`, color: tag.color }}>
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
+                      )
+                    ) : (
+                      <Badge>Not briefed</Badge>
+                    )}
+                    {insight?.escalationRecommended && !insight.dismissedAt ? (
+                      <Badge variant={briefIsCurrent ? "critical" : "neutral"}>
+                        {briefIsCurrent ? "Escalate" : "Escalate · earlier brief"}
+                      </Badge>
+                    ) : null}
+                    <Badge>{labelize(conversation.department)}</Badge>
+                    <Badge variant={statusTone[conversation.status]}>{labelize(conversation.status)}</Badge>
+                    {/* The staff-set priority is only worth a badge where the AI is not
+                        currently rating the thread; otherwise the two say the same word
+                        twice. A dismissed brief counts as not rating it: dismissing the
+                        AI's opinion must not erase the human's. */}
+                    {(!insight || insight.dismissedAt) &&
+                    (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
+                      <Badge variant="critical">
+                        <AlertTriangle className="size-3" aria-hidden="true" />
+                        {labelize(conversation.priority)}
+                      </Badge>
+                    ) : null}
+                    {hasOpenTask ? (
+                      <Badge variant="warning">
+                        <Clock3 className="size-3" aria-hidden="true" />
+                        Follow-up
+                      </Badge>
+                    ) : null}
+                    {/* A tag is a label, not a status, so it takes the neutral
+                        badge rather than a colour of its own. */}
+                    {conversation.tags.map(({ tag }) => (
+                      <Badge key={tag.id}>{tag.name}</Badge>
+                    ))}
+                  </div>
+                </Link>
+              );
+            })
           )}
         </div>
       </section>
 
       {selectedConversation ? (
-        <section className="flex min-h-0 flex-col overflow-y-auto pb-20 lg:grid lg:pb-0 lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
+        <section className="flex min-h-0 flex-col overflow-y-auto pb-16 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--layout-panel-width)] lg:overflow-hidden lg:pb-0">
           {/* The conversation and the box she answers it in, as one panel: on a
               phone it is what the page scrolls to, so both land on screen
               together. See components/thread-messages.tsx. */}
-          <div {...{ [CONVERSATION_PANEL_ATTRIBUTE]: "" }} className="flex min-h-0 shrink-0 flex-col">
-            <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 lg:static dark:border-zinc-800 dark:bg-zinc-950">
+          <div {...{ [CONVERSATION_PANEL_ATTRIBUTE]: "" }} className="flex min-h-0 shrink-0 flex-col bg-page">
+            <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-surface px-4 py-3 lg:static lg:px-5">
               <div className="min-w-0">
                 {backTarget ? (
-                  <Link
-                    href={backTarget.href}
-                    className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
+                  <Link href={backTarget.href} className={cn(mutedLinkClass, "mb-1")}>
+                    <ArrowLeft className="size-3.5" />
                     {backTarget.label}
                   </Link>
                 ) : (
                   // On mobile the conversation list is hidden when a thread is open,
                   // so give an inbox-origin conversation a way back to the list.
-                  <Link
-                    href="/inbox"
-                    className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 lg:hidden dark:text-zinc-400 dark:hover:text-zinc-100"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
+                  <Link href="/inbox" className={cn(mutedLinkClass, "mb-1 lg:hidden")}>
+                    <ArrowLeft className="size-3.5" />
                     Back to inbox
                   </Link>
                 )}
-                <h2 className="truncate text-lg font-semibold">{selectedConversation.customer.name}</h2>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  {selectedConversation.subject ?? labelize(selectedConversation.department)} · {formatPhone(selectedConversation.customer.phone)}
+                <h2 className="truncate text-500 font-semibold tracking-tight">{selectedConversation.customer.name}</h2>
+                <p className="text-text-muted">
+                  {selectedConversation.subject ?? labelize(selectedConversation.department)} ·{" "}
+                  <span className="whitespace-nowrap">{formatPhone(selectedConversation.customer.phone)}</span>
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2">
@@ -561,18 +552,17 @@ export function InboxView({
                     the marker, so without this the advisor loses the only way
                     she has to say "someone still needs to pick this up". */}
                 {selectedConversation.unread ? (
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-300">
-                    <Circle className="h-2 w-2 fill-blue-600 text-blue-600" />
+                  <span className="inline-flex items-center gap-1 text-200 font-medium text-accent">
+                    <span className="size-2 rounded-full bg-accent" aria-hidden="true" />
                     Unread
                   </span>
                 ) : (
                   <form action={markConversationUnread}>
                     <input type="hidden" name="conversationId" value={selectedConversation.id} />
-                    <button
-                      type="submit"
-                      className="text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                    >
-                      Mark unread
+                    {/* Sized on the span: a text-* utility on the button itself
+                        loses to the font: inherit reset in globals.css. */}
+                    <button type="submit" className="text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline">
+                      <span className="text-200 font-medium">Mark unread</span>
                     </button>
                   </form>
                 )}
@@ -599,7 +589,7 @@ export function InboxView({
               // 287px porthole onto the thread, with its own scrollbar inside a
               // page that scrolled separately. On a wide screen the thread
               // column has room to be its own scrolling box, so it is.
-              className="flex-none space-y-4 bg-zinc-50 p-5 lg:flex-1 lg:overflow-y-auto dark:bg-zinc-950"
+              className="flex flex-none flex-col gap-3 p-4 lg:flex-1 lg:overflow-y-auto lg:px-5"
             >
               {selectedConversation.messages.map((message) => {
                 const internal = message.direction === MessageDirection.INTERNAL;
@@ -616,22 +606,24 @@ export function InboxView({
                       internal && "justify-center",
                     )}
                   >
+                    {/* Sent texts are a gray tint rather than the accent, so the
+                        only colour in a thread is meaning: the warning tint on a
+                        note a person left, and critical on a reply that never
+                        arrived. */}
                     <div
                       className={cn(
-                        "max-w-[78%] rounded-lg px-4 py-3 text-sm shadow-sm",
-                        outbound && "bg-zinc-950 text-white",
-                        message.direction === MessageDirection.INBOUND && "bg-white text-zinc-900 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800",
-                        internal && "max-w-[88%] bg-amber-50 text-amber-950 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-100 dark:ring-amber-900",
+                        "max-w-(--size-thread-max) rounded-lg border border-border bg-surface px-3 py-2",
+                        outbound && "bg-surface-strong",
+                        internal && "max-w-(--size-note-max) border-warning-border bg-warning-surface",
                         // An undelivered reply keeps the sent bubble's shape and side,
                         // because that is where she wrote it, but loses the delivered
                         // bubble's colour so the two can never be skimmed as the same
                         // thing.
-                        undelivered &&
-                          "bg-red-50 text-red-950 ring-1 ring-red-300 dark:bg-red-950/60 dark:text-red-50 dark:ring-red-800",
+                        undelivered && "border-critical-border bg-critical-surface",
                       )}
                     >
-                      <div className="mb-1 flex items-center gap-2 text-xs opacity-70">
-                        {internal ? <StickyNote className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
+                      <div className={cn("mb-1 flex items-center gap-1 text-200", internal ? "text-warning" : "text-text-muted")}>
+                        {internal ? <StickyNote className="size-3" aria-hidden="true" /> : <MessageCircle className="size-3" aria-hidden="true" />}
                         <span>
                           {internal
                             ? `Internal note by ${message.sender?.name ?? "staff"}`
@@ -644,19 +636,19 @@ export function InboxView({
                           ordinary, and one unbroken word is wider than the bubble:
                           the URL ran off the right and the middle of it could not
                           be read at all. */}
-                      <p className="whitespace-pre-wrap break-words leading-6">{message.body}</p>
+                      <p className="whitespace-pre-wrap break-words leading-5">{message.body}</p>
                       {undelivered ? (
-                        <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold leading-5">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <div className="mt-2 flex items-start gap-1 text-200 font-semibold text-critical">
+                          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
                           <span>
                             {UNDELIVERED_HEADLINE}
                             {undeliveredCause ? (
-                              <span className="block font-normal opacity-80">{undeliveredCause}</span>
+                              <span className="block font-normal text-text-muted">{undeliveredCause}</span>
                             ) : null}
                           </span>
                         </div>
                       ) : null}
-                      <div className="mt-2 text-[11px] opacity-60">
+                      <div className="mt-1 text-100 text-text-faint">
                         {formatDistanceToNow(message.createdAt, { addSuffix: true })} · {labelize(message.deliveryStatus)}
                       </div>
                     </div>
@@ -681,8 +673,8 @@ export function InboxView({
             />
           </div>
 
-          <aside className="min-h-0 shrink-0 border-t border-zinc-200 bg-white lg:overflow-y-auto lg:border-l lg:border-t-0 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="space-y-6 p-5">
+          <aside className="min-h-0 shrink-0 border-t border-border bg-surface lg:overflow-y-auto lg:border-t-0 lg:border-l">
+            <section className={panelSectionClass}>
               <AiOpsBrief
                 key={selectedConversation.id}
                 conversationId={selectedConversation.id}
@@ -690,176 +682,175 @@ export function InboxView({
                 openFollowUps={openFollowUps}
                 briefIsCurrent={selectedBriefIsCurrent}
               />
+            </section>
 
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Conversation controls</h3>
-                <ConversationControls
-                  key={selectedConversation.id}
-                  conversationId={selectedConversation.id}
-                  users={users}
-                  saved={{
-                    assignedUserId: selectedConversation.assignedUserId ?? "unassigned",
-                    status: selectedConversation.status,
-                    priority: selectedConversation.priority,
-                    department: selectedConversation.department,
-                  }}
-                  currentUser={currentUser}
-                />
-              </section>
+            <section className={panelSectionClass}>
+              <SectionHeader title="Conversation controls" />
+              <ConversationControls
+                key={selectedConversation.id}
+                conversationId={selectedConversation.id}
+                users={users}
+                saved={{
+                  assignedUserId: selectedConversation.assignedUserId ?? "unassigned",
+                  status: selectedConversation.status,
+                  priority: selectedConversation.priority,
+                  department: selectedConversation.department,
+                }}
+                currentUser={currentUser}
+              />
+            </section>
 
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Customer profile</h3>
-                <CustomerProfile
-                  key={`customer-profile-${selectedConversation.customer.id}`}
-                  customer={{
-                    id: selectedConversation.customer.id,
-                    name: selectedConversation.customer.name,
-                    phone: selectedConversation.customer.phone,
-                    email: selectedConversation.customer.email,
-                    notes: selectedConversation.customer.notes,
-                    preferredContactMethod: selectedConversation.customer.preferredContactMethod,
-                  }}
-                  consent={describeConsent(cachedConsentState(selectedConversation.customer))}
-                />
-              </section>
+            <section className={panelSectionClass}>
+              <SectionHeader title="Customer profile" />
+              <CustomerProfile
+                key={`customer-profile-${selectedConversation.customer.id}`}
+                customer={{
+                  id: selectedConversation.customer.id,
+                  name: selectedConversation.customer.name,
+                  phone: selectedConversation.customer.phone,
+                  email: selectedConversation.customer.email,
+                  notes: selectedConversation.customer.notes,
+                  preferredContactMethod: selectedConversation.customer.preferredContactMethod,
+                }}
+                consent={describeConsent(cachedConsentState(selectedConversation.customer))}
+              />
+            </section>
 
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Units</h3>
-                <div className="space-y-2">
-                  {selectedConversation.customer.vehicles.map((vehicle) => (
-                    <div key={vehicle.id} className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-                      <div className="font-medium">
-                        {vehicle.year} {vehicle.make} {vehicle.model}
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        {labelize(vehicle.relationship)} · VIN {vehicle.vin ?? "n/a"}
-                      </div>
-                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                        Stock {vehicle.stockNumber ?? "n/a"} · {vehicle.mileage?.toLocaleString() ?? 0} mi
-                      </div>
+            <section className={panelSectionClass}>
+              <SectionHeader title="Units" />
+              {selectedConversation.customer.vehicles.map((vehicle) => (
+                <div key={vehicle.id} className="rounded-md border border-border p-3">
+                  <div className="font-medium">
+                    {vehicle.year} {vehicle.make} {vehicle.model}
+                  </div>
+                  <div className="text-200 text-text-muted">
+                    {labelize(vehicle.relationship)} · VIN {vehicle.vin ?? "n/a"}
+                  </div>
+                  <div className="text-200 text-text-muted">
+                    Stock {vehicle.stockNumber ?? "n/a"} · {vehicle.mileage?.toLocaleString() ?? 0} mi
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className={panelSectionClass}>
+              <SectionHeader
+                title="Open follow-ups"
+                trailing={openFollowUps.length > 0 ? openFollowUps.length : null}
+              />
+              {openFollowUps.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-3 text-text-muted">No open follow-ups.</p>
+              ) : (
+                openFollowUps.map((followUp) => (
+                  // The brief's "See the follow-up" lands here, so the card
+                  // needs an anchor and room to clear the sticky header. The
+                  // warning tint marks the one she was sent to, the same tone
+                  // as any open follow-up; overdue says so in its own words.
+                  <div
+                    key={followUp.id}
+                    id={`follow-up-${followUp.id}`}
+                    className="scroll-mt-6 rounded-md border border-border p-3 target:border-warning-border target:bg-warning-surface"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{followUp.title}</span>
+                      {followUp.isOverdue ? <Badge variant="critical">Overdue</Badge> : null}
                     </div>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Open follow-ups</h3>
-                <div className="space-y-2">
-                  {openFollowUps.length === 0 ? (
-                    <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">No open follow-ups.</p>
-                  ) : (
-                    openFollowUps.map((followUp) => (
-                      // The brief's "See the follow-up" lands here, so the card
-                      // needs an anchor and room to clear the sticky header.
-                      <div
-                        key={followUp.id}
-                        id={`follow-up-${followUp.id}`}
-                        className="scroll-mt-6 rounded-lg border border-zinc-200 p-3 text-sm target:border-amber-400 target:bg-amber-50 dark:border-zinc-800 dark:target:border-amber-600 dark:target:bg-amber-950/40"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{followUp.title}</span>
-                          {followUp.isOverdue ? <Badge variant="critical">Overdue</Badge> : null}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          <span
-                            className={followUp.isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}
-                          >
-                            Due {followUp.dueLabel}
-                          </span>{" "}
-                          · {followUp.assigneeName}
-                        </div>
-                        {followUp.canComplete ? (
-                          // Closing the loop belongs where the work happens.
-                          // Sending her to the tasks list to find this row again
-                          // is how a finished follow-up stays open and the queue
-                          // stops meaning anything.
-                          <div className="mt-2 flex flex-wrap items-start gap-2">
-                            <form action={updateTaskStatus}>
-                              <input type="hidden" name="taskId" value={followUp.id} />
-                              <input type="hidden" name="status" value={TaskStatus.DONE} />
-                              <Button type="submit" variant="secondary" size="sm">
-                                Mark done
-                              </Button>
-                            </form>
-                            {/* The customer moving the plan is something she is
-                                told here, in the thread - so this is where the
-                                follow-up has to be able to move with it, rather
-                                than being marked done to get it off the queue. */}
-                            <RescheduleFollowUp taskId={followUp.id} dueAt={followUp.dueAt} />
-                          </div>
-                        ) : (
-                          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                            {labelize(followUp.department)} closes this one.
-                          </p>
-                        )}
+                    <div className="mt-1 text-200 text-text-muted">
+                      <span className={followUp.isOverdue ? "font-medium text-critical" : undefined}>
+                        Due {followUp.dueLabel}
+                      </span>{" "}
+                      · {followUp.assigneeName}
+                    </div>
+                    {followUp.canComplete ? (
+                      // Closing the loop belongs where the work happens.
+                      // Sending her to the tasks list to find this row again
+                      // is how a finished follow-up stays open and the queue
+                      // stops meaning anything.
+                      <div className="mt-2 flex flex-wrap items-start gap-2">
+                        <form action={updateTaskStatus}>
+                          <input type="hidden" name="taskId" value={followUp.id} />
+                          <input type="hidden" name="status" value={TaskStatus.DONE} />
+                          <Button type="submit" variant="secondary" size="sm">
+                            Mark done
+                          </Button>
+                        </form>
+                        {/* The customer moving the plan is something she is
+                            told here, in the thread - so this is where the
+                            follow-up has to be able to move with it, rather
+                            than being marked done to get it off the queue. */}
+                        <RescheduleFollowUp taskId={followUp.id} dueAt={followUp.dueAt} />
                       </div>
-                    ))
-                  )}
-                </div>
-              </section>
+                    ) : (
+                      <p className="mt-2 text-200 text-text-muted">
+                        {labelize(followUp.department)} closes this one.
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </section>
 
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Add internal note</h3>
-                <form action={addInternalNote} className="space-y-2">
-                  <input type="hidden" name="conversationId" value={selectedConversation.id} />
-                  <input type="hidden" name="aiInsightId" data-ai-note-insight />
-                  <Textarea name="body" placeholder="Visible only to staff..." />
-                  <Button type="submit" variant="secondary" className="w-full">
-                    Save note
-                  </Button>
-                </form>
-              </section>
+            <section className={panelSectionClass}>
+              <SectionHeader title="Add internal note" />
+              <form action={addInternalNote} className="flex flex-col gap-2">
+                <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                <input type="hidden" name="aiInsightId" data-ai-note-insight />
+                <Textarea name="body" placeholder="Visible only to staff..." aria-label="Internal note" />
+                <Button type="submit" variant="secondary" className="w-full">
+                  Save note
+                </Button>
+              </form>
+            </section>
 
-              <section>
-                <h3 className="mb-3 text-sm font-semibold">Create follow-up</h3>
-                <form action={createTask} className="space-y-2">
-                  <input type="hidden" name="customerId" value={selectedConversation.customerId} />
-                  <input type="hidden" name="conversationId" value={selectedConversation.id} />
-                  <input type="hidden" name="aiInsightId" data-ai-follow-up-insight />
-                  <Input name="title" placeholder="Task title" required />
-                  <Textarea name="description" placeholder="Optional details" className="min-h-16" />
-                  <Select name="assignedUserId" defaultValue={selectedConversation.assignedUserId ?? "unassigned"}>
-                    <option value="unassigned">Unassigned</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
+            <section className={panelSectionClass}>
+              <SectionHeader title="Create follow-up" />
+              <form action={createTask} className="flex flex-col gap-2">
+                <input type="hidden" name="customerId" value={selectedConversation.customerId} />
+                <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                <input type="hidden" name="aiInsightId" data-ai-follow-up-insight />
+                <Input name="title" placeholder="Task title" aria-label="Task title" required />
+                <Textarea name="description" placeholder="Optional details" aria-label="Details" className="min-h-8" />
+                <Select name="assignedUserId" defaultValue={selectedConversation.assignedUserId ?? "unassigned"} aria-label="Assignee">
+                  <option value="unassigned">Unassigned</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select name="department" defaultValue={selectedConversation.department} aria-label="Department">
+                    {departments.map((department) => (
+                      <option key={department} value={department}>
+                        {labelize(department)}
                       </option>
                     ))}
                   </Select>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select name="department" defaultValue={selectedConversation.department}>
-                      {departments.map((department) => (
-                        <option key={department} value={department}>
-                          {labelize(department)}
-                        </option>
-                      ))}
-                    </Select>
-                    <Select name="priority" defaultValue={selectedConversation.priority}>
-                      {priorities.map((priority) => (
-                        <option key={priority} value={priority}>
-                          {labelize(priority)}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  {/* Her clock, not the server's: the picker's value carries no
-                      offset, so both the default and the conversion belong in the
-                      browser. */}
-                  <FollowUpDueDate />
-                  <Button type="submit" variant="secondary" className="w-full">
-                    Add follow-up
-                  </Button>
-                </form>
-              </section>
-            </div>
+                  <Select name="priority" defaultValue={selectedConversation.priority} aria-label="Priority">
+                    {priorities.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {labelize(priority)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                {/* Her clock, not the server's: the picker's value carries no
+                    offset, so both the default and the conversion belong in the
+                    browser. */}
+                <FollowUpDueDate />
+                <Button type="submit" variant="secondary" className="w-full">
+                  Add follow-up
+                </Button>
+              </form>
+            </section>
           </aside>
         </section>
       ) : (
-        <section className="hidden min-h-0 items-center justify-center bg-zinc-50 p-8 dark:bg-zinc-950 lg:flex">
+        <section className="hidden min-h-0 items-center justify-center bg-page p-8 lg:flex">
           <div className="max-w-sm text-center">
-            <MessageCircle className="mx-auto mb-4 h-10 w-10 text-zinc-400 dark:text-zinc-600" />
-            <h2 className="text-lg font-semibold">Select a conversation</h2>
-            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <MessageCircle className="mx-auto mb-4 size-10 text-text-faint" aria-hidden="true" />
+            <h2 className="text-500 font-semibold tracking-tight">Select a conversation</h2>
+            <p className="mt-2 text-text-muted">
               Open a customer thread to view messages, profile context, templates, and follow-ups.
             </p>
           </div>

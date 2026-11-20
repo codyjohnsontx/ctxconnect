@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { runAiBriefPass } from "@/app/actions";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 export type QueueStatusData = {
@@ -47,38 +48,35 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
 
   if (!status.aiConfigured) {
     return (
-      <p className="mb-3 rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        AI is not configured, so nothing new can be briefed. Add OPENAI_API_KEY to let the ops
-        brief pass rank this queue.
-      </p>
+      <Alert variant="warning" inline>
+        AI is not configured, so nothing new can be briefed. Add OPENAI_API_KEY to let the ops brief pass rank
+        this queue.
+      </Alert>
     );
   }
 
   return (
-    <div className="mb-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 text-200 text-text-muted">
         {/* Says only what the insight rows know. Nothing records when a pass ran,
             so this line never claims a last run it cannot observe. The relative
             time is rendered on the server and again on hydration, which can land
             either side of a minute boundary, so the difference is expected. */}
-        <p
-          suppressHydrationWarning
-          className="text-xs leading-5 text-zinc-500 dark:text-zinc-400"
-        >
+        <p suppressHydrationWarning>
           {status.briefed} of {status.queueSize} briefed
           {status.lastBriefAt
             ? `, newest brief ${formatDistanceToNow(status.lastBriefAt, { addSuffix: true })}`
             : ""}
         </p>
         <Button onClick={runPass} disabled={isPending} variant="tertiary" size="sm" className="shrink-0">
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
           {isPending ? "Running" : "Run pass"}
         </Button>
       </div>
       {message ? (
-        <p className="mt-1 rounded-md bg-blue-50 p-2 text-xs leading-5 text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+        <Alert variant="info" inline>
           {message}
-        </p>
+        </Alert>
       ) : null}
     </div>
   );

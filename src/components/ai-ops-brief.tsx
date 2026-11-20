@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { type ReactNode, useState, useTransition } from "react";
 import {
   Check,
   Clipboard,
@@ -11,11 +11,13 @@ import {
   ThumbsDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
+import { SectionHeader } from "@/components/ui/section-header";
 import { Department, Priority } from "@/generated/prisma/client";
 import { findMatchingFollowUp } from "@/lib/follow-ups";
-import { cn, labelize } from "@/lib/utils";
+import { labelize } from "@/lib/utils";
 
 type AiInsightAction = "ACCEPTED" | "DISMISSED" | "REPLY_COPIED";
 
@@ -64,9 +66,11 @@ type AiOpsBriefProps = {
   briefIsCurrent?: boolean;
 };
 
+// The AI speaks in the info tone, so a Normal risk is info rather than neutral:
+// neutral is for a brief that no longer describes the thread.
 const riskTone: Record<Priority, BadgeVariant> = {
   LOW: "success",
-  NORMAL: "neutral",
+  NORMAL: "info",
   HIGH: "warning",
   URGENT: "critical",
 };
@@ -75,6 +79,11 @@ function riskReasons(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+/**
+ * The brief as one section of the thread's panel. The panel owns the section's
+ * padding and rule, the same as every section beside it, so this renders only
+ * what goes inside.
+ */
 export function AiOpsBrief({
   conversationId,
   initialInsight = null,
@@ -251,98 +260,87 @@ export function AiOpsBrief({
     setNotice(input ? "Follow-up title filled." : insight.suggestedTaskTitle ?? null);
   }
 
+  const reasons = insight ? riskReasons(insight.riskReasons) : [];
+
   return (
-    <section className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-            <h3 className="text-sm font-semibold">AI Ops Brief</h3>
-          </div>
-          <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-            Summarize risk and next action for this thread.
-          </p>
-        </div>
-        {insight ? (
-          <Badge variant={showsEarlierBrief ? "neutral" : riskTone[insight.riskLevel]} className="shrink-0">
-            {showsEarlierBrief
-              ? `${labelize(insight.riskLevel)} · earlier brief`
-              : labelize(insight.riskLevel)}
-          </Badge>
-        ) : null}
-      </div>
+    <div className="flex flex-col gap-3">
+      <SectionHeader
+        title={
+          <>
+            <Sparkles className="size-3.5 text-info" aria-hidden="true" />
+            AI Ops Brief
+          </>
+        }
+        trailing={
+          insight ? (
+            <Badge variant={showsEarlierBrief ? "neutral" : riskTone[insight.riskLevel]}>
+              {showsEarlierBrief ? `${labelize(insight.riskLevel)} · earlier brief` : labelize(insight.riskLevel)}
+            </Badge>
+          ) : null
+        }
+      />
 
       {isPending && !insight ? (
-        <div className="space-y-2">
-          <div className="h-3 w-4/5 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-          <div className="h-3 w-2/3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-          <div className="h-16 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+        <div className="flex flex-col gap-2">
+          <div className="h-3 w-4/5 animate-pulse rounded-sm bg-surface-strong" />
+          <div className="h-3 w-2/3 animate-pulse rounded-sm bg-surface-strong" />
+          <div className="h-16 animate-pulse rounded-md bg-surface-strong" />
         </div>
       ) : null}
 
       {!insight && !isPending ? (
         <Button onClick={generateBrief} disabled={isPending} variant="secondary" className="w-full">
-          <Sparkles className="h-4 w-4" />
+          <Sparkles className="size-3.5" />
           Generate brief
         </Button>
       ) : null}
 
       {insight ? (
-        <div className="space-y-3 text-sm">
-          <BriefField label="Summary" value={insight.summary} />
-          <BriefField label="Customer need" value={insight.customerNeed} />
-          <div>
-            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Risk</div>
-            <div className="space-y-1 rounded-md bg-white p-2 dark:bg-zinc-950">
-              {riskReasons(insight.riskReasons).length === 0 ? (
-                <p className="text-zinc-500 dark:text-zinc-400">No specific risk reasons returned.</p>
+        <>
+          <dl className="flex flex-col gap-3">
+            <BriefField label="Summary">{insight.summary}</BriefField>
+            <BriefField label="Customer need">{insight.customerNeed}</BriefField>
+            <BriefField label="Risk">
+              {reasons.length === 0 ? (
+                <span className="text-text-muted">No specific risk reasons returned.</span>
               ) : (
-                riskReasons(insight.riskReasons).map((reason) => (
-                  <p key={reason} className="leading-5 text-zinc-700 dark:text-zinc-300">
-                    {reason}
-                  </p>
-                ))
+                <ul className="flex list-disc flex-col gap-1 pl-4">
+                  {reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
               )}
-            </div>
-          </div>
-          <BriefField
-            label="Escalation"
-            value={
-              insight.escalationRecommended
+            </BriefField>
+            <BriefField label="Escalation">
+              {insight.escalationRecommended
                 ? insight.escalationReason ?? "Escalation recommended."
-                : "No escalation recommended."
-            }
-          />
-          <BriefField
-            label="Suggested next action"
-            value={
-              insight.suggestedDepartment
+                : "No escalation recommended."}
+            </BriefField>
+            <BriefField label="Suggested next action">
+              {insight.suggestedDepartment
                 ? `${labelize(insight.suggestedDepartment)}: ${insight.suggestedNextAction}`
-                : insight.suggestedNextAction
-            }
-          />
-          <BriefField label="Suggested reply" value={insight.suggestedReply ?? "No customer reply recommended."} />
-          <BriefField
-            label="Suggested follow-up"
-            value={insight.suggestedTaskTitle ?? "No follow-up task recommended."}
-            note={trackedFollowUp ? `Already on this thread, due ${trackedFollowUp.dueLabel}.` : null}
-          />
+                : insight.suggestedNextAction}
+            </BriefField>
+            <BriefField label="Suggested reply">{insight.suggestedReply ?? "No customer reply recommended."}</BriefField>
+            <BriefField
+              label="Suggested follow-up"
+              note={trackedFollowUp ? `Already on this thread, due ${trackedFollowUp.dueLabel}.` : null}
+            >
+              {insight.suggestedTaskTitle ?? "No follow-up task recommended."}
+            </BriefField>
+          </dl>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-wrap gap-1">
             <Button onClick={accept} disabled={isPending || Boolean(insight.acceptedAt)} variant="secondary" size="sm">
-              <Check className="h-3.5 w-3.5" />
+              <Check className="size-3.5" />
               Accept
             </Button>
-            <Button onClick={dismiss} disabled={isPending || Boolean(insight.dismissedAt)} variant="tertiary" size="sm">
-              <ThumbsDown className="h-3.5 w-3.5" />
-              Dismiss
-            </Button>
             <Button onClick={copyReply} disabled={isPending || !insight.suggestedReply} variant="secondary" size="sm">
-              <Copy className="h-3.5 w-3.5" />
+              <Copy className="size-3.5" />
               Copy reply
             </Button>
             <Button onClick={useAsNote} disabled={isPending} variant="secondary" size="sm">
-              <StickyNote className="h-3.5 w-3.5" />
+              <StickyNote className="size-3.5" />
               Use note
             </Button>
             {/* Not a disabled button: "there is already one of these" is only
@@ -350,57 +348,61 @@ export function AiOpsBrief({
                 and see who owns it. It is on this same panel, so the control
                 takes her to it rather than going dead. */}
             {trackedFollowUp ? (
-              <a
-                href={`#follow-up-${trackedFollowUp.id}`}
-                className="col-span-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
-              >
-                <Check className="h-3.5 w-3.5" />
+              <ButtonLink href={`#follow-up-${trackedFollowUp.id}`} variant="secondary" size="sm">
+                <Check className="size-3.5" />
                 See the follow-up
-              </a>
+              </ButtonLink>
             ) : (
               <Button
                 onClick={useAsFollowUp}
                 disabled={isPending || !insight.suggestedTaskTitle}
                 variant="secondary"
                 size="sm"
-                className="col-span-2"
               >
-                <Clipboard className="h-3.5 w-3.5" />
+                <Clipboard className="size-3.5" />
                 Use as follow-up
               </Button>
             )}
+            <Button onClick={dismiss} disabled={isPending || Boolean(insight.dismissedAt)} variant="tertiary" size="sm">
+              <ThumbsDown className="size-3.5" />
+              Dismiss
+            </Button>
+            <Button onClick={generateBrief} disabled={isPending} variant="tertiary" size="sm">
+              {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+              Generate new brief
+            </Button>
           </div>
-
-          <Button onClick={generateBrief} disabled={isPending} variant="tertiary" size="sm" className="w-full">
-            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            Generate new brief
-          </Button>
-        </div>
+        </>
       ) : null}
 
       {error ? (
-        <p
-          className={cn(
-            "mt-3 rounded-md p-2 text-xs leading-5",
-            error.status === 429 || error.status === 503
-              ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
-              : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200",
-          )}
-        >
+        <Alert variant={error.status === 429 || error.status === 503 ? "warning" : "critical"} inline>
           {error.message}
-        </p>
+        </Alert>
       ) : null}
-      {notice ? <p className="mt-3 rounded-md bg-blue-50 p-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-200">{notice}</p> : null}
-    </section>
+      {notice ? (
+        <Alert variant="success" inline>
+          {notice}
+        </Alert>
+      ) : null}
+    </div>
   );
 }
 
-function BriefField({ label, value, note = null }: { label: string; value: string; note?: string | null }) {
+function BriefField({
+  label,
+  note = null,
+  children,
+}: {
+  label: string;
+  note?: string | null;
+  children: ReactNode;
+}) {
   return (
     <div>
-      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</div>
-      <p className="rounded-md bg-white p-2 leading-5 text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">{value}</p>
-      {note ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">{note}</p> : null}
+      <dt className="mb-1 text-200 font-medium text-text-muted">{label}</dt>
+      <dd className="leading-5">{children}</dd>
+      {note ? <dd className="mt-1 text-200 text-warning">{note}</dd> : null}
     </div>
   );
 }

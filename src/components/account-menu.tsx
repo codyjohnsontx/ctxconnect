@@ -2,9 +2,11 @@
 
 import type { MouseEvent } from "react";
 import Link from "next/link";
+import { UserRoundCheck } from "lucide-react";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { accountFullName, accountInitials, accountShortName } from "@/lib/account-identity";
+import { labelize } from "@/lib/utils";
 
 type AccountMenuProps = {
   userId: string;
@@ -49,28 +51,27 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
         type="button"
         popoverTarget="account-menu"
         aria-label={`Account: ${accountFullName(name)}`}
-        className="relative flex h-16 flex-col items-center justify-center gap-1 text-zinc-500 dark:text-zinc-400"
+        className="relative flex min-w-0 flex-col items-center justify-center gap-1 text-text-muted"
       >
         <span
           aria-hidden="true"
-          className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+          className="flex size-5 items-center justify-center rounded-full bg-surface-strong text-[9px] font-semibold text-text-muted"
         >
           {accountInitials(name)}
         </span>
         {/* Sized on the span rather than the button: `globals.css` resets
             `button { font: inherit }` outside every layer, so a `text-*`
             utility on the control itself never reaches the label and the name
-            would set at the body's 16px beside 10px navigation labels. */}
-        <span className="max-w-full truncate px-1 text-[10px] font-medium">
+            would set at the body's size beside 11px navigation labels. */}
+        <span className="max-w-full truncate px-1 text-100 font-medium">
           {accountShortName(name)}
         </span>
       </button>
 
       {/* Positioned by hand rather than by anchor: it always sits directly above
-          the bar its trigger lives in. `w-64` and `p-4` give it the sidebar
-          account block's own content width, which is what "Dark" and "Sign out"
-          need to sit on one line - they set at the body's 16px here too. Lifted
-          off the page in dark mode, where zinc-950 is also the page.
+          the bar its trigger lives in, as wide as the sidebar it stands in for,
+          which is what "Dark" and "Sign out" need to sit on one line. The one
+          mid shadow in the app: this floats, so it is allowed one.
 
           Hidden outright where the popover API is missing: the `popover`
           attribute is ignored there, so this would render inline and sit open
@@ -80,21 +81,35 @@ export function AccountMenu({ userId, name, role }: AccountMenuProps) {
         id="account-menu"
         popover="auto"
         onClick={closeWhenFollowingALink}
-        className="inset-auto right-2 bottom-20 left-auto m-0 w-64 rounded-md border border-zinc-200 bg-white p-4 text-zinc-950 shadow-lg not-supports-[selector(:popover-open)]:hidden dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
+        className="inset-auto right-2 bottom-16 left-auto m-0 w-(--layout-nav-width) rounded-md border border-border bg-surface p-4 text-text shadow-mid not-supports-[selector(:popover-open)]:hidden"
       >
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{accountFullName(name)}</div>
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">{role}</div>
-        </div>
-        <Link
-          href="/coverage"
-          className="mt-3 block text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          Coverage
-        </Link>
-        <div className="mt-3 flex gap-2">
-          <ThemeToggle />
-          <SignOutButton userId={userId} />
+        {/* The stack lives on an inner element: a display utility on the
+            popover itself would beat the user-agent rule that keeps a closed
+            popover hidden, and it would sit open over the bar on every page. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-strong text-100 font-semibold text-text-muted"
+            >
+              {accountInitials(name)}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{accountFullName(name)}</span>
+              <span className="block text-200 text-text-muted">{labelize(role)}</span>
+            </span>
+          </div>
+          <Link
+            href="/coverage"
+            className="inline-flex items-center gap-1 self-start text-200 font-medium text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
+          >
+            <UserRoundCheck className="size-3.5" />
+            Coverage
+          </Link>
+          <div className="flex gap-2">
+            <ThemeToggle />
+            <SignOutButton userId={userId} />
+          </div>
         </div>
       </div>
     </>
