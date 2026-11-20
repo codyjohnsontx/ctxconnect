@@ -21,6 +21,8 @@ const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
 const serverActions = join("src", "app", "actions.ts");
 
+const sourceFile = /\.(ts|tsx|js|mjs|cjs)$/;
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -30,18 +32,18 @@ function sourceFiles(dir: string): string[] {
       return entry.name === "generated" ? [] : sourceFiles(path);
     }
 
-    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+    return sourceFile.test(entry.name) ? [path] : [];
   });
 }
 
-// Edge middleware (middleware.ts, or proxy.ts from Next 16) sits at the repo
-// root rather than under src/, and is the most likely place for a
-// token-trusting check to reappear, because getServerSession cannot run in
-// that runtime. Scanning src/ alone would leave it invisible, so every source
-// file directly under the root is scanned too.
+// Edge middleware (middleware.ts, or proxy.ts from Next 16) is the most likely
+// place for a token-trusting check to reappear, because getServerSession
+// cannot run in that runtime. With the app under src/app, Next only loads it
+// from src/, which the recursive scan already covers; the files directly under
+// the repo root are scanned too as defence in depth, in case the layout moves.
 function rootSourceFiles() {
   return readdirSync(repoRoot, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.(ts|tsx)$/.test(entry.name))
+    .filter((entry) => entry.isFile() && sourceFile.test(entry.name))
     .map((entry) => entry.name);
 }
 

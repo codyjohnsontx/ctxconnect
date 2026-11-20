@@ -45,8 +45,8 @@ function sourceFiles(dir: string): string[] {
 
 /**
  * Authored code that ships or runs against real services: the app, the seed,
- * the scripts, and anything directly under the repo root, such as edge
- * middleware or a config file that could reach for the package.
+ * the scripts, and anything directly under the repo root, such as a config
+ * file that could reach for the package.
  */
 function scannedFiles() {
   const roots = ["src", "prisma", "scripts"].map((root) => join(repoRoot, root));
