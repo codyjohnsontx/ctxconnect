@@ -43,10 +43,18 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Authored code that ships or runs against real services: the app, the seed and the scripts. */
+/**
+ * Authored code that ships or runs against real services: the app, the seed,
+ * the scripts, and anything directly under the repo root, such as edge
+ * middleware or a config file that could reach for the package.
+ */
 function scannedFiles() {
   const roots = ["src", "prisma", "scripts"].map((root) => join(repoRoot, root));
-  return roots.flatMap(sourceFiles).map((path) => relative(repoRoot, path));
+  const rootFiles = readdirSync(repoRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.(ts|tsx|js|mjs|cjs)$/.test(entry.name))
+    .map((entry) => entry.name);
+
+  return [...roots.flatMap(sourceFiles).map((path) => relative(repoRoot, path)), ...rootFiles];
 }
 
 function read(path: string) {

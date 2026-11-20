@@ -375,16 +375,30 @@ export function AiOpsBrief({
         </>
       ) : null}
 
-      {error ? (
-        <Alert variant={error.status === 429 || error.status === 503 ? "warning" : "critical"} inline>
-          {error.message}
-        </Alert>
-      ) : null}
-      {notice ? (
-        <Alert variant="success" inline>
-          {notice}
-        </Alert>
-      ) : null}
+      {/* The live regions stay mounted so a screen reader hears each notice
+          arrive; a region rendered together with its text is not announced.
+          The -mt-3 cancels the column's gap while both are empty, and each
+          notice brings the gap back with its own mt-3. */}
+      <div className="-mt-3">
+        <div role="alert">
+          {error ? (
+            <Alert
+              variant={error.status === 429 || error.status === 503 ? "warning" : "critical"}
+              inline
+              className="mt-3"
+            >
+              {error.message}
+            </Alert>
+          ) : null}
+        </div>
+        <div role="status" aria-live="polite">
+          {notice ? (
+            <Alert variant="success" inline className="mt-3">
+              {notice}
+            </Alert>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

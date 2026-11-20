@@ -34,8 +34,21 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+// Edge middleware (middleware.ts, or proxy.ts from Next 16) sits at the repo
+// root rather than under src/, and is the most likely place for a
+// token-trusting check to reappear, because getServerSession cannot run in
+// that runtime. Scanning src/ alone would leave it invisible, so every source
+// file directly under the root is scanned too.
+function rootSourceFiles() {
+  return readdirSync(repoRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.(ts|tsx)$/.test(entry.name))
+    .map((entry) => entry.name);
+}
+
 function relativeSourceFiles() {
-  return sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
+  const files = sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
+
+  return [...files, ...rootSourceFiles()];
 }
 
 function read(path: string) {

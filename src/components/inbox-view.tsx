@@ -419,7 +419,12 @@ export function InboxView({
                 >
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2 font-semibold">
-                      {conversation.unread ? <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" /> : null}
+                      {conversation.unread ? (
+                        <>
+                          <span className="size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+                          <span className="sr-only">Unread</span>
+                        </>
+                      ) : null}
                       <span className="truncate">{conversation.customer.name}</span>
                     </span>
                     <span className="shrink-0 text-200 text-text-faint">
