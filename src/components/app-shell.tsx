@@ -1,19 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { headers } from "next/headers";
-import {
-  AlertTriangle,
-  ArrowRightLeft,
-  ClipboardList,
-  Clock3,
-  ContactRound,
-  Inbox,
-  LayoutDashboard,
-  MessageSquareText,
-  Settings,
-  UserRoundCheck,
-} from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Clock3, Inbox, UserRoundCheck } from "lucide-react";
 import { AccountMenu } from "@/components/account-menu";
+import { NavLinks } from "@/components/nav-links";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -23,21 +12,6 @@ import type { getShellData } from "@/lib/data";
 import { cn, labelize } from "@/lib/utils";
 
 type ShellData = Awaited<ReturnType<typeof getShellData>>;
-type CountKey = keyof ShellData["counts"];
-
-const navItems: Array<{
-  href: string;
-  label: string;
-  icon: typeof Inbox;
-  countKey?: CountKey;
-}> = [
-  { href: "/inbox", label: "Inbox", icon: Inbox, countKey: "inbox" },
-  { href: "/customers", label: "Customers", icon: ContactRound },
-  { href: "/tasks", label: "Tasks", icon: ClipboardList, countKey: "tasks" },
-  { href: "/templates", label: "Templates", icon: MessageSquareText },
-  { href: "/command-center", label: "Command", icon: LayoutDashboard, countKey: "command" },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
 
 // The one mark of colour on an alert row is its icon, in the tone the alert
 // means: critical for what has already gone wrong, warning for what is waiting,
@@ -63,10 +37,7 @@ type AppShellProps = {
   shellData: ShellData;
 };
 
-export async function AppShell({ children, user, shellData }: AppShellProps) {
-  const pathname = (await headers()).get("x-current-path") ?? "";
-  const visibleNavItems = navItems.filter((item) => item.href !== "/settings" || user.role === "ADMIN" || user.role === "MANAGER");
-  const mobileNavColumns = visibleNavItems.length + 1;
+export function AppShell({ children, user, shellData }: AppShellProps) {
   // The rail lists every alert it was given and scrolls; on a dealership busy
   // enough to outrun the scan, the badge would otherwise promise work the rail
   // cannot show, so the difference gets a row of its own.
@@ -87,29 +58,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
         </div>
 
         <nav className="flex flex-col gap-px p-2">
-          {visibleNavItems.map((item) => {
-            const active = pathname.startsWith(item.href);
-            const Icon = item.icon;
-            const count = item.countKey ? shellData.counts[item.countKey] : 0;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex h-8 items-center gap-2 rounded-md px-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus-ring",
-                  active ? "bg-accent-surface text-accent" : "text-text-muted hover:bg-surface-strong hover:text-text",
-                )}
-              >
-                <Icon className="size-4" />
-                <span className="flex-1">{item.label}</span>
-                {count > 0 ? (
-                  <Badge count className={cn("bg-surface", active && "border-accent-border text-accent")}>
-                    {count}
-                  </Badge>
-                ) : null}
-              </Link>
-            );
-          })}
+          <NavLinks variant="side" role={user.role} counts={shellData.counts} />
         </nav>
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-border px-2 pt-2 pb-3">
@@ -192,33 +141,9 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
 
       <main className="min-h-dvh pb-16 lg:pl-(--layout-nav-width) lg:pb-0">{children}</main>
 
-      <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid h-14 border-t border-border bg-surface lg:hidden"
-        style={{ gridTemplateColumns: `repeat(${mobileNavColumns}, minmax(0, 1fr))` }}
-      >
-        {visibleNavItems.map((item) => {
-          const Icon = item.icon;
-          const active = pathname.startsWith(item.href);
-          const count = item.countKey ? shellData.counts[item.countKey] : 0;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "relative flex min-w-0 flex-col items-center justify-center gap-1",
-                active ? "text-accent" : "text-text-muted",
-              )}
-            >
-              <Icon className="size-5" />
-              {count > 0 ? (
-                <Badge count variant="critical" className="absolute top-1 left-1/2 ml-1">
-                  {count}
-                </Badge>
-              ) : null}
-              <span className="max-w-full truncate px-1 text-100 font-medium">{item.label}</span>
-            </Link>
-          );
-        })}
+      {/* One equal column per cell, however many the role is shown. */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 auto-cols-fr grid-flow-col border-t border-border bg-surface lg:hidden">
+        <NavLinks variant="bar" role={user.role} counts={shellData.counts} />
         <AccountMenu userId={user.id} name={user.name} role={user.role} />
       </nav>
     </div>
