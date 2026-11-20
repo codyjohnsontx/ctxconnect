@@ -65,7 +65,9 @@ export function ButtonLink({
   href,
   ...props
 }: ButtonLinkProps) {
-  return (
-    <Link href={href} className={cn(base, variants[variant], sizes[size], className)} {...props} />
-  );
+  const classes = cn(base, variants[variant], sizes[size], className);
+  if (href.startsWith("#")) {
+    return <a href={href} className={classes} {...props} />;
+  }
+  return <Link href={href} className={classes} {...props} />;
 }
