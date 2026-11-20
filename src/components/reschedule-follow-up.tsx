@@ -79,7 +79,7 @@ export function RescheduleFollowUp({ taskId, dueAt }: RescheduleFollowUpProps) {
 
   if (!open) {
     return (
-      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button type="button" variant="tertiary" size="sm" onClick={() => setOpen(true)}>
         <CalendarClock className="h-3.5 w-3.5" />
         Reschedule
       </Button>
@@ -137,7 +137,7 @@ export function RescheduleFollowUp({ taskId, dueAt }: RescheduleFollowUpProps) {
         </Button>
         <Button
           type="button"
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={isPending}
           onClick={() => {

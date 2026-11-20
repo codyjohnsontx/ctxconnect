@@ -2,28 +2,190 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  --background: #f4f4f5;
-  --foreground: #18181b;
+/*
+  Design tokens. Every value a component writes is named here, light values
+  under @theme and :root, dark values under .dark. The names follow the
+  approved mockup except where
+  Tailwind v4 owns the namespace and needs its own spelling to turn a token
+  into a utility: the mockup's --font-size-300 / --line-height-300 pair is
+  --text-300 / --text-300--line-height here (utility `text-300`), and
+  --letter-spacing-tight is --tracking-tight (`tracking-tight`).
+
+  A token in @theme becomes a utility: --color-surface gives bg-surface,
+  border-surface and text-surface; --color-text-muted gives text-text-muted;
+  --radius-md gives rounded-md; --shadow-mid gives shadow-mid. A colour
+  utility references the variable, so a component that says bg-surface gets dark for
+  free and never needs a dark: twin. Tokens Tailwind has no namespace for live
+  on :root and are used as w-(--layout-nav-width) or var(--size-control-md).
+*/
+@theme {
+  /* Neutrals: cool grays, the surfaces everything sits on */
+  --color-page: #f2f3f5;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f7f8fa;
+  --color-surface-strong: #e9ebef;
+  --color-border: #d9dde3;
+  --color-border-strong: #b4bac4;
+  --color-text: #1a1d23;
+  --color-text-muted: #5a616d;
+  --color-text-faint: #858c98;
+  --color-text-on-accent: #ffffff;
+  --color-text-on-inverse: #ffffff;
+  --color-inverse: #1a1d23;
+
+  /* Accent: the one Attend colour, for the primary action and the active place */
+  --color-accent: #0f6b8a;
+  --color-accent-hover: #0b5670;
+  --color-accent-surface: #e3f0f5;
+  --color-accent-border: #8fc3d6;
+
+  /* Status: colour reserved for meaning */
+  --color-success: #1a7f3c;
+  --color-success-surface: #e5f5ea;
+  --color-success-border: #9fd8b0;
+  --color-warning: #9a4e07;
+  --color-warning-surface: #fcf1df;
+  --color-warning-border: #eec27c;
+  --color-critical: #c02626;
+  --color-critical-surface: #fcebeb;
+  --color-critical-border: #f0a6a6;
+  --color-info: #2456b6;
+  --color-info-surface: #e8effb;
+  --color-info-border: #aac1ec;
+
+  /* Focus */
+  --color-focus: #0f6b8a;
+  --color-focus-ring: #b9dbe8;
+
+  /* Type: Inter from next/font, a seven-step scale with a paired line height */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-100: 11px;
+  --text-100--line-height: 16px;
+  --text-200: 12px;
+  --text-200--line-height: 16px;
+  --text-300: 13px;
+  --text-300--line-height: 18px;
+  --text-400: 14px;
+  --text-400--line-height: 20px;
+  --text-500: 16px;
+  --text-500--line-height: 22px;
+  --text-600: 18px;
+  --text-600--line-height: 24px;
+  --text-700: 22px;
+  --text-700--line-height: 28px;
+  --tracking-tight: -0.01em;
+
+  /* Radius */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  /* Elevation: flat by default, a shadow only on things that float. Tailwind
+     copies a literal shadow into the utility, so these point at :root and
+     .dark, where each theme sets its own. */
+  --shadow-low: var(--elevation-low);
+  --shadow-mid: var(--elevation-mid);
 }
 
+:root {
+  /* Type weights and the spacing scale, as the mockup names them */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Sizes */
+  --border-width: 1px;
+  --border-width-strong: 2px;
+  --focus-ring-width: 3px;
+  --size-control-sm: 28px;
+  --size-control-md: 32px;
+  --size-icon-sm: 14px;
+  --size-icon-md: 16px;
+  --size-icon-lg: 20px;
+  --size-avatar: 24px;
+  --size-brand: 28px;
+  --size-dot: 8px;
+  --size-textarea: 88px;
+  --size-thread-max: 78%;
+  --size-note-max: 90%;
+
+  /* Layout */
+  --layout-nav-width: 228px;
+  --layout-queue-width: 344px;
+  --layout-panel-width: 304px;
+  --layout-bottom-nav-height: 56px;
+
+  /* Motion */
+  --duration-fast: 120ms;
+
+  --elevation-low: 0 1px 2px rgba(26, 29, 35, 0.08);
+  --elevation-mid: 0 4px 16px rgba(26, 29, 35, 0.14), 0 1px 3px rgba(26, 29, 35, 0.08);
+
+  /* The chevron a <select> paints; an image cannot read currentColor, so it
+     carries each theme's muted text colour itself. */
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a616d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+}
+
+/* Dark: the same roles, different values. Nothing else changes. */
 .dark {
-  --background: #09090b;
-  --foreground: #fafafa;
+  --color-page: #121417;
+  --color-surface: #1a1d22;
+  --color-surface-raised: #21252b;
+  --color-surface-strong: #2a2f37;
+  --color-border: #333943;
+  --color-border-strong: #4b525e;
+  --color-text: #e8eaee;
+  --color-text-muted: #a2a9b4;
+  --color-text-faint: #767e8a;
+  --color-text-on-accent: #0a1a20;
+  --color-text-on-inverse: #1a1d23;
+  --color-inverse: #e8eaee;
+
+  --color-accent: #58b7d6;
+  --color-accent-hover: #78c7e1;
+  --color-accent-surface: #13303a;
+  --color-accent-border: #22586a;
+
+  --color-success: #62cf8a;
+  --color-success-surface: #12291b;
+  --color-success-border: #215233;
+  --color-warning: #f0b45e;
+  --color-warning-surface: #2e2212;
+  --color-warning-border: #5f461b;
+  --color-critical: #f28282;
+  --color-critical-surface: #321717;
+  --color-critical-border: #632727;
+  --color-info: #88b0f2;
+  --color-info-surface: #16243b;
+  --color-info-border: #2d4a78;
+
+  --color-focus: #58b7d6;
+  --color-focus-ring: #1f4d5c;
+
+  --elevation-low: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elevation-mid: 0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a2a9b4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
   color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-300);
+  line-height: var(--text-300--line-height);
   overscroll-behavior-y: none;
 }
 
@@ -34,12 +196,32 @@ textarea {
   font: inherit;
 }
 
-::selection {
-  background: #18181b;
-  color: white;
+/*
+  The reset above is unlayered, so a text-* or font-* utility on a form control
+  never applies (CLAUDE.md). These classes are unlayered too and come later in
+  the sheet, so they are how a primitive in src/components/ui sizes its own
+  text. They set nothing else; colour and layout stay with utilities.
+*/
+.ui-control-text,
+.ui-control-text-sm {
+  font-weight: var(--font-weight-regular);
 }
 
-.dark ::selection {
-  background: #fafafa;
-  color: #09090b;
+.ui-control-text {
+  font-size: var(--text-300);
+  line-height: var(--text-300--line-height);
+}
+
+.ui-control-text-sm {
+  font-size: var(--text-200);
+  line-height: var(--text-200--line-height);
+}
+
+.ui-button-text {
+  font-weight: var(--font-weight-medium);
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
 }

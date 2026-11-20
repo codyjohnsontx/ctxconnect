@@ -105,7 +105,7 @@ export async function AppShell({ children, user, shellData }: AppShellProps) {
             className="mb-2 flex items-center justify-between rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
           >
             <span className="text-xs font-medium uppercase tracking-wide">Alerts</span>
-            <Badge variant={shellData.counts.command > 0 ? "amber" : "green"}>
+            <Badge variant={shellData.counts.command > 0 ? "warning" : "success"}>
               {shellData.counts.command}
             </Badge>
           </Link>

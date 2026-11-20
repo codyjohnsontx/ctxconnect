@@ -70,7 +70,7 @@ export function QueueStatus({ status }: { status: QueueStatusData }) {
             ? `, newest brief ${formatDistanceToNow(status.lastBriefAt, { addSuffix: true })}`
             : ""}
         </p>
-        <Button onClick={runPass} disabled={isPending} variant="ghost" size="sm" className="shrink-0">
+        <Button onClick={runPass} disabled={isPending} variant="tertiary" size="sm" className="shrink-0">
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           {isPending ? "Running" : "Run pass"}
         </Button>

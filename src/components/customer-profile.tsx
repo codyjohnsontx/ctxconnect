@@ -116,7 +116,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditing(true)}>
+          <Button type="button" variant="tertiary" size="sm" onClick={() => setIsEditing(true)}>
             <UserPen className="h-3.5 w-3.5" />
             Edit details
           </Button>
@@ -206,7 +206,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
         {unnamed ? null : (
           <Button
             type="button"
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             disabled={isPending}
             onClick={() => {
@@ -238,7 +238,7 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
 // the reader's clock, never the server's.
 function ConsentDetail({ consent }: { consent: ConsentDescription }) {
   return (
-    <span className={consent.tone === "red" ? "text-red-700 dark:text-red-400" : undefined}>
+    <span className={consent.tone === "critical" ? "text-red-700 dark:text-red-400" : undefined}>
       {consent.label}
       {consent.since ? (
         <>

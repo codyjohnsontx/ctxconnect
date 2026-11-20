@@ -80,7 +80,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           >
             <div className="mb-4 flex items-center justify-between">
               <Icon className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
-              <Badge variant={Number(metrics[key]) > 0 ? "amber" : "green"}>{Number(metrics[key]) > 0 ? "Review" : "Clear"}</Badge>
+              <Badge variant={Number(metrics[key]) > 0 ? "warning" : "success"}>{Number(metrics[key]) > 0 ? "Review" : "Clear"}</Badge>
             </div>
             <div className="text-3xl font-semibold">{metrics[key]}</div>
             <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{label}</div>
@@ -123,7 +123,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {item.badges.map((badge) => (
-                        <Badge key={badge} variant={badge.includes("Failed") || badge.includes("Urgent") ? "red" : "neutral"}>
+                        <Badge key={badge} variant={badge.includes("Failed") || badge.includes("Urgent") ? "critical" : "neutral"}>
                           {badge}
                         </Badge>
                       ))}
@@ -183,7 +183,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                         {insight.suggestedNextAction} · {formatDistanceToNow(insight.createdAt, { addSuffix: true })}
                       </div>
                     </div>
-                    <Badge variant={insight.riskLevel === "URGENT" ? "red" : "amber"}>{labelize(insight.riskLevel)}</Badge>
+                    <Badge variant={insight.riskLevel === "URGENT" ? "critical" : "warning"}>{labelize(insight.riskLevel)}</Badge>
                   </div>
                 </Link>
               ))
@@ -214,10 +214,10 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {conversation.unread ? <Badge variant="blue">Unread</Badge> : null}
-                      {!conversation.assignedUserId ? <Badge variant="red">Unassigned</Badge> : null}
-                      {conversation.messages.length > 0 ? <Badge variant="red">Failed SMS</Badge> : null}
-                      {conversation.tasks.length > 0 ? <Badge variant="amber">Follow-up</Badge> : null}
+                      {conversation.unread ? <Badge variant="info">Unread</Badge> : null}
+                      {!conversation.assignedUserId ? <Badge variant="critical">Unassigned</Badge> : null}
+                      {conversation.messages.length > 0 ? <Badge variant="critical">Failed SMS</Badge> : null}
+                      {conversation.tasks.length > 0 ? <Badge variant="warning">Follow-up</Badge> : null}
                       {conversation.tags.map(({ tag }) => (
                         <Badge key={tag.id}>{tag.name}</Badge>
                       ))}
@@ -236,7 +236,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold">Alerts</h2>
-              <Badge variant={notificationCount > 0 ? "amber" : "green"}>{notificationCount}</Badge>
+              <Badge variant={notificationCount > 0 ? "warning" : "success"}>{notificationCount}</Badge>
             </div>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               {notificationCount > latestNotifications.length
@@ -260,7 +260,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                         {formatDistanceToNow(notification.createdAt, { addSuffix: true })}
                       </div>
                     </div>
-                    <Badge variant={notification.priority === "URGENT" || notification.priority === "HIGH" ? "red" : "amber"}>
+                    <Badge variant={notification.priority === "URGENT" || notification.priority === "HIGH" ? "critical" : "warning"}>
                       {labelize(notification.type)}
                     </Badge>
                   </div>
@@ -301,13 +301,13 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
                       <td className="px-4 py-3">{employee.assignedConversations}</td>
                       <td className="px-4 py-3">{employee.openFollowUps}</td>
                       <td className="px-4 py-3">
-                        <Badge variant={employee.overdueFollowUps > 0 ? "red" : "green"}>{employee.overdueFollowUps}</Badge>
+                        <Badge variant={employee.overdueFollowUps > 0 ? "critical" : "success"}>{employee.overdueFollowUps}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={employee.failedMessages > 0 ? "red" : "green"}>{employee.failedMessages}</Badge>
+                        <Badge variant={employee.failedMessages > 0 ? "critical" : "success"}>{employee.failedMessages}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={employee.activeNotifications > 0 ? "amber" : "green"}>{employee.activeNotifications}</Badge>
+                        <Badge variant={employee.activeNotifications > 0 ? "warning" : "success"}>{employee.activeNotifications}</Badge>
                       </td>
                     </tr>
                   ))}

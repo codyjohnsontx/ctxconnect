@@ -12,7 +12,7 @@ import { MessageComposer } from "@/components/message-composer";
 import { QueueStatus } from "@/components/queue-status";
 import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { ThreadMessages } from "@/components/thread-messages";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/field";
 import { ConversationStatus, Department, MessageDirection, Priority, TaskStatus } from "@/generated/prisma/client";
@@ -43,12 +43,12 @@ const departments = Object.values(Department);
 const statuses = Object.values(ConversationStatus);
 const priorities = Object.values(Priority);
 
-const statusTone: Record<ConversationStatus, "neutral" | "green" | "amber" | "red" | "blue"> = {
-  OPEN: "blue",
-  WAITING_ON_CUSTOMER: "amber",
-  WAITING_ON_STAFF: "red",
-  FOLLOW_UP_NEEDED: "amber",
-  CLOSED: "green",
+const statusTone: Record<ConversationStatus, BadgeVariant> = {
+  OPEN: "info",
+  WAITING_ON_CUSTOMER: "warning",
+  WAITING_ON_STAFF: "critical",
+  FOLLOW_UP_NEEDED: "warning",
+  CLOSED: "success",
 };
 
 // A previewed message that is not the customer's gets a label in the voice's
@@ -59,11 +59,11 @@ const authorTone: Record<PreviewAuthor, string> = {
   note: "text-amber-700 dark:text-amber-400",
 };
 
-const aiRiskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
-  LOW: "green",
-  NORMAL: "blue",
-  HIGH: "amber",
-  URGENT: "red",
+const aiRiskTone: Record<Priority, BadgeVariant> = {
+  LOW: "success",
+  NORMAL: "info",
+  HIGH: "warning",
+  URGENT: "critical",
 };
 
 type InboxViewProps = InboxData & {
@@ -195,7 +195,7 @@ export function InboxView({
                   : `${conversations.length} conversations, ranked by what the AI flagged`}
               </p>
             </div>
-            <Badge variant="blue">Shared</Badge>
+            <Badge variant="info">Shared</Badge>
           </div>
           {/* Set by a save that moved a thread out of this advisor's reach.
               Without it the save silently swaps her open conversation for a bare
@@ -278,7 +278,7 @@ export function InboxView({
           >
             <ChevronRight className="h-4 w-4 shrink-0 transition-transform" />
             Filters
-            {activeFilterCount > 0 ? <Badge variant="blue">{activeFilterCount} active</Badge> : null}
+            {activeFilterCount > 0 ? <Badge variant="info">{activeFilterCount} active</Badge> : null}
           </label>
           <div id="inbox-filters" className="hidden peer-checked:block lg:block">
             <form key={filterControlsKey} className="grid grid-cols-2 gap-2" action="/inbox">
@@ -484,7 +484,7 @@ export function InboxView({
                         <Badge>Not briefed</Badge>
                       )}
                       {insight?.escalationRecommended && !insight.dismissedAt ? (
-                        <Badge variant={briefIsCurrent ? "red" : "neutral"}>
+                        <Badge variant={briefIsCurrent ? "critical" : "neutral"}>
                           {briefIsCurrent ? "Escalate" : "Escalate · earlier brief"}
                         </Badge>
                       ) : null}
@@ -496,13 +496,13 @@ export function InboxView({
                           AI's opinion must not erase the human's. */}
                       {(!insight || insight.dismissedAt) &&
                       (conversation.priority === Priority.HIGH || conversation.priority === Priority.URGENT) ? (
-                        <Badge variant="red">
+                        <Badge variant="critical">
                           <AlertTriangle className="mr-1 h-3 w-3" />
                           {labelize(conversation.priority)}
                         </Badge>
                       ) : null}
                       {hasOpenTask ? (
-                        <Badge variant="amber">
+                        <Badge variant="warning">
                           <Clock3 className="mr-1 h-3 w-3" />
                           Follow-up
                         </Badge>
@@ -758,7 +758,7 @@ export function InboxView({
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{followUp.title}</span>
-                          {followUp.isOverdue ? <Badge variant="red">Overdue</Badge> : null}
+                          {followUp.isOverdue ? <Badge variant="critical">Overdue</Badge> : null}
                         </div>
                         <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                           <span

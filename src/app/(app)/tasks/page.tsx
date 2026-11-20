@@ -53,11 +53,11 @@ function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-semibold">{task.title}</h2>
-            <Badge variant={task.priority === "URGENT" || task.priority === "HIGH" ? "red" : "neutral"}>
+            <Badge variant={task.priority === "URGENT" || task.priority === "HIGH" ? "critical" : "neutral"}>
               {labelize(task.priority)}
             </Badge>
             <Badge>{labelize(task.status)}</Badge>
-            {isOverdue ? <Badge variant="red">Overdue</Badge> : null}
+            {isOverdue ? <Badge variant="critical">Overdue</Badge> : null}
           </div>
           <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             {task.customer.name} · {labelize(task.department)} ·{" "}

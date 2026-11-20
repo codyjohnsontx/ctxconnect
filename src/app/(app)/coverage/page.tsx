@@ -98,15 +98,15 @@ function CoverageCard({
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
             <Badge>{labelize(row.role)}</Badge>
             {row.department ? <Badge>{labelize(row.department)}</Badge> : null}
-            {row.active ? null : <Badge variant="red">Inactive</Badge>}
+            {row.active ? null : <Badge variant="critical">Inactive</Badge>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={row.coveredBy ? "amber" : "neutral"}>
+          <Badge variant={row.coveredBy ? "warning" : "neutral"}>
             {row.coveredBy ? "Covered" : `${row.openConversations} open`}
           </Badge>
           {row.coveredBy && offCoverage > 0 ? (
-            <Badge variant={row.active ? "neutral" : "red"}>{offCoverage} open</Badge>
+            <Badge variant={row.active ? "neutral" : "critical"}>{offCoverage} open</Badge>
           ) : null}
         </div>
       </div>

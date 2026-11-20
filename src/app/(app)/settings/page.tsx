@@ -53,7 +53,7 @@ export default async function SettingsPage() {
                     Admins can create staff accounts, change access, and reset passwords.
                   </p>
                 </div>
-                <Badge variant={admin ? "blue" : "neutral"}>{admin ? "Admin controls enabled" : "Read only"}</Badge>
+                <Badge variant={admin ? "info" : "neutral"}>{admin ? "Admin controls enabled" : "Read only"}</Badge>
               </div>
             </div>
 
@@ -106,7 +106,7 @@ export default async function SettingsPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <div className="font-medium">{user.name}</div>
-                        <Badge variant={user.active ? "green" : "red"}>{user.active ? "Active" : "Inactive"}</Badge>
+                        <Badge variant={user.active ? "success" : "critical"}>{user.active ? "Active" : "Inactive"}</Badge>
                       </div>
                       <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
                       {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
@@ -353,7 +353,7 @@ function HealthCard({
     <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex items-center justify-between gap-3">
         <div className="font-medium">{label}</div>
-        <Badge variant={status === "healthy" ? "green" : "red"}>{status === "healthy" ? "Healthy" : "Needs setup"}</Badge>
+        <Badge variant={status === "healthy" ? "success" : "critical"}>{status === "healthy" ? "Healthy" : "Needs setup"}</Badge>
       </div>
       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{detail}</p>
     </div>

@@ -11,7 +11,7 @@ import {
   ThumbsDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Department, Priority } from "@/generated/prisma/client";
 import { findMatchingFollowUp } from "@/lib/follow-ups";
@@ -64,11 +64,11 @@ type AiOpsBriefProps = {
   briefIsCurrent?: boolean;
 };
 
-const riskTone: Record<Priority, "neutral" | "green" | "amber" | "red" | "blue"> = {
-  LOW: "green",
+const riskTone: Record<Priority, BadgeVariant> = {
+  LOW: "success",
   NORMAL: "neutral",
-  HIGH: "amber",
-  URGENT: "red",
+  HIGH: "warning",
+  URGENT: "critical",
 };
 
 function riskReasons(value: unknown) {
@@ -333,7 +333,7 @@ export function AiOpsBrief({
               <Check className="h-3.5 w-3.5" />
               Accept
             </Button>
-            <Button onClick={dismiss} disabled={isPending || Boolean(insight.dismissedAt)} variant="ghost" size="sm">
+            <Button onClick={dismiss} disabled={isPending || Boolean(insight.dismissedAt)} variant="tertiary" size="sm">
               <ThumbsDown className="h-3.5 w-3.5" />
               Dismiss
             </Button>
@@ -371,7 +371,7 @@ export function AiOpsBrief({
             )}
           </div>
 
-          <Button onClick={generateBrief} disabled={isPending} variant="ghost" size="sm" className="w-full">
+          <Button onClick={generateBrief} disabled={isPending} variant="tertiary" size="sm" className="w-full">
             {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             Generate new brief
           </Button>
