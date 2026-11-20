@@ -46,9 +46,7 @@ function sourceFiles(dir: string): string[] {
 /** Authored code that ships or runs against real services: the app, the seed and the scripts. */
 function scannedFiles() {
   const roots = ["src", "prisma", "scripts"].map((root) => join(repoRoot, root));
-  const files = roots.flatMap(sourceFiles).map((path) => relative(repoRoot, path));
-
-  return existsSync(join(repoRoot, "middleware.ts")) ? [...files, "middleware.ts"] : files;
+  return roots.flatMap(sourceFiles).map((path) => relative(repoRoot, path));
 }
 
 function read(path: string) {

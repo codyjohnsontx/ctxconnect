@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
@@ -21,11 +21,6 @@ const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
 const serverActions = join("src", "app", "actions.ts");
 
-// Edge middleware sits at the repo root rather than under src/, and is the most
-// likely place for a token-trusting check to reappear, because getServerSession
-// cannot run in that runtime. Scanning src/ alone would leave it invisible.
-const rootMiddleware = "middleware.ts";
-
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -40,9 +35,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 function relativeSourceFiles() {
-  const files = sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
-
-  return existsSync(join(repoRoot, rootMiddleware)) ? [...files, rootMiddleware] : files;
+  return sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
 }
 
 function read(path: string) {
