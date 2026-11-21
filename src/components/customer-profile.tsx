@@ -4,6 +4,7 @@ import { type ReactNode, useState, useTransition } from "react";
 import { Check, Loader2, UserPen } from "lucide-react";
 import { updateCustomerProfile } from "@/app/actions";
 import { LocalTimestamp } from "@/components/local-timestamp";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/field";
 import type { ConsentDescription } from "@/lib/consent";
@@ -104,14 +105,14 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
 
   if (!isEditing) {
     return (
-      <div className="space-y-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+      <div className="space-y-3 rounded-md border border-border p-3">
         <Detail label="Phone" value={formatPhone(customer.phone)} />
         <Detail label="Email" value={customer.email ?? "No email"} />
         <Detail label="Preferred contact" value={preferredContactLabel(customer.preferredContactMethod)} />
         <Detail label="SMS consent" value={<ConsentDetail consent={consent} />} />
         <div>
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">Notes</div>
-          <div className="whitespace-pre-wrap break-words leading-5 text-zinc-700 dark:text-zinc-300">
+          <div className="text-200 text-text-muted">Notes</div>
+          <div className="whitespace-pre-wrap break-words">
             {customer.notes ?? "No notes yet."}
           </div>
         </div>
@@ -121,7 +122,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
             Edit details
           </Button>
           {justSaved ? (
-            <span className="flex items-center gap-1.5 text-xs leading-5 text-green-700 dark:text-green-400">
+            <span className="flex items-center gap-1 text-200 text-success">
               <Check className="h-3 w-3 shrink-0" />
               Saved.
             </span>
@@ -133,7 +134,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
 
   return (
     <form
-      className="space-y-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800"
+      className="space-y-3 rounded-md border border-border p-3"
       onSubmit={(event) => {
         event.preventDefault();
         if (!isPending) {
@@ -142,9 +143,9 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
       }}
     >
       {unnamed ? (
-        <p className="rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <Alert variant="warning" inline>
           {UNNAMED_CUSTOMER_PROMPT}
-        </p>
+        </Alert>
       ) : null}
 
       <div className="space-y-1.5">
@@ -220,7 +221,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
         )}
       </div>
 
-      {error ? <p className="text-xs leading-5 text-red-600 dark:text-red-400">{error}</p> : null}
+      {error ? <p className="text-200 text-critical">{error}</p> : null}
     </form>
   );
 }
@@ -228,7 +229,7 @@ export function CustomerProfile({ customer, consent }: CustomerProfileProps) {
 function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
+      <div className="text-200 text-text-muted">{label}</div>
       <div className="break-words">{value}</div>
     </div>
   );
@@ -238,7 +239,7 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
 // the reader's clock, never the server's.
 function ConsentDetail({ consent }: { consent: ConsentDescription }) {
   return (
-    <span className={consent.tone === "critical" ? "text-red-700 dark:text-red-400" : undefined}>
+    <span className={consent.tone === "critical" ? "text-critical" : undefined}>
       {consent.label}
       {consent.since ? (
         <>

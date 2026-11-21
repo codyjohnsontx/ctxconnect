@@ -7,9 +7,11 @@ import {
   updateStaffUserStatus,
 } from "@/app/actions";
 import { LocalTimestamp } from "@/components/local-timestamp";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
+import { SectionHeader } from "@/components/ui/section-header";
 import { Department, Role } from "@/generated/prisma/client";
 import { describeThreadsOffCoverage, threadsOffCoverage } from "@/lib/coverage";
 import { getSettingsData } from "@/lib/data";
@@ -23,6 +25,13 @@ export const dynamic = "force-dynamic";
 const roles = Object.values(Role);
 const departments = Object.values(Department);
 
+// Every block on the page is one bordered card with a header rule, as the
+// Command Center lays its sections out.
+const cardClass = "rounded-md border border-border bg-surface";
+const cardHeaderClass = "border-b border-border px-4 py-2";
+// The one link style for leaving a sentence, as the inbox spells it.
+const linkClass = "font-medium text-accent underline-offset-2 hover:underline";
+
 export default async function SettingsPage() {
   const user = await requireUser();
 
@@ -34,31 +43,22 @@ export default async function SettingsPage() {
   const admin = isAdmin(user);
 
   return (
-    <div className="p-5 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Operations readiness for staff accounts, integration health, and dealership defaults.
-        </p>
-      </div>
+    <div className="p-4 lg:p-6">
+      <h1 className="mb-4 text-600 font-semibold tracking-tight">Settings</h1>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
         <div className="space-y-4">
-          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Staff account management</h2>
-                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    Admins can create staff accounts, change access, and reset passwords.
-                  </p>
-                </div>
-                <Badge variant={admin ? "info" : "neutral"}>{admin ? "Admin controls enabled" : "Read only"}</Badge>
-              </div>
+          <section className={cardClass}>
+            <div className={cardHeaderClass}>
+              <SectionHeader
+                as="h2"
+                title="Staff account management"
+                trailing={<Badge>{admin ? "Admin controls enabled" : "Read only"}</Badge>}
+              />
             </div>
 
             {admin ? (
-              <form action={createStaffUser} className="grid gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:grid-cols-2">
+              <form action={createStaffUser} className="grid gap-3 border-b border-border p-4 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name</Label>
                   <Input id="name" name="name" required />
@@ -99,16 +99,20 @@ export default async function SettingsPage() {
               </form>
             ) : null}
 
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <div className="divide-y divide-border">
               {users.map((user) => (
                 <div key={user.id} className="p-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <div className="font-medium">{user.name}</div>
                         <Badge variant={user.active ? "success" : "critical"}>{user.active ? "Active" : "Inactive"}</Badge>
+                        <Badge>{labelize(user.role)}</Badge>
+                        {user.department && labelize(user.department) !== labelize(user.role) ? (
+                          <Badge>{labelize(user.department)}</Badge>
+                        ) : null}
                       </div>
-                      <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
+                      <div className="mt-1 text-200 text-text-muted">{user.email}</div>
                       {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}
                       <OpenConversations
                         id={user.id}
@@ -117,10 +121,6 @@ export default async function SettingsPage() {
                         coveredThreads={user.coveredThreads}
                         coveredBy={user.coveredBy}
                       />
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Badge>{labelize(user.role)}</Badge>
-                        {user.department ? <Badge>{labelize(user.department)}</Badge> : null}
-                      </div>
                     </div>
 
                     {admin ? (
@@ -134,7 +134,7 @@ export default async function SettingsPage() {
                         </form>
                         <form action={resetStaffPassword} className="flex gap-2">
                           <input type="hidden" name="userId" value={user.id} />
-                          <div className="w-full space-y-1.5">
+                          <div className="w-full">
                             <Label htmlFor={`reset-password-${user.id}`} className="sr-only">
                               New password for {user.name}
                             </Label>
@@ -159,12 +159,9 @@ export default async function SettingsPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-              <h2 className="font-semibold">Dealership identity defaults</h2>
-              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Values used in templates and operator messaging context.
-              </p>
+          <section className={cardClass}>
+            <div className={cardHeaderClass}>
+              <SectionHeader as="h2" title="Dealership identity defaults" />
             </div>
 
             {admin ? (
@@ -194,21 +191,25 @@ export default async function SettingsPage() {
                 </div>
               </form>
             ) : (
-              <div className="grid gap-3 p-4 md:grid-cols-2">
+              // Read-only: the same facts as a key/value list, the way the
+              // thread panel prints a customer's details.
+              <dl className="grid gap-x-4 gap-y-1 p-4 sm:grid-cols-[auto_minmax(0,1fr)]">
                 <ReadField label="Dealership name" value={dealershipSettings.dealershipName ?? "Not set"} />
                 <ReadField label="Sales phone" value={dealershipSettings.salesPhone ?? "Not set"} />
                 <ReadField label="Service phone" value={dealershipSettings.servicePhone ?? "Not set"} />
                 <ReadField label="Parts phone" value={dealershipSettings.partsPhone ?? "Not set"} />
                 <ReadField label="Website URL" value={dealershipSettings.websiteUrl ?? "Not set"} />
-              </div>
+              </dl>
             )}
           </section>
         </div>
 
         <div className="space-y-4">
-          <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="font-semibold">Integration health</h2>
-            <div className="mt-4 space-y-3">
+          <section className={cardClass}>
+            <div className={cardHeaderClass}>
+              <SectionHeader as="h2" title="Integration health" />
+            </div>
+            <div className="space-y-3 p-4">
               <HealthCard
                 label="Database"
                 status={health.database.status}
@@ -217,19 +218,21 @@ export default async function SettingsPage() {
               <HealthCard label="Auth.js credentials" status={health.auth.status} detail={health.auth.detail} />
               <HealthCard label="Twilio" status={health.twilio.status} detail={health.twilio.detail} />
               {health.twilio.latestFailure ? (
-                <div className="rounded-md bg-zinc-50 p-3 text-sm text-zinc-600 dark:bg-zinc-950 dark:text-zinc-300">
+                <Alert variant="critical" inline>
                   Latest delivery issue: {health.twilio.latestFailure}
-                </div>
+                </Alert>
               ) : null}
               <HealthCard label="Public app URL" status={health.app.status} detail={health.app.detail} />
             </div>
           </section>
 
-          <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="font-semibold">Required environment</h2>
-            <div className="mt-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
+          <section className={cardClass}>
+            <div className={cardHeaderClass}>
+              <SectionHeader as="h2" title="Required environment" />
+            </div>
+            <div className="space-y-1 p-4">
               {getRequiredEnvironmentNames().map((name) => (
-                <div key={name} className="rounded bg-zinc-50 px-3 py-2 font-mono text-xs dark:bg-zinc-950">
+                <div key={name} className="rounded-sm bg-surface-raised px-2 py-1 font-mono text-200 text-text-muted">
                   {name}
                 </div>
               ))}
@@ -268,17 +271,10 @@ function OpenConversations({
     const stillOnTheAccount = describeThreadsOffCoverage(offCoverage, active, false);
 
     return (
-      <p
-        className={cn(
-          "mt-2 text-sm",
-          stillOnTheAccount && !active
-            ? "text-amber-700 dark:text-amber-500"
-            : "text-zinc-500 dark:text-zinc-400",
-        )}
-      >
+      <p className={cn("mt-2 text-200", stillOnTheAccount && !active ? "text-warning" : "text-text-muted")}>
         Conversations covered by {coveredBy.name}.
         {stillOnTheAccount ? ` ${stillOnTheAccount}` : ""}{" "}
-        <Link href="/coverage" className="underline underline-offset-2">
+        <Link href="/coverage" className={linkClass}>
           Coverage
         </Link>
       </p>
@@ -292,17 +288,12 @@ function OpenConversations({
   const stranded = !active;
 
   return (
-    <p
-      className={cn(
-        "mt-2 text-sm",
-        stranded ? "text-amber-700 dark:text-amber-500" : "text-zinc-500 dark:text-zinc-400",
-      )}
-    >
+    <p className={cn("mt-2 text-200", stranded ? "text-warning" : "text-text-muted")}>
       {openConversations} open {openConversations === 1 ? "conversation" : "conversations"}
       {stranded
         ? `, and nobody is reading ${openConversations === 1 ? "it" : "them"}.`
         : "."}{" "}
-      <Link href="/coverage" className="underline underline-offset-2">
+      <Link href="/coverage" className={linkClass}>
         {stranded ? "Arrange cover" : "Coverage"}
       </Link>
     </p>
@@ -321,18 +312,18 @@ function OpenConversations({
  */
 function AccessRecord({ accessEndedAt, lastSeenAt }: { accessEndedAt: Date | null; lastSeenAt: Date | null }) {
   return (
-    <dl className="mt-2 space-y-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+    <dl className="mt-2 space-y-0.5 text-200 text-text-muted">
       <div className="flex flex-wrap gap-x-1.5">
         <dt>Access ended</dt>
         {/* Null for accounts switched off before the cutoff was recorded. */}
-        <dd className="text-zinc-700 dark:text-zinc-300">
+        <dd className="text-text">
           {accessEndedAt ? <LocalTimestamp value={accessEndedAt} /> : "Not recorded"}
         </dd>
       </div>
       <div className="flex flex-wrap gap-x-1.5">
         <dt>Last granted request</dt>
         {/* Refused requests are not recorded, so "none" means none were let through. */}
-        <dd className="text-zinc-700 dark:text-zinc-300">
+        <dd className="text-text">
           {lastSeenAt ? <LocalTimestamp value={lastSeenAt} /> : "None granted"}
         </dd>
       </div>
@@ -350,21 +341,21 @@ function HealthCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+    <div className="rounded-md border border-border p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="font-medium">{label}</div>
         <Badge variant={status === "healthy" ? "success" : "critical"}>{status === "healthy" ? "Healthy" : "Needs setup"}</Badge>
       </div>
-      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{detail}</p>
+      <p className="mt-1 text-200 text-text-muted">{detail}</p>
     </div>
   );
 }
 
 function ReadField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">{value}</div>
-    </div>
+    <>
+      <dt className="text-text-muted sm:whitespace-nowrap">{label}</dt>
+      <dd className="min-w-0 break-words max-sm:mb-2">{value}</dd>
+    </>
   );
 }

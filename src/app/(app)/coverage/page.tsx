@@ -3,6 +3,7 @@ import { LocalTimestamp } from "@/components/local-timestamp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/field";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   canCover,
   canHandOffPermanently,
@@ -15,7 +16,7 @@ import {
 import { getCoverageBoard, type AppUser, type CoverageRow } from "@/lib/data";
 import { isManagerOrAdmin } from "@/lib/permissions";
 import { requireUser } from "@/lib/session";
-import { cn, labelize } from "@/lib/utils";
+import { labelize } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -36,26 +37,25 @@ export default async function CoveragePage() {
   const floor = board.filter((row) => row.id !== user.id);
 
   return (
-    <div className="p-5 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Coverage</h1>
-        <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+    <div className="p-4 lg:p-6">
+      <h1 className="mb-4 text-600 font-semibold tracking-tight">Coverage</h1>
+
+      <div className="max-w-3xl space-y-4">
+        {/* What the page does, in the body rather than under the title: the
+            last sentence is the one nobody would guess from the controls. */}
+        <p className="text-text-muted">
           Open conversations follow the person reading them. Hand yours to an active colleague
           before you go, and take back the quiet ones when you return. Customers are not told -
           this is an internal hand-off.
         </p>
-      </div>
 
-      <div className="max-w-3xl space-y-4">
         {mine ? (
           <CoverageCard row={mine} user={user} board={board} heading="Your conversations" mine />
         ) : null}
 
         {isManagerOrAdmin(user) ? (
-          <section>
-            <h2 className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              The floor
-            </h2>
+          <section className="space-y-2">
+            <SectionHeader as="h2" title="The floor" trailing={floor.length} />
             <div className="space-y-4">
               {floor.map((row) => (
                 <CoverageCard key={row.id} row={row} user={user} board={board} heading={row.name} />
@@ -91,17 +91,22 @@ function CoverageCard({
   const offCoverage = threadsOffCoverage(row.id, row.openConversations, row.coveredThreads);
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800">
-        <div>
+    // One card per person: the name with its labels on the header rule, the
+    // count of what they hold at the other end, and the state and controls
+    // in the body.
+    <section className="rounded-md border border-border bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h2 className="font-semibold">{heading}</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-            <Badge>{labelize(row.role)}</Badge>
-            {row.department ? <Badge>{labelize(row.department)}</Badge> : null}
-            {row.active ? null : <Badge variant="critical">Inactive</Badge>}
-          </div>
+          <Badge>{labelize(row.role)}</Badge>
+          {/* An advisor's department is her role by another name; one word is
+              enough, and a manager in Sales still gets both. */}
+          {row.department && labelize(row.department) !== labelize(row.role) ? (
+            <Badge>{labelize(row.department)}</Badge>
+          ) : null}
+          {row.active ? null : <Badge variant="critical">Inactive</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           <Badge variant={row.coveredBy ? "warning" : "neutral"}>
             {row.coveredBy ? "Covered" : `${row.openConversations} open`}
           </Badge>
@@ -111,11 +116,11 @@ function CoverageCard({
         </div>
       </div>
 
-      <div className="space-y-4 p-4">
+      <div className="space-y-3 p-4">
         {row.coveredBy ? (
           <CoveredState row={row} mine={mine} offCoverage={offCoverage} />
         ) : (
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+          <p>
             {mine ? "You are" : `${row.name} is`} holding {row.openConversations} open{" "}
             {row.openConversations === 1 ? "conversation" : "conversations"}.
             {row.active || row.openConversations === 0
@@ -127,7 +132,7 @@ function CoverageCard({
         )}
 
         {row.covering.length > 0 ? (
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+          <p>
             Currently covering for {row.covering.map((away) => away.name).join(", ")}.
           </p>
         ) : null}
@@ -163,7 +168,7 @@ function CoveredState({
 
   return (
     <>
-      <p className="text-sm text-zinc-600 dark:text-zinc-300">
+      <p>
         {describeCoveredThreads(row, cover, row.coveredThreads, mine)}
         {row.coveredSince ? (
           <>
@@ -173,16 +178,7 @@ function CoveredState({
         ) : null}
       </p>
       {stillOnTheAccount ? (
-        <p
-          className={cn(
-            "text-sm",
-            row.active
-              ? "text-zinc-600 dark:text-zinc-300"
-              : "text-amber-700 dark:text-amber-500",
-          )}
-        >
-          {stillOnTheAccount}
-        </p>
+        <p className={row.active ? "text-text-muted" : "text-warning"}>{stillOnTheAccount}</p>
       ) : null}
     </>
   );
@@ -201,7 +197,7 @@ function StartCoverageForm({
 }) {
   if (covers.length === 0) {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="text-text-muted">
         Nobody is available to cover. Every other staff account is switched off or away itself.
       </p>
     );
@@ -294,7 +290,7 @@ function EndCoverageForm({ row, user, mine }: { row: CoverageRow; user: AppUser;
           </form>
         ) : null}
       </div>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">{sentences.join(" ")}</p>
+      <p className="text-200 text-text-muted">{sentences.join(" ")}</p>
     </div>
   );
 }

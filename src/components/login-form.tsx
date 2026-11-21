@@ -139,16 +139,16 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
         <Label htmlFor="password">Password</Label>
         <Input id="password" name="password" type="password" required />
       </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="text-200 text-critical">{error}</p> : null}
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? "Signing in..." : "Sign in"}
       </Button>
       {demoEnabled ? (
         <>
-          <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          <div className="flex items-center gap-3 text-200 text-text-faint">
+            <span className="h-px flex-1 bg-border" />
             or
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+            <span className="h-px flex-1 bg-border" />
           </div>
           <Button
             type="button"
@@ -159,7 +159,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
           >
             {demoLoading ? "Opening demo..." : "View demo"}
           </Button>
-          <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+          <p className="text-200 text-text-muted">
             Signs you in as a service advisor and opens her ranked inbox. Seeded data; no account needed.
           </p>
           {turnstileActive ? (
