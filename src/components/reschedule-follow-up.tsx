@@ -88,7 +88,7 @@ export function RescheduleFollowUp({ taskId, dueAt }: RescheduleFollowUpProps) {
 
   return (
     <form
-      className="w-full space-y-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800"
+      className="w-full space-y-2 rounded-md border border-border p-3"
       onSubmit={(event) => {
         event.preventDefault();
         if (!isPending) {
@@ -149,7 +149,7 @@ export function RescheduleFollowUp({ taskId, dueAt }: RescheduleFollowUpProps) {
           Cancel
         </Button>
       </div>
-      {error ? <p className="text-xs leading-5 text-red-600 dark:text-red-400">{error}</p> : null}
+      {error ? <p className="text-200 text-critical">{error}</p> : null}
     </form>
   );
 }

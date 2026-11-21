@@ -5,6 +5,7 @@ import { RescheduleFollowUp } from "@/components/reschedule-follow-up";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
+import { SectionHeader } from "@/components/ui/section-header";
 import { TaskStatus } from "@/generated/prisma/client";
 import { getTasks } from "@/lib/data";
 import { requireUser } from "@/lib/session";
@@ -38,36 +39,42 @@ function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
   const isOverdue = taskIsOverdue(task, now);
 
   return (
+    // The same card as the thread panel's follow-up: a hairline, the title with
+    // its badges, one muted line, and the controls. Overdue says so in its own
+    // words rather than tinting the whole card.
     <div
       className={cn(
-        "relative rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900",
-        task.conversationId && "transition hover:bg-zinc-50 dark:hover:bg-zinc-800",
+        "relative rounded-md border border-border bg-surface p-3",
+        task.conversationId && "transition-colors hover:bg-surface-raised",
       )}
     >
       {task.conversationId ? (
-        <Link href={`/inbox/${task.conversationId}?from=tasks`} className="absolute inset-0 rounded-lg">
+        <Link
+          href={`/inbox/${task.conversationId}?from=tasks`}
+          className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus-ring"
+        >
           <span className="sr-only">Open conversation for {task.title} ({task.customer.name})</span>
         </Link>
       ) : null}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-semibold">{task.title}</h2>
+            <h2 className="font-medium">{task.title}</h2>
             <Badge variant={task.priority === "URGENT" || task.priority === "HIGH" ? "critical" : "neutral"}>
               {labelize(task.priority)}
             </Badge>
             <Badge>{labelize(task.status)}</Badge>
             {isOverdue ? <Badge variant="critical">Overdue</Badge> : null}
           </div>
-          <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <div className="mt-1 text-200 text-text-muted">
             {task.customer.name} · {labelize(task.department)} ·{" "}
-            <span className={isOverdue ? "font-medium text-red-600 dark:text-red-400" : undefined}>
+            <span className={isOverdue ? "font-medium text-critical" : undefined}>
               due {formatDistanceToNow(task.dueDate, { addSuffix: true })}
             </span>
           </div>
-          {task.description ? <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{task.description}</p> : null}
+          {task.description ? <p className="mt-2 text-text-muted">{task.description}</p> : null}
         </div>
-        <div className="relative z-10 flex flex-wrap items-start gap-2 md:justify-end">
+        <div className="relative z-10 flex flex-wrap items-center gap-2 md:justify-end">
           <form action={updateTaskStatus} className="flex gap-2">
             <input type="hidden" name="taskId" value={task.id} />
             <Select name="status" defaultValue={task.status} className="w-36">
@@ -92,8 +99,8 @@ function TaskCard({ task, now }: { task: TaskListItem; now: number }) {
   );
 }
 
-const emptyStateClass =
-  "rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400";
+// The dashed card the mockup uses for a section with nothing in it.
+const emptyStateClass = "rounded-md border border-dashed border-border bg-surface p-6 text-text-muted";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | undefined>>;
@@ -128,13 +135,13 @@ export default async function TasksPage({ searchParams }: PageProps) {
   const filtered = activeStatus ? tasksByStatus.get(activeStatus) ?? [] : tasks;
 
   return (
-    <div className="p-5 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Follow-ups connected to customers and conversations.</p>
-      </div>
+    <div className="p-4 lg:p-6">
+      <h1 className="mb-4 text-600 font-semibold tracking-tight">Tasks</h1>
 
-      <div className="mb-6 flex flex-wrap gap-1.5">
+      {/* The status views are tabs on one rule: the active one carries the accent
+          under it and its count rides along as a plain pill. On a phone the row
+          scrolls sideways rather than wrapping onto a second rule. */}
+      <nav aria-label="Filter by status" className="mb-4 flex gap-4 overflow-x-auto border-b border-border">
         {tabs.map((tab) => {
           const active = tab.key === activeStatus;
           return (
@@ -143,39 +150,35 @@ export default async function TasksPage({ searchParams }: PageProps) {
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
-                active
-                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                "-mb-px inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap border-b-2 px-1 font-medium transition-colors focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus-ring",
+                active ? "border-accent text-text" : "border-transparent text-text-muted hover:text-text",
               )}
             >
               {tab.label}
-              <span className={cn("text-xs", active ? "opacity-80" : "opacity-60")}>{tab.count}</span>
+              <Badge count>{tab.count}</Badge>
             </Link>
           );
         })}
-      </div>
+      </nav>
 
       {tasks.length === 0 ? (
-        <div className={emptyStateClass}>No tasks yet.</div>
+        <p className={emptyStateClass}>No tasks yet.</p>
       ) : activeStatus ? (
         filtered.length === 0 ? (
-          <div className={emptyStateClass}>No {labelize(activeStatus).toLowerCase()} tasks.</div>
+          <p className={emptyStateClass}>No {labelize(activeStatus).toLowerCase()} tasks.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {filtered.map((task) => (
               <TaskCard key={task.id} task={task} now={now} />
             ))}
           </div>
         )
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {STATUS_ORDER.filter((status) => countByStatus[status] > 0).map((status) => (
-            <section key={status}>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                {labelize(status)} <span className="ml-1 opacity-70">{countByStatus[status]}</span>
-              </h2>
-              <div className="space-y-3">
+            <section key={status} className="space-y-2">
+              <SectionHeader as="h2" title={labelize(status)} trailing={countByStatus[status]} />
+              <div className="space-y-2">
                 {(tasksByStatus.get(status) ?? []).map((task) => (
                   <TaskCard key={task.id} task={task} now={now} />
                 ))}
