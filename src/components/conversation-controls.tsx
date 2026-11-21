@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ArrowRightLeft, Check, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { updateConversation } from "@/app/actions";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/field";
 import { ConversationStatus, Department, Priority } from "@/generated/prisma/enums";
@@ -179,21 +180,18 @@ export function ConversationControls({
       </div>
 
       {isDirty && losesAccess ? (
-        <p className="flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          <ArrowRightLeft className="mt-0.5 h-3 w-3 shrink-0" />
-          <span>
-            {handOffReason(draft, saved) === "department"
-              ? `Saving hands this conversation to ${labelize(draft.department)}.`
-              : "Saving takes this conversation off you."}{" "}
-            It leaves your inbox and you will not be able to open it again.
-          </span>
-        </p>
+        <Alert variant="warning" inline>
+          {handOffReason(draft, saved) === "department"
+            ? `Saving hands this conversation to ${labelize(draft.department)}.`
+            : "Saving takes this conversation off you."}{" "}
+          It leaves your inbox and you will not be able to open it again.
+        </Alert>
       ) : null}
 
       <Button type="submit" variant="secondary" className="w-full" disabled={!isDirty || isPending}>
         {isPending ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Saving
           </>
         ) : (
@@ -202,16 +200,14 @@ export function ConversationControls({
       </Button>
 
       {error ? (
-        <p className="text-xs leading-5 text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-200 text-critical">{error}</p>
       ) : savedAt && !isDirty ? (
-        <p className="flex items-center gap-1.5 text-xs leading-5 text-green-700 dark:text-green-400">
+        <p className="flex items-center gap-1 text-200 text-success">
           <Check className="h-3 w-3 shrink-0" />
           Saved.
         </p>
       ) : !isDirty ? (
-        <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-          Everything here is saved.
-        </p>
+        <p className="text-200 text-text-muted">Everything here is saved.</p>
       ) : null}
     </form>
   );

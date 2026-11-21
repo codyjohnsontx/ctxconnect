@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
+import { Alert } from "@/components/ui/alert";
 import { getActiveSessionUser, INACTIVE_ACCOUNT_REASON, PASSWORD_CHANGED_REASON } from "@/lib/session";
 
 export default async function LoginPage({
@@ -38,50 +39,34 @@ export default async function LoginPage({
       : null;
 
   return (
-    <main className="grid min-h-dvh bg-zinc-950 text-white lg:grid-cols-[1fr_460px]">
-      <section className="hidden min-h-dvh flex-col justify-between border-r border-white/10 p-10 lg:flex">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-lg font-semibold text-zinc-950">
-            A
-          </div>
-          <div>
-            <div className="text-sm font-semibold">Attend</div>
-            <div className="text-xs text-zinc-400">Single-store dealership communication</div>
-          </div>
-        </div>
+    <main className="grid min-h-dvh bg-page text-text lg:grid-cols-[1fr_460px]">
+      {/* The pitch sits on the raised surface the side nav uses, so the two
+          columns read as one tool rather than a poster beside a form. */}
+      <section className="hidden min-h-dvh flex-col justify-between gap-8 border-r border-border bg-surface-raised p-8 lg:flex">
+        <Brand />
         <div className="max-w-xl">
-          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-500">For the service advisor</p>
-          <h1 className="text-5xl font-semibold tracking-tight">
+          <h1 className="text-700 font-semibold tracking-tight">
             Attend reads every conversation a service advisor has and tells her what to do next.
           </h1>
-          <p className="mt-6 max-w-lg text-base leading-7 text-zinc-300">
+          <p className="mt-3 max-w-lg text-400 text-text-muted">
             Every thread arrives already read, ranked by risk, with the next action on it. The rest
             of the store works the same threads, so nothing has to be handed over twice.
           </p>
         </div>
         <div />
       </section>
-      <section className="flex min-h-dvh items-center justify-center bg-zinc-50 p-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
+      <section className="flex min-h-dvh items-center justify-center p-4">
         <div className="w-full max-w-sm">
-          <div className="mb-8 lg:hidden">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zinc-950 text-lg font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950">
-              A
-            </div>
-            <h1 className="text-3xl font-semibold tracking-tight">Attend</h1>
-            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Dealership communication workspace</p>
+          <div className="mb-6 lg:hidden">
+            <Brand nameAs="h1" />
           </div>
           {notice ? (
-            <p className="mb-4 rounded-lg border border-zinc-200 bg-zinc-100 p-3 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+            <Alert variant="info" className="mb-4">
               {notice}
-            </p>
+            </Alert>
           ) : null}
-          <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="text-xl font-semibold">Sign in</h2>
-            <p className="mb-6 mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              {demoEnabled
-                ? "Sign in with your staff account, or take a look around with the demo."
-                : "Sign in with your staff account."}
-            </p>
+          <div className="rounded-md border border-border bg-surface p-5">
+            <h2 className="mb-4 text-500 font-semibold tracking-tight">Sign in</h2>
             <Suspense>
               <LoginForm
                 demoEnabled={demoEnabled}
@@ -89,17 +74,29 @@ export default async function LoginPage({
               />
             </Suspense>
           </div>
-          <div className="mt-4 flex items-center justify-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
-            <Link href="/privacy-policy" className="hover:text-zinc-900 hover:underline dark:hover:text-zinc-100">
+          <div className="mt-4 flex items-center justify-center gap-3 text-200 text-text-muted">
+            <Link href="/privacy-policy" className="hover:text-text hover:underline">
               Privacy Policy
             </Link>
-            <span>•</span>
-            <Link href="/terms-and-conditions" className="hover:text-zinc-900 hover:underline dark:hover:text-zinc-100">
+            <span aria-hidden="true">·</span>
+            <Link href="/terms-and-conditions" className="hover:text-text hover:underline">
               Terms &amp; Conditions
             </Link>
           </div>
         </div>
       </section>
     </main>
+  );
+}
+
+// The mark the side nav carries, so the door and the room share one sign.
+function Brand({ nameAs: Name = "span" }: { nameAs?: "span" | "h1" }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex size-7 items-center justify-center rounded-md bg-accent text-400 font-semibold text-text-on-accent">
+        A
+      </span>
+      <Name className="text-400 font-semibold tracking-tight">Attend</Name>
+    </div>
   );
 }

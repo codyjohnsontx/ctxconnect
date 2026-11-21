@@ -102,10 +102,7 @@ export function FollowUpDueDate() {
       />
       <input type="hidden" name="dueAt" value={posted} />
       {unreadable ? (
-        <p
-          id="follow-up-due-date-error"
-          className="text-xs leading-5 text-red-600 dark:text-red-400"
-        >
+        <p id="follow-up-due-date-error" className="text-200 text-critical">
           {UNREADABLE_DATE}
         </p>
       ) : null}
