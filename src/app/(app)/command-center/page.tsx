@@ -123,6 +123,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
         <section className={cardClass}>
           <div className={cardHeaderClass}>
             <SectionHeader
+              as="h2"
               title={selectedMetric.label}
               trailing={
                 <Link href="/command-center" className={linkClass}>
@@ -170,6 +171,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
         <div className={cardHeaderClass}>
           {/* The AI speaks in the info tone everywhere, so its icon does here. */}
           <SectionHeader
+            as="h2"
             title={
               <>
                 <BrainCircuit className="size-4 text-info" aria-hidden="true" />
@@ -218,7 +220,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:items-start">
         <section className={cardClass}>
           <div className={cardHeaderClass}>
-            <SectionHeader title="Needs action now" />
+            <SectionHeader as="h2" title="Needs action now" />
           </div>
           <div className="divide-y divide-border">
             {needsAction.length === 0 ? (
@@ -252,6 +254,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
         <section id="alerts" className={cn("scroll-mt-6", cardClass)}>
           <div className={cardHeaderClass}>
             <SectionHeader
+              as="h2"
               title="Alerts"
               trailing={
                 <Badge count variant={notificationCount > 0 ? "warning" : "success"}>
@@ -302,6 +305,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           <section className={cardClass}>
             <div className={cardHeaderClass}>
               <SectionHeader
+                as="h2"
                 title={
                   <>
                     <Users className="size-4 text-text-muted" aria-hidden="true" />
@@ -355,7 +359,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
 
         <section className={cardClass}>
           <div className={cardHeaderClass}>
-            <SectionHeader title="Response health" />
+            <SectionHeader as="h2" title="Response health" />
           </div>
           <div className="space-y-3 px-4 py-3">
             <div>
@@ -374,7 +378,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
             way the queue does rather than squeezing tags beside the name. */}
         <section className={cardClass}>
           <div className={cardHeaderClass}>
-            <SectionHeader title="Recent visible conversations" />
+            <SectionHeader as="h2" title="Recent visible conversations" />
           </div>
           <div className="divide-y divide-border">
             {visibleConversations.map((conversation) => (

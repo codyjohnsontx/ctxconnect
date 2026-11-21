@@ -150,7 +150,7 @@ export default async function TasksPage({ searchParams }: PageProps) {
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "-mb-px inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap border-b-2 px-1 font-medium transition-colors focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus-ring",
+                "-mb-px inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap border-b-2 px-1 font-medium transition-colors focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-focus-ring",
                 active ? "border-accent text-text" : "border-transparent text-text-muted hover:text-text",
               )}
             >
