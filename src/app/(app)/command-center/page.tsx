@@ -85,7 +85,7 @@ export default async function CommandCenterPage({ searchParams }: PageProps) {
           a manager reads the dealership, an advisor reads her own scope. */}
       <div className="flex items-center gap-2">
         <h1 className="text-600 font-semibold tracking-tight">Command Center</h1>
-        <Badge variant={canSeeDealershipRollup ? "info" : "neutral"}>
+        <Badge>
           {canSeeDealershipRollup ? "Dealership" : "Your scope"}
         </Badge>
       </div>
