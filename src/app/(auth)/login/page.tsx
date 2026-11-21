@@ -58,7 +58,7 @@ export default async function LoginPage({
       <section className="flex min-h-dvh items-center justify-center p-4">
         <div className="w-full max-w-sm">
           <div className="mb-6 lg:hidden">
-            <Brand />
+            <Brand nameAs="h1" />
           </div>
           {notice ? (
             <Alert variant="info" className="mb-4">
@@ -90,13 +90,13 @@ export default async function LoginPage({
 }
 
 // The mark the side nav carries, so the door and the room share one sign.
-function Brand() {
+function Brand({ nameAs: Name = "span" }: { nameAs?: "span" | "h1" }) {
   return (
     <div className="flex items-center gap-2">
       <span className="flex size-7 items-center justify-center rounded-md bg-accent text-400 font-semibold text-text-on-accent">
         A
       </span>
-      <span className="text-400 font-semibold tracking-tight">Attend</span>
+      <Name className="text-400 font-semibold tracking-tight">Attend</Name>
     </div>
   );
 }
