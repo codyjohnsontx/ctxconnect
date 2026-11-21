@@ -145,7 +145,7 @@ export function LoginForm({ demoEnabled, turnstileSiteKey }: LoginFormProps) {
       </Button>
       {demoEnabled ? (
         <>
-          <div className="flex items-center gap-3 text-200 text-text-faint">
+          <div className="flex items-center gap-3 text-200 text-text-muted">
             <span className="h-px flex-1 bg-border" />
             or
             <span className="h-px flex-1 bg-border" />
