@@ -44,7 +44,7 @@ export default async function CustomersPage() {
               </div>
               <div className="text-text-muted">
                 {latest ? `${labelize(latest.department)} · ${labelize(latest.status)}` : "No conversation yet"}
-                {elsewhere ? <div className="text-200 text-text-faint">{elsewhere}</div> : null}
+                {elsewhere ? <div className="text-200 text-text-muted">{elsewhere}</div> : null}
               </div>
               <div>
                 <ConsentBadge consent={describeConsent(cachedConsentState(customer))} />
