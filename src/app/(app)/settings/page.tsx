@@ -108,9 +108,7 @@ export default async function SettingsPage() {
                         <div className="font-medium">{user.name}</div>
                         <Badge variant={user.active ? "success" : "critical"}>{user.active ? "Active" : "Inactive"}</Badge>
                         <Badge>{labelize(user.role)}</Badge>
-                        {user.department && labelize(user.department) !== labelize(user.role) ? (
-                          <Badge>{labelize(user.department)}</Badge>
-                        ) : null}
+                        {user.department ? <Badge>{labelize(user.department)}</Badge> : null}
                       </div>
                       <div className="mt-1 text-200 text-text-muted">{user.email}</div>
                       {user.active ? null : <AccessRecord accessEndedAt={user.accessEndedAt} lastSeenAt={user.lastSeenAt} />}

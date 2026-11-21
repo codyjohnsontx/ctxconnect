@@ -99,11 +99,7 @@ function CoverageCard({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h2 className="font-semibold">{heading}</h2>
           <Badge>{labelize(row.role)}</Badge>
-          {/* An advisor's department is her role by another name; one word is
-              enough, and a manager in Sales still gets both. */}
-          {row.department && labelize(row.department) !== labelize(row.role) ? (
-            <Badge>{labelize(row.department)}</Badge>
-          ) : null}
+          {row.department ? <Badge>{labelize(row.department)}</Badge> : null}
           {row.active ? null : <Badge variant="critical">Inactive</Badge>}
         </div>
         <div className="flex flex-wrap items-center gap-1">
