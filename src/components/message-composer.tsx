@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransiti
 import { SendHorizonal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LocalTimestamp } from "@/components/local-timestamp";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { type Draft, draftStorageKey, parseDraft, serializeDraft } from "@/lib/drafts";
@@ -237,78 +238,106 @@ export function MessageComposer({
   }
 
   return (
-    <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="flex flex-col gap-2 border-t border-border bg-surface px-4 py-3 lg:px-5">
       {canRestoreUnsent ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200 dark:bg-red-950/50 dark:text-red-100 dark:ring-red-900">
-          <span>{customerName ?? "This customer"} never got your last reply.</span>
-          <Button type="button" size="sm" variant="secondary" onClick={() => setEdited({ body: unsentBody ?? "", blanks: [] })}>
-            Rewrite it
-          </Button>
-        </div>
-      ) : null}
-      <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-        <div>
-          <Label htmlFor="template">Template</Label>
-          <Select
-            id="template"
-            defaultValue=""
-            onChange={(event) => {
-              applyTemplate(event.target.value);
-              // Back to the prompt so the same template can be picked again
-              // after a botched blank, and so the box - not the dropdown - is
-              // the draft.
-              event.target.value = "";
-            }}
-          >
-            <option value="">Choose a template</option>
-            {availableTemplates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
-      <div className="flex gap-2">
-        <Textarea
-          ref={bodyRef}
-          value={body}
-          onChange={(event) => commitDraft({ body: event.target.value, blanks })}
-          placeholder={
-            demoBlocked
-              ? "SMS sending is disabled in demo mode."
-              : sendBlock?.reason === "SEND_UNCONFIRMED"
-                ? "Waiting to hear whether your last text went."
-                : sendBlock
-                  ? "Texting is blocked for this customer."
-                : "Type a customer message..."
+        <Alert
+          variant="critical"
+          inline
+          action={
+            <Button type="button" size="sm" variant="secondary" onClick={() => setEdited({ body: unsentBody ?? "", blanks: [] })}>
+              Rewrite it
+            </Button>
           }
-          disabled={disabled || demoBlocked || isPending}
-          className="min-h-20"
-        />
+        >
+          {customerName ?? "This customer"} never got your last reply.
+        </Alert>
+      ) : null}
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="template">Template</Label>
+        <Select
+          id="template"
+          defaultValue=""
+          onChange={(event) => {
+            applyTemplate(event.target.value);
+            // Back to the prompt so the same template can be picked again
+            // after a botched blank, and so the box - not the dropdown - is
+            // the draft.
+            event.target.value = "";
+          }}
+        >
+          <option value="">Choose a template</option>
+          {availableTemplates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Textarea
+        ref={bodyRef}
+        value={body}
+        onChange={(event) => commitDraft({ body: event.target.value, blanks })}
+        aria-label="Reply"
+        placeholder={
+          demoBlocked
+            ? "SMS sending is disabled in demo mode."
+            : sendBlock?.reason === "SEND_UNCONFIRMED"
+              ? "Waiting to hear whether your last text went."
+              : sendBlock
+                ? "Texting is blocked for this customer."
+                : "Type a customer message..."
+        }
+        disabled={disabled || demoBlocked || isPending}
+      />
+      <div className="flex items-center justify-between gap-2 text-200 text-text-faint">
+        {/* Says out loud that leaving the thread is safe - the reassurance is
+            most of the point - and it is what makes an already-filled box she
+            comes back to read as her own draft rather than a reply she sent.
+            The button inherits this line's size through the font: inherit
+            reset, which is the one place that reset works in our favour. */}
+        <span className="min-w-0">
+          {storageWorks && body.trim() ? (
+            <>
+              Saved as a draft on this device.{" "}
+              <button
+                type="button"
+                onClick={() => commitDraft(EMPTY_DRAFT)}
+                className="font-medium text-text-muted underline underline-offset-2 transition-colors hover:text-text"
+              >
+                Discard draft
+              </button>
+            </>
+          ) : null}
+        </span>
         <Button
-          size="icon"
           onClick={sendMessage}
           disabled={disabled || demoBlocked || isPending || !body.trim() || unfilled.length > 0 || Boolean(tooLong)}
           title="Send message"
-          className="mt-auto"
+          className="shrink-0"
         >
-          <SendHorizonal className="h-4 w-4" />
+          <SendHorizonal className="size-3.5" />
+          Send
         </Button>
       </div>
       {unfilled.length > 0 ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+        <Alert variant="warning" inline>
           Fill in {listBlanks(unfilled)} before sending. Attend does not know {unfilled.length > 1 ? "those" : "that"}, so it
           never guesses.
-        </p>
+        </Alert>
       ) : null}
-      {tooLong ? <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{tooLong.message}</p> : null}
+      {tooLong ? (
+        <Alert variant="warning" inline>
+          {tooLong.message}
+        </Alert>
+      ) : null}
       {demoBlocked ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+        <Alert variant="info" inline>
           Demo mode: outbound SMS is turned off so no real texts are sent. Everything else is live.
-        </p>
+        </Alert>
       ) : sendBlock ? (
-        <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+        // A wait is a warning; a customer who cannot be texted is critical, the
+        // same tone the consent badge in the header already carries.
+        <Alert variant={sendBlock.reason === "SEND_UNCONFIRMED" || sendBlock.reason === "QUIET_HOURS" ? "warning" : "critical"} inline>
           {sendBlock.headline}
           {sendBlock.at ? (
             <>
@@ -323,24 +352,13 @@ export function MessageComposer({
             </>
           ) : null}
           {sendBlock.instruction}
-        </p>
+        </Alert>
       ) : null}
-      {/* Says out loud that leaving the thread is safe - the reassurance is
-          most of the point - and it is what makes an already-filled box she
-          comes back to read as her own draft rather than a reply she sent. */}
-      {storageWorks && body.trim() ? (
-        <p className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Saved as a draft on this device.
-          <button
-            type="button"
-            onClick={() => commitDraft(EMPTY_DRAFT)}
-            className="font-medium underline underline-offset-2 transition hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            Discard draft
-          </button>
-        </p>
+      {error && showsSendError(error, sendBlock) ? (
+        <Alert variant="critical" inline>
+          {error.message}
+        </Alert>
       ) : null}
-      {error && showsSendError(error, sendBlock) ? <p className="mt-2 text-sm text-red-600">{error.message}</p> : null}
     </div>
   );
 }

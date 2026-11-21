@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
@@ -21,10 +21,7 @@ const sessionResolver = join("src", "lib", "session.ts");
 const authConfig = join("src", "lib", "auth.ts");
 const serverActions = join("src", "app", "actions.ts");
 
-// Edge middleware sits at the repo root rather than under src/, and is the most
-// likely place for a token-trusting check to reappear, because getServerSession
-// cannot run in that runtime. Scanning src/ alone would leave it invisible.
-const rootMiddleware = "middleware.ts";
+const sourceFile = /\.(ts|tsx|js|mjs|cjs)$/;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -35,14 +32,25 @@ function sourceFiles(dir: string): string[] {
       return entry.name === "generated" ? [] : sourceFiles(path);
     }
 
-    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+    return sourceFile.test(entry.name) ? [path] : [];
   });
+}
+
+// Edge middleware (middleware.ts, or proxy.ts from Next 16) is the most likely
+// place for a token-trusting check to reappear, because getServerSession
+// cannot run in that runtime. With the app under src/app, Next only loads it
+// from src/, which the recursive scan already covers; the files directly under
+// the repo root are scanned too as defence in depth, in case the layout moves.
+function rootSourceFiles() {
+  return readdirSync(repoRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && sourceFile.test(entry.name))
+    .map((entry) => entry.name);
 }
 
 function relativeSourceFiles() {
   const files = sourceFiles(join(repoRoot, "src")).map((path) => relative(repoRoot, path));
 
-  return existsSync(join(repoRoot, rootMiddleware)) ? [...files, rootMiddleware] : files;
+  return [...files, ...rootSourceFiles()];
 }
 
 function read(path: string) {
