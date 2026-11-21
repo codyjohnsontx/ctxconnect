@@ -35,7 +35,7 @@ Screens below show the local demo UI, signed in as the service advisor.
 ### Regenerating the screenshots
 
 The images are not produced by a script, so a UI change leaves them quietly
-stale. To recapture them the same way (last done 2026-11-20):
+stale. To recapture them the same way (last done 2026-11-21):
 
 1. Point both `DATABASE_URL` and `DIRECT_URL` at an empty local Postgres, run
    `pnpm prisma:migrate:deploy` and `pnpm prisma:seed` with `SEED_AI_BRIEFS=false`.
